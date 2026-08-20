@@ -1,0 +1,13 @@
+SET
+SET
+ pg_sleep 
+----------
+ 
+(1 row)
+
+       conn_a_new_execution_id        
+--------------------------------------
+ 01a018e6-f1be-7c8b-b5a1-a1391fef3a54
+(1 row)
+
+RESET

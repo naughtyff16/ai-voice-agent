@@ -40,6 +40,16 @@ def run_frozen_sql(filename: str) -> None:
     parsing — several of the frozen files contain PL/pgSQL bodies with
     literal ':=' assignment and '::' casts that must not be
     reinterpreted as SQLAlchemy bind parameters.
+
+    execution_options(no_parameters=True) is required in addition:
+    several frozen files also contain literal '%' characters (LIKE
+    patterns such as 'secret_manager://%' and RAISE EXCEPTION format
+    specifiers like '%, %'). psycopg2's default pyformat paramstyle
+    otherwise treats those as parameter placeholders and errors with
+    "immutabledict is not a sequence" before any SQL reaches the
+    server. no_parameters=True tells the DBAPI this statement takes no
+    bind parameters at all, so '%' is passed through verbatim.
     """
     sql = read_frozen_sql(filename)
-    op.get_bind().exec_driver_sql(sql)
+    bind = op.get_bind()
+    bind.execution_options(no_parameters=True).exec_driver_sql(sql)

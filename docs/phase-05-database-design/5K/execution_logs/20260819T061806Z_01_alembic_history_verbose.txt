@@ -1,0 +1,1125 @@
+Rev: 075_5J (head)
+Parent: 074_5J
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/075_5J.py
+
+    Phase 5K — wraps frozen migration 075_5J.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/075_5J.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 075_5J
+    Revises: '074_5J'
+
+Rev: 074_5J
+Parent: 073_5J
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/074_5J.py
+
+    Phase 5K — wraps frozen migration 074_5J.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/074_5J.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 074_5J
+    Revises: '073_5J'
+
+Rev: 073_5J
+Parent: 072_5J
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/073_5J.py
+
+    Phase 5K — wraps frozen migration 073_5J.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/073_5J.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 073_5J
+    Revises: '072_5J'
+
+Rev: 072_5J
+Parent: 071_5J
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/072_5J.py
+
+    Phase 5K — wraps frozen migration 072_5J.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/072_5J.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 072_5J
+    Revises: '071_5J'
+
+Rev: 071_5J
+Parent: 070_5J
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/071_5J.py
+
+    Phase 5K — wraps frozen migration 071_5J.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/071_5J.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 071_5J
+    Revises: '070_5J'
+
+Rev: 070_5J
+Parent: 069_5J
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/070_5J.py
+
+    Phase 5K — wraps frozen migration 070_5J.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/070_5J.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 070_5J
+    Revises: '069_5J'
+
+Rev: 069_5J
+Parent: 068_5J
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/069_5J.py
+
+    Phase 5K — wraps frozen migration 069_5J.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/069_5J.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 069_5J
+    Revises: '068_5J'
+
+Rev: 068_5J
+Parent: 067_5J
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/068_5J.py
+
+    Phase 5K — wraps frozen migration 068_5J.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/068_5J.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 068_5J
+    Revises: '067_5J'
+
+Rev: 067_5J
+Parent: 066_5I
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/067_5J.py
+
+    Phase 5K — wraps frozen migration 067_5J.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/067_5J.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 067_5J
+    Revises: '066_5I'
+
+Rev: 066_5I
+Parent: 065_5I
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/066_5I.py
+
+    Phase 5K — wraps frozen migration 066_5I.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/066_5I.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 066_5I
+    Revises: '065_5I'
+
+Rev: 065_5I
+Parent: 064_5I
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/065_5I.py
+
+    Phase 5K — wraps frozen migration 065_5I.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/065_5I.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 065_5I
+    Revises: '064_5I'
+
+Rev: 064_5I
+Parent: 063_5I
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/064_5I.py
+
+    Phase 5K — wraps frozen migration 064_5I.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/064_5I.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 064_5I
+    Revises: '063_5I'
+
+Rev: 063_5I
+Parent: 062_5I
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/063_5I.py
+
+    Phase 5K — wraps frozen migration 063_5I.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/063_5I.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 063_5I
+    Revises: '062_5I'
+
+Rev: 062_5I
+Parent: 061_5I
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/062_5I.py
+
+    Phase 5K — wraps frozen migration 062_5I.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/062_5I.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 062_5I
+    Revises: '061_5I'
+
+Rev: 061_5I
+Parent: 060_5I
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/061_5I.py
+
+    Phase 5K — wraps frozen migration 061_5I.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/061_5I.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 061_5I
+    Revises: '060_5I'
+
+Rev: 060_5I
+Parent: 059_5I
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/060_5I.py
+
+    Phase 5K — wraps frozen migration 060_5I.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/060_5I.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 060_5I
+    Revises: '059_5I'
+
+Rev: 059_5I
+Parent: 058_5H
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/059_5I.py
+
+    Phase 5K — wraps frozen migration 059_5I.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/059_5I.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 059_5I
+    Revises: '058_5H'
+
+Rev: 058_5H
+Parent: 057_5H
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/058_5H.py
+
+    Phase 5K — wraps frozen migration 058_5H.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/058_5H.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 058_5H
+    Revises: '057_5H'
+
+Rev: 057_5H
+Parent: 056_5H
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/057_5H.py
+
+    Phase 5K — wraps frozen migration 057_5H.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/057_5H.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 057_5H
+    Revises: '056_5H'
+
+Rev: 056_5H
+Parent: 055_5H
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/056_5H.py
+
+    Phase 5K — wraps frozen migration 056_5H.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/056_5H.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 056_5H
+    Revises: '055_5H'
+
+Rev: 055_5H
+Parent: 054_5H
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/055_5H.py
+
+    Phase 5K — wraps frozen migration 055_5H.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/055_5H.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 055_5H
+    Revises: '054_5H'
+
+Rev: 054_5H
+Parent: 053_5H
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/054_5H.py
+
+    Phase 5K — wraps frozen migration 054_5H.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/054_5H.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 054_5H
+    Revises: '053_5H'
+
+Rev: 053_5H
+Parent: 052_5H
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/053_5H.py
+
+    Phase 5K — wraps frozen migration 053_5H.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/053_5H.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 053_5H
+    Revises: '052_5H'
+
+Rev: 052_5H
+Parent: 051_5H
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/052_5H.py
+
+    Phase 5K — wraps frozen migration 052_5H.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/052_5H.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 052_5H
+    Revises: '051_5H'
+
+Rev: 051_5H
+Parent: 050_5H
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/051_5H.py
+
+    Phase 5K — wraps frozen migration 051_5H.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/051_5H.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 051_5H
+    Revises: '050_5H'
+
+Rev: 050_5H
+Parent: 049_5H
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/050_5H.py
+
+    Phase 5K — wraps frozen migration 050_5H.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/050_5H.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 050_5H
+    Revises: '049_5H'
+
+Rev: 049_5H
+Parent: 048_5H
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/049_5H.py
+
+    Phase 5K — wraps frozen migration 049_5H.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/049_5H.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 049_5H
+    Revises: '048_5H'
+
+Rev: 048_5H
+Parent: 047_5H
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/048_5H.py
+
+    Phase 5K — wraps frozen migration 048_5H.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/048_5H.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 048_5H
+    Revises: '047_5H'
+
+Rev: 047_5H
+Parent: 046_5G
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/047_5H.py
+
+    Phase 5K — wraps frozen migration 047_5H.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/047_5H.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 047_5H
+    Revises: '046_5G'
+
+Rev: 046_5G
+Parent: 045_5G
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/046_5G.py
+
+    Phase 5K — wraps frozen migration 046_5G.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/046_5G.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 046_5G
+    Revises: '045_5G'
+
+Rev: 045_5G
+Parent: 044_5F
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/045_5G.py
+
+    Phase 5K — wraps frozen migration 045_5G.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/045_5G.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 045_5G
+    Revises: '044_5F'
+
+Rev: 044_5F
+Parent: 043_5F
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/044_5F.py
+
+    Phase 5K — wraps frozen migration 044_5F.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/044_5F.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 044_5F
+    Revises: '043_5F'
+
+Rev: 043_5F
+Parent: 042_5G
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/043_5F.py
+
+    Phase 5K — wraps frozen migration 043_5F.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/043_5F.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 043_5F
+    Revises: '042_5G'
+
+Rev: 042_5G
+Parent: 041_5G
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/042_5G.py
+
+    Phase 5K — wraps frozen migration 042_5G.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/042_5G.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 042_5G
+    Revises: '041_5G'
+
+Rev: 041_5G
+Parent: 040_5G
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/041_5G.py
+
+    Phase 5K — wraps frozen migration 041_5G.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/041_5G.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 041_5G
+    Revises: '040_5G'
+
+Rev: 040_5G
+Parent: 039_5G
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/040_5G.py
+
+    Phase 5K — wraps frozen migration 040_5G.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/040_5G.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 040_5G
+    Revises: '039_5G'
+
+Rev: 039_5G
+Parent: 038_5F
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/039_5G.py
+
+    Phase 5K — wraps frozen migration 039_5G.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/039_5G.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 039_5G
+    Revises: '038_5F'
+
+Rev: 038_5F
+Parent: 037_5F
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/038_5F.py
+
+    Phase 5K — wraps frozen migration 038_5F.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/038_5F.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 038_5F
+    Revises: '037_5F'
+
+Rev: 037_5F
+Parent: 036_5F
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/037_5F.py
+
+    Phase 5K — wraps frozen migration 037_5F.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/037_5F.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 037_5F
+    Revises: '036_5F'
+
+Rev: 036_5F
+Parent: 035_5F
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/036_5F.py
+
+    Phase 5K — wraps frozen migration 036_5F.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/036_5F.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 036_5F
+    Revises: '035_5F'
+
+Rev: 035_5F
+Parent: 034_5F
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/035_5F.py
+
+    Phase 5K — wraps frozen migration 035_5F.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/035_5F.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 035_5F
+    Revises: '034_5F'
+
+Rev: 034_5F
+Parent: 033_5E
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/034_5F.py
+
+    Phase 5K — wraps frozen migration 034_5F.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/034_5F.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 034_5F
+    Revises: '033_5E'
+
+Rev: 033_5E
+Parent: 032_5E
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/033_5E.py
+
+    Phase 5K — wraps frozen migration 033_5E.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/033_5E.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 033_5E
+    Revises: '032_5E'
+
+Rev: 032_5E
+Parent: 031_5E
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/032_5E.py
+
+    Phase 5K — wraps frozen migration 032_5E.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/032_5E.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 032_5E
+    Revises: '031_5E'
+
+Rev: 031_5E
+Parent: 030_5E
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/031_5E.py
+
+    Phase 5K — wraps frozen migration 031_5E.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/031_5E.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 031_5E
+    Revises: '030_5E'
+
+Rev: 030_5E
+Parent: 029_5E
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/030_5E.py
+
+    Phase 5K — wraps frozen migration 030_5E.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/030_5E.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 030_5E
+    Revises: '029_5E'
+
+Rev: 029_5E
+Parent: 028_5E
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/029_5E.py
+
+    Phase 5K — wraps frozen migration 029_5E.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/029_5E.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 029_5E
+    Revises: '028_5E'
+
+Rev: 028_5E
+Parent: 027_5E
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/028_5E.py
+
+    Phase 5K — wraps frozen migration 028_5E.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/028_5E.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 028_5E
+    Revises: '027_5E'
+
+Rev: 027_5E
+Parent: 026_5D
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/027_5E.py
+
+    Phase 5K — wraps frozen migration 027_5E.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/027_5E.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 027_5E
+    Revises: '026_5D'
+
+Rev: 026_5D
+Parent: 025_5D
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/026_5D.py
+
+    Phase 5K — wraps frozen migration 026_5D.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/026_5D.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 026_5D
+    Revises: '025_5D'
+
+Rev: 025_5D
+Parent: 024_5D
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/025_5D.py
+
+    Phase 5K — wraps frozen migration 025_5D.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/025_5D.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 025_5D
+    Revises: '024_5D'
+
+Rev: 024_5D
+Parent: 023_5D
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/024_5D.py
+
+    Phase 5K — wraps frozen migration 024_5D.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/024_5D.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 024_5D
+    Revises: '023_5D'
+
+Rev: 023_5D
+Parent: 022_5D
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/023_5D.py
+
+    Phase 5K — wraps frozen migration 023_5D.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/023_5D.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 023_5D
+    Revises: '022_5D'
+
+Rev: 022_5D
+Parent: 021_5D
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/022_5D.py
+
+    Phase 5K — wraps frozen migration 022_5D.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/022_5D.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 022_5D
+    Revises: '021_5D'
+
+Rev: 021_5D
+Parent: 020_5D
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/021_5D.py
+
+    Phase 5K — wraps frozen migration 021_5D.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/021_5D.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 021_5D
+    Revises: '020_5D'
+
+Rev: 020_5D
+Parent: 019_5D
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/020_5D.py
+
+    Phase 5K — wraps frozen migration 020_5D.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/020_5D.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 020_5D
+    Revises: '019_5D'
+
+Rev: 019_5D
+Parent: 018_5C
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/019_5D.py
+
+    Phase 5K — wraps frozen migration 019_5D.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/019_5D.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 019_5D
+    Revises: '018_5C'
+
+Rev: 018_5C
+Parent: 017_5C
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/018_5C.py
+
+    Phase 5K — wraps frozen migration 018_5C.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/018_5C.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 018_5C
+    Revises: '017_5C'
+
+Rev: 017_5C
+Parent: 016_5C
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/017_5C.py
+
+    Phase 5K — wraps frozen migration 017_5C.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/017_5C.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 017_5C
+    Revises: '016_5C'
+
+Rev: 016_5C
+Parent: 015_5C
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/016_5C.py
+
+    Phase 5K — wraps frozen migration 016_5C.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/016_5C.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 016_5C
+    Revises: '015_5C'
+
+Rev: 015_5C
+Parent: 014_5C
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/015_5C.py
+
+    Phase 5K — wraps frozen migration 015_5C.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/015_5C.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 015_5C
+    Revises: '014_5C'
+
+Rev: 014_5C
+Parent: 013_5C
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/014_5C.py
+
+    Phase 5K — wraps frozen migration 014_5C.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/014_5C.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 014_5C
+    Revises: '013_5C'
+
+Rev: 013_5C
+Parent: 012_5C
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/013_5C.py
+
+    Phase 5K — wraps frozen migration 013_5C.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/013_5C.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 013_5C
+    Revises: '012_5C'
+
+Rev: 012_5C
+Parent: 011_5C
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/012_5C.py
+
+    Phase 5K — wraps frozen migration 012_5C.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/012_5C.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 012_5C
+    Revises: '011_5C'
+
+Rev: 011_5C
+Parent: 010_5C
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/011_5C.py
+
+    Phase 5K — wraps frozen migration 011_5C.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/011_5C.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 011_5C
+    Revises: '010_5C'
+
+Rev: 010_5C
+Parent: 009_5C
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/010_5C.py
+
+    Phase 5K — wraps frozen migration 010_5C.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/010_5C.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 010_5C
+    Revises: '009_5C'
+
+Rev: 009_5C
+Parent: 008_5B
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/009_5C.py
+
+    Phase 5K — wraps frozen migration 009_5C.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/009_5C.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 009_5C
+    Revises: '008_5B'
+
+Rev: 008_5B
+Parent: 007_5B
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/008_5B.py
+
+    Phase 5K — wraps frozen migration 008_5B.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/008_5B.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 008_5B
+    Revises: '007_5B'
+
+Rev: 007_5B
+Parent: 006_5B
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/007_5B.py
+
+    Phase 5K — wraps frozen migration 007_5B.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/007_5B.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 007_5B
+    Revises: '006_5B'
+
+Rev: 006_5B
+Parent: 005_5B
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/006_5B.py
+
+    Phase 5K — wraps frozen migration 006_5B.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/006_5B.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 006_5B
+    Revises: '005_5B'
+
+Rev: 005_5B
+Parent: 004_5B
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/005_5B.py
+
+    Phase 5K — wraps frozen migration 005_5B.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/005_5B.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 005_5B
+    Revises: '004_5B'
+
+Rev: 004_5B
+Parent: 003_5B
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/004_5B.py
+
+    Phase 5K — wraps frozen migration 004_5B.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/004_5B.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 004_5B
+    Revises: '003_5B'
+
+Rev: 003_5B
+Parent: 002_5B
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/003_5B.py
+
+    Phase 5K — wraps frozen migration 003_5B.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/003_5B.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 003_5B
+    Revises: '002_5B'
+
+Rev: 002_5B
+Parent: 001_5B
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/002_5B.py
+
+    Phase 5K — wraps frozen migration 002_5B.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/002_5B.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 002_5B
+    Revises: '001_5B'
+
+Rev: 001_5B
+Parent: <base>
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/001_5B.py
+
+    Phase 5K — wraps frozen migration 001_5B.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/001_5B.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 001_5B
+    Revises: None
+

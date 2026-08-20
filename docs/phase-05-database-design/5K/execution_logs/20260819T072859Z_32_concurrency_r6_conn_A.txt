@@ -1,0 +1,15 @@
+ pg_sleep 
+----------
+ 
+(1 row)
+
+ fn_upgrade_plugin 
+-------------------
+ 
+(1 row)
+
+   status    
+-------------
+ conn_a_done
+(1 row)
+

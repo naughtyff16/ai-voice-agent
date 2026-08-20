@@ -1,0 +1,51 @@
+=== §17 check 1: 15 expected schemas ===
+ schema_name  
+--------------
+ analytics
+ audit
+ billing
+ campaign
+ crm
+ identity
+ integrations
+ knowledge
+ memory
+ organization
+ plugins
+ prompt
+ public
+ voice
+ webhooks
+ workflow
+(16 rows)
+
+=== §17 check 7: SECURITY DEFINER prosecdef + search_path in proconfig, ALL functions ===
+ total_secdef | with_search_path 
+--------------+------------------
+           43 |               43
+(1 row)
+
+=== §17 check 13: workflow.workflow_executions has NO unique index, only idx_we_active_session ===
+       indexname        |                                                                      indexdef                                                                      
+------------------------+----------------------------------------------------------------------------------------------------------------------------------------------------
+ idx_we_active_session  | CREATE INDEX idx_we_active_session ON ONLY workflow.workflow_executions USING btree (organization_id, session_ref) WHERE (status = 'ACTIVE'::text)
+ idx_we_brin            | CREATE INDEX idx_we_brin ON ONLY workflow.workflow_executions USING brin (organization_id, started_at)
+ idx_we_org_active      | CREATE INDEX idx_we_org_active ON ONLY workflow.workflow_executions USING btree (organization_id, status) WHERE (status = 'ACTIVE'::text)
+ idx_we_session_ref     | CREATE INDEX idx_we_session_ref ON ONLY workflow.workflow_executions USING btree (session_ref, organization_id)
+ idx_we_version         | CREATE INDEX idx_we_version ON ONLY workflow.workflow_executions USING btree (organization_id, workflow_version_id, started_at DESC)
+ pk_workflow_executions | CREATE UNIQUE INDEX pk_workflow_executions ON ONLY workflow.workflow_executions USING btree (id, started_at)
+(6 rows)
+
+=== §17 check 12: extensions pgcrypto + vector present ===
+ extname  
+----------
+ pgcrypto
+ vector
+(2 rows)
+
+=== §17 check 8: all triggers enabled (tgenabled='O') ===
+ total | not_enabled 
+-------+-------------
+   105 |           0
+(1 row)
+

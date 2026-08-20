@@ -1,0 +1,10 @@
+ session_user | current_user 
+--------------+--------------
+ app_worker   | app_worker
+(1 row)
+
+   app_worker_platform_audit_result   
+--------------------------------------
+ 01a018e7-d934-7fdc-816c-6cd56af1684e
+(1 row)
+

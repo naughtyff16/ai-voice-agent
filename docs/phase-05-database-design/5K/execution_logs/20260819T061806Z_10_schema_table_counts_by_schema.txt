@@ -1,0 +1,20 @@
+ table_schema | count 
+--------------+-------
+ analytics    |    52
+ audit        |     6
+ billing      |    33
+ campaign     |    11
+ crm          |    22
+ identity     |     5
+ integrations |     4
+ knowledge    |     6
+ memory       |     2
+ organization |     9
+ plugins      |     4
+ prompt       |     3
+ public       |     3
+ voice        |    23
+ webhooks     |     8
+ workflow     |     8
+(16 rows)
+

@@ -1,0 +1,54 @@
+Phase 5K.1 — Schema validation post-076_5K1 (governing-spec §15: confirm no unrelated
+schema changes, patch is narrowly scoped).
+
+### Function count / SECURITY DEFINER inventory post-076 ###
+ total_functions 
+-----------------
+             223
+(1 row)
+
+### search_path of the 5 Defect-A-patched functions (post-076; expect each to include ", public" at the end) ###
+                      fn                       | security_definer |                    proconfig                     
+-----------------------------------------------+------------------+--------------------------------------------------
+ analytics.fn_apply_projection_call_latency    | t                | {"search_path=analytics, pg_catalog, public"}
+ analytics.fn_apply_projection_call_metrics    | t                | {"search_path=analytics, pg_catalog, public"}
+ analytics.fn_claim_projection_slot            | t                | {"search_path=analytics, pg_catalog, public"}
+ integrations.fn_create_integration_connection | t                | {"search_path=integrations, pg_catalog, public"}
+ plugins.fn_create_plugin_installation         | t                | {"search_path=plugins, pg_catalog, public"}
+(5 rows)
+
+### workflow.workflow_executions (+ all partitions) INSERT privilege for app_platform_admin (post-076; expect 0 rows) ###
+ table_name | privilege_type 
+------------+----------------
+(0 rows)
+
+### Aggregate object counts post-076 (compare against pre-patch baseline; only the 5 functions above and one role's grants on one table+partitions should differ) ###
+ tables | indexes | triggers | rls_policies | extensions | security_definer_functions 
+--------+---------+----------+--------------+------------+----------------------------
+    197 |     821 |      105 |          103 |          4 |                         43
+(1 row)
+
+=== Table-count methodology reconciliation (197 measured here vs. 199 in the original
+    docs/phase-05-database-design/5K/validation/SCHEMA_VALIDATION_REPORT.md baseline) ===
+This session's query counted rows from pg_class where relkind IN ('r','p')
+(ordinary + partitioned tables) restricted to the 16 application schemas,
+excluding pg_catalog/information_schema/pg_toast. Result: 197.
+
+The original SCHEMA_VALIDATION_REPORT.md baseline (199) was produced by an
+earlier, differently-scoped listing (see
+execution_logs/20260819T061806Z_09_schema_tables_full.txt, a \d-style dump
+enumerating 459 total relations of ALL relkinds across all schemas in that
+session's methodology).
+
+This is a query-methodology variance between two independently-authored
+validation passes, NOT real schema drift introduced by 076_5K1:
+  - 076_5K1.sql contains zero CREATE TABLE / ALTER TABLE / DROP TABLE
+    statements (grep-verified: only ALTER FUNCTION, CREATE OR REPLACE
+    FUNCTION, REVOKE, and a DO $$ ... $$ privilege-cleanup block touching
+    workflow.workflow_executions' partition privileges, no table DDL).
+  - The 197 count in this session was taken identically before and after
+    running the 076 upgrade against the same fresh database, and did not
+    change across the upgrade — confirming 076_5K1 adds/removes zero tables.
+Conclusion: no unintended schema changes. The 197-vs-199 discrepancy is
+reconciled as a counting-methodology difference, not evidence of drift, and
+is documented here rather than silently resolved.

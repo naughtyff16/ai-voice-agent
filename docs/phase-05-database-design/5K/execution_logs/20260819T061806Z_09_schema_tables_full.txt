@@ -1,0 +1,464 @@
+                                     List of relations
+       Schema       |                  Name                  |       Type        |  Owner   
+--------------------+----------------------------------------+-------------------+----------
+ analytics          | agent_utilization_hourly               | partitioned table | postgres
+ analytics          | agent_utilization_hourly_default       | table             | postgres
+ analytics          | agent_utilization_hourly_y2026m08      | table             | postgres
+ analytics          | agent_utilization_hourly_y2026m09      | table             | postgres
+ analytics          | analytics_event_dedup                  | table             | postgres
+ analytics          | analytics_events                       | partitioned table | postgres
+ analytics          | analytics_events_default               | table             | postgres
+ analytics          | analytics_events_y2026m08              | table             | postgres
+ analytics          | analytics_events_y2026m09              | table             | postgres
+ analytics          | analytics_events_y2026m10              | table             | postgres
+ analytics          | analytics_projection_events            | table             | postgres
+ analytics          | billing_revenue_monthly                | partitioned table | postgres
+ analytics          | billing_revenue_monthly_2027           | table             | postgres
+ analytics          | billing_revenue_monthly_before2027     | table             | postgres
+ analytics          | billing_revenue_monthly_default        | table             | postgres
+ analytics          | call_latency_stage_hourly              | partitioned table | postgres
+ analytics          | call_latency_stage_hourly_default      | table             | postgres
+ analytics          | call_latency_stage_hourly_y2026m08     | table             | postgres
+ analytics          | call_latency_stage_hourly_y2026m09     | table             | postgres
+ analytics          | call_latency_stage_hourly_y2026m10     | table             | postgres
+ analytics          | call_metrics_hourly                    | partitioned table | postgres
+ analytics          | call_metrics_hourly_default            | table             | postgres
+ analytics          | call_metrics_hourly_y2026m08           | table             | postgres
+ analytics          | call_metrics_hourly_y2026m09           | table             | postgres
+ analytics          | call_metrics_hourly_y2026m10           | table             | postgres
+ analytics          | campaign_outcome_summary               | table             | postgres
+ analytics          | conversation_turn_stats_daily          | partitioned table | postgres
+ analytics          | conversation_turn_stats_daily_default  | table             | postgres
+ analytics          | conversation_turn_stats_daily_y2026m08 | table             | postgres
+ analytics          | conversation_turn_stats_daily_y2026m09 | table             | postgres
+ analytics          | event_schema_versions                  | table             | postgres
+ analytics          | lead_funnel_daily                      | partitioned table | postgres
+ analytics          | lead_funnel_daily_default              | table             | postgres
+ analytics          | lead_funnel_daily_y2026m08             | table             | postgres
+ analytics          | lead_funnel_daily_y2026m09             | table             | postgres
+ analytics          | provider_health_5min                   | partitioned table | postgres
+ analytics          | provider_health_5min_default           | table             | postgres
+ analytics          | provider_health_5min_y2026m08          | table             | postgres
+ analytics          | provider_health_5min_y2026m09          | table             | postgres
+ analytics          | roi_by_campaign                        | table             | postgres
+ analytics          | tool_execution_stats_daily             | partitioned table | postgres
+ analytics          | tool_execution_stats_daily_default     | table             | postgres
+ analytics          | tool_execution_stats_daily_y2026m08    | table             | postgres
+ analytics          | tool_execution_stats_daily_y2026m09    | table             | postgres
+ analytics          | usage_cost_daily                       | partitioned table | postgres
+ analytics          | usage_cost_daily_default               | table             | postgres
+ analytics          | usage_cost_daily_y2026m08              | table             | postgres
+ analytics          | usage_cost_daily_y2026m09              | table             | postgres
+ analytics          | webhook_delivery_stats_daily           | partitioned table | postgres
+ analytics          | webhook_delivery_stats_daily_default   | table             | postgres
+ analytics          | webhook_delivery_stats_daily_y2026m08  | table             | postgres
+ analytics          | webhook_delivery_stats_daily_y2026m09  | table             | postgres
+ audit              | audit_chain                            | table             | postgres
+ audit              | audit_events                           | partitioned table | postgres
+ audit              | audit_events_default                   | table             | postgres
+ audit              | audit_events_y2026m08                  | table             | postgres
+ audit              | audit_events_y2026m09                  | table             | postgres
+ audit              | audit_events_y2026m10                  | table             | postgres
+ billing            | billing_accounts                       | table             | postgres
+ billing            | billing_adjustments                    | table             | postgres
+ billing            | billing_periods                        | table             | postgres
+ billing            | cost_entries                           | partitioned table | postgres
+ billing            | cost_entries_2026_08                   | table             | postgres
+ billing            | cost_entries_2026_09                   | table             | postgres
+ billing            | cost_entries_2026_10                   | table             | postgres
+ billing            | cost_entries_2026_11                   | table             | postgres
+ billing            | cost_entries_default                   | table             | postgres
+ billing            | credit_ledger_entries                  | table             | postgres
+ billing            | credits                                | table             | postgres
+ billing            | fx_rates                               | table             | postgres
+ billing            | invoice_lines                          | table             | postgres
+ billing            | invoice_number_sequences               | table             | postgres
+ billing            | invoices                               | table             | postgres
+ billing            | payment_attempts                       | table             | postgres
+ billing            | plan_prices                            | table             | postgres
+ billing            | plan_versions                          | table             | postgres
+ billing            | plans                                  | table             | postgres
+ billing            | quota_configs                          | table             | postgres
+ billing            | refunds                                | table             | postgres
+ billing            | subscriptions                          | table             | postgres
+ billing            | tax_categories                         | table             | postgres
+ billing            | tax_lines                              | table             | postgres
+ billing            | tax_profiles                           | table             | postgres
+ billing            | tax_rules                              | table             | postgres
+ billing            | usage_events                           | partitioned table | postgres
+ billing            | usage_events_2026_08                   | table             | postgres
+ billing            | usage_events_2026_09                   | table             | postgres
+ billing            | usage_events_2026_10                   | table             | postgres
+ billing            | usage_events_2026_11                   | table             | postgres
+ billing            | usage_events_default                   | table             | postgres
+ billing            | usage_records                          | table             | postgres
+ campaign           | call_jobs                              | table             | postgres
+ campaign           | campaign_contacts                      | partitioned table | postgres
+ campaign           | campaign_contacts_2026_08              | table             | postgres
+ campaign           | campaign_contacts_2026_09              | table             | postgres
+ campaign           | campaign_contacts_2026_10              | table             | postgres
+ campaign           | campaign_contacts_2026_11              | table             | postgres
+ campaign           | campaign_contacts_default              | table             | postgres
+ campaign           | campaign_outcomes                      | table             | postgres
+ campaign           | campaigns                              | table             | postgres
+ campaign           | contact_lists                          | table             | postgres
+ campaign           | csv_import_jobs                        | table             | postgres
+ crm                | activities                             | partitioned table | postgres
+ crm                | activities_2026_08                     | table             | postgres
+ crm                | activities_2026_09                     | table             | postgres
+ crm                | activities_2026_10                     | table             | postgres
+ crm                | activities_2026_11                     | table             | postgres
+ crm                | activities_default                     | table             | postgres
+ crm                | appointments                           | table             | postgres
+ crm                | companies                              | table             | postgres
+ crm                | consent_records                        | partitioned table | postgres
+ crm                | consent_records_2026_08                | table             | postgres
+ crm                | consent_records_2026_09                | table             | postgres
+ crm                | consent_records_2026_10                | table             | postgres
+ crm                | consent_records_2026_11                | table             | postgres
+ crm                | consent_records_default                | table             | postgres
+ crm                | contact_suppressions                   | table             | postgres
+ crm                | contacts                               | table             | postgres
+ crm                | crm_field_definitions                  | table             | postgres
+ crm                | deals                                  | table             | postgres
+ crm                | lead_score_records                     | table             | postgres
+ crm                | notes                                  | table             | postgres
+ crm                | pipelines                              | table             | postgres
+ crm                | tasks                                  | table             | postgres
+ identity           | api_keys                               | table             | postgres
+ identity           | oauth_identities                       | table             | postgres
+ identity           | password_reset_tokens                  | table             | postgres
+ identity           | sessions                               | table             | postgres
+ identity           | users                                  | table             | postgres
+ information_schema | sql_features                           | table             | postgres
+ information_schema | sql_implementation_info                | table             | postgres
+ information_schema | sql_parts                              | table             | postgres
+ information_schema | sql_sizing                             | table             | postgres
+ integrations       | integration_connections                | table             | postgres
+ integrations       | integration_definitions                | table             | postgres
+ integrations       | integration_health                     | table             | postgres
+ integrations       | oauth_attempts                         | table             | postgres
+ knowledge          | document_chunks                        | partitioned table | postgres
+ knowledge          | document_chunks_default                | table             | postgres
+ knowledge          | document_versions                      | table             | postgres
+ knowledge          | documents                              | table             | postgres
+ knowledge          | ingestion_jobs                         | table             | postgres
+ knowledge          | knowledge_bases                        | table             | postgres
+ memory             | customer_memories                      | table             | postgres
+ memory             | session_memories                       | table             | postgres
+ organization       | compliance_policies                    | table             | postgres
+ organization       | data_subject_requests                  | table             | postgres
+ organization       | memberships                            | table             | postgres
+ organization       | organizations                          | table             | postgres
+ organization       | permissions                            | table             | postgres
+ organization       | role_permissions                       | table             | postgres
+ organization       | roles                                  | table             | postgres
+ organization       | team_memberships                       | table             | postgres
+ organization       | teams                                  | table             | postgres
+ pg_catalog         | pg_aggregate                           | table             | postgres
+ pg_catalog         | pg_am                                  | table             | postgres
+ pg_catalog         | pg_amop                                | table             | postgres
+ pg_catalog         | pg_amproc                              | table             | postgres
+ pg_catalog         | pg_attrdef                             | table             | postgres
+ pg_catalog         | pg_attribute                           | table             | postgres
+ pg_catalog         | pg_auth_members                        | table             | postgres
+ pg_catalog         | pg_authid                              | table             | postgres
+ pg_catalog         | pg_cast                                | table             | postgres
+ pg_catalog         | pg_class                               | table             | postgres
+ pg_catalog         | pg_collation                           | table             | postgres
+ pg_catalog         | pg_constraint                          | table             | postgres
+ pg_catalog         | pg_conversion                          | table             | postgres
+ pg_catalog         | pg_database                            | table             | postgres
+ pg_catalog         | pg_db_role_setting                     | table             | postgres
+ pg_catalog         | pg_default_acl                         | table             | postgres
+ pg_catalog         | pg_depend                              | table             | postgres
+ pg_catalog         | pg_description                         | table             | postgres
+ pg_catalog         | pg_enum                                | table             | postgres
+ pg_catalog         | pg_event_trigger                       | table             | postgres
+ pg_catalog         | pg_extension                           | table             | postgres
+ pg_catalog         | pg_foreign_data_wrapper                | table             | postgres
+ pg_catalog         | pg_foreign_server                      | table             | postgres
+ pg_catalog         | pg_foreign_table                       | table             | postgres
+ pg_catalog         | pg_index                               | table             | postgres
+ pg_catalog         | pg_inherits                            | table             | postgres
+ pg_catalog         | pg_init_privs                          | table             | postgres
+ pg_catalog         | pg_language                            | table             | postgres
+ pg_catalog         | pg_largeobject                         | table             | postgres
+ pg_catalog         | pg_largeobject_metadata                | table             | postgres
+ pg_catalog         | pg_namespace                           | table             | postgres
+ pg_catalog         | pg_opclass                             | table             | postgres
+ pg_catalog         | pg_operator                            | table             | postgres
+ pg_catalog         | pg_opfamily                            | table             | postgres
+ pg_catalog         | pg_parameter_acl                       | table             | postgres
+ pg_catalog         | pg_partitioned_table                   | table             | postgres
+ pg_catalog         | pg_policy                              | table             | postgres
+ pg_catalog         | pg_proc                                | table             | postgres
+ pg_catalog         | pg_publication                         | table             | postgres
+ pg_catalog         | pg_publication_namespace               | table             | postgres
+ pg_catalog         | pg_publication_rel                     | table             | postgres
+ pg_catalog         | pg_range                               | table             | postgres
+ pg_catalog         | pg_replication_origin                  | table             | postgres
+ pg_catalog         | pg_rewrite                             | table             | postgres
+ pg_catalog         | pg_seclabel                            | table             | postgres
+ pg_catalog         | pg_sequence                            | table             | postgres
+ pg_catalog         | pg_shdepend                            | table             | postgres
+ pg_catalog         | pg_shdescription                       | table             | postgres
+ pg_catalog         | pg_shseclabel                          | table             | postgres
+ pg_catalog         | pg_statistic                           | table             | postgres
+ pg_catalog         | pg_statistic_ext                       | table             | postgres
+ pg_catalog         | pg_statistic_ext_data                  | table             | postgres
+ pg_catalog         | pg_subscription                        | table             | postgres
+ pg_catalog         | pg_subscription_rel                    | table             | postgres
+ pg_catalog         | pg_tablespace                          | table             | postgres
+ pg_catalog         | pg_transform                           | table             | postgres
+ pg_catalog         | pg_trigger                             | table             | postgres
+ pg_catalog         | pg_ts_config                           | table             | postgres
+ pg_catalog         | pg_ts_config_map                       | table             | postgres
+ pg_catalog         | pg_ts_dict                             | table             | postgres
+ pg_catalog         | pg_ts_parser                           | table             | postgres
+ pg_catalog         | pg_ts_template                         | table             | postgres
+ pg_catalog         | pg_type                                | table             | postgres
+ pg_catalog         | pg_user_mapping                        | table             | postgres
+ pg_toast           | pg_toast_1213                          | TOAST table       | postgres
+ pg_toast           | pg_toast_1247                          | TOAST table       | postgres
+ pg_toast           | pg_toast_1255                          | TOAST table       | postgres
+ pg_toast           | pg_toast_1260                          | TOAST table       | postgres
+ pg_toast           | pg_toast_1262                          | TOAST table       | postgres
+ pg_toast           | pg_toast_13396                         | TOAST table       | postgres
+ pg_toast           | pg_toast_13401                         | TOAST table       | postgres
+ pg_toast           | pg_toast_13406                         | TOAST table       | postgres
+ pg_toast           | pg_toast_13411                         | TOAST table       | postgres
+ pg_toast           | pg_toast_1417                          | TOAST table       | postgres
+ pg_toast           | pg_toast_1418                          | TOAST table       | postgres
+ pg_toast           | pg_toast_21195                         | TOAST table       | postgres
+ pg_toast           | pg_toast_21216                         | TOAST table       | postgres
+ pg_toast           | pg_toast_21230                         | TOAST table       | postgres
+ pg_toast           | pg_toast_21244                         | TOAST table       | postgres
+ pg_toast           | pg_toast_21258                         | TOAST table       | postgres
+ pg_toast           | pg_toast_21276                         | TOAST table       | postgres
+ pg_toast           | pg_toast_21307                         | TOAST table       | postgres
+ pg_toast           | pg_toast_21329                         | TOAST table       | postgres
+ pg_toast           | pg_toast_21340                         | TOAST table       | postgres
+ pg_toast           | pg_toast_21367                         | TOAST table       | postgres
+ pg_toast           | pg_toast_21432                         | TOAST table       | postgres
+ pg_toast           | pg_toast_21469                         | TOAST table       | postgres
+ pg_toast           | pg_toast_21496                         | TOAST table       | postgres
+ pg_toast           | pg_toast_21515                         | TOAST table       | postgres
+ pg_toast           | pg_toast_21560                         | TOAST table       | postgres
+ pg_toast           | pg_toast_21586                         | TOAST table       | postgres
+ pg_toast           | pg_toast_21612                         | TOAST table       | postgres
+ pg_toast           | pg_toast_21638                         | TOAST table       | postgres
+ pg_toast           | pg_toast_21664                         | TOAST table       | postgres
+ pg_toast           | pg_toast_21690                         | TOAST table       | postgres
+ pg_toast           | pg_toast_21717                         | TOAST table       | postgres
+ pg_toast           | pg_toast_21742                         | TOAST table       | postgres
+ pg_toast           | pg_toast_21767                         | TOAST table       | postgres
+ pg_toast           | pg_toast_21794                         | TOAST table       | postgres
+ pg_toast           | pg_toast_21814                         | TOAST table       | postgres
+ pg_toast           | pg_toast_21849                         | TOAST table       | postgres
+ pg_toast           | pg_toast_21866                         | TOAST table       | postgres
+ pg_toast           | pg_toast_21883                         | TOAST table       | postgres
+ pg_toast           | pg_toast_21900                         | TOAST table       | postgres
+ pg_toast           | pg_toast_21917                         | TOAST table       | postgres
+ pg_toast           | pg_toast_21934                         | TOAST table       | postgres
+ pg_toast           | pg_toast_21964                         | TOAST table       | postgres
+ pg_toast           | pg_toast_21978                         | TOAST table       | postgres
+ pg_toast           | pg_toast_22002                         | TOAST table       | postgres
+ pg_toast           | pg_toast_22043                         | TOAST table       | postgres
+ pg_toast           | pg_toast_22060                         | TOAST table       | postgres
+ pg_toast           | pg_toast_22078                         | TOAST table       | postgres
+ pg_toast           | pg_toast_22125                         | TOAST table       | postgres
+ pg_toast           | pg_toast_22143                         | TOAST table       | postgres
+ pg_toast           | pg_toast_22161                         | TOAST table       | postgres
+ pg_toast           | pg_toast_22179                         | TOAST table       | postgres
+ pg_toast           | pg_toast_22197                         | TOAST table       | postgres
+ pg_toast           | pg_toast_22215                         | TOAST table       | postgres
+ pg_toast           | pg_toast_22239                         | TOAST table       | postgres
+ pg_toast           | pg_toast_22261                         | TOAST table       | postgres
+ pg_toast           | pg_toast_22285                         | TOAST table       | postgres
+ pg_toast           | pg_toast_22300                         | TOAST table       | postgres
+ pg_toast           | pg_toast_22330                         | TOAST table       | postgres
+ pg_toast           | pg_toast_22347                         | TOAST table       | postgres
+ pg_toast           | pg_toast_22364                         | TOAST table       | postgres
+ pg_toast           | pg_toast_22381                         | TOAST table       | postgres
+ pg_toast           | pg_toast_22398                         | TOAST table       | postgres
+ pg_toast           | pg_toast_22415                         | TOAST table       | postgres
+ pg_toast           | pg_toast_22441                         | TOAST table       | postgres
+ pg_toast           | pg_toast_22459                         | TOAST table       | postgres
+ pg_toast           | pg_toast_22487                         | TOAST table       | postgres
+ pg_toast           | pg_toast_22538                         | TOAST table       | postgres
+ pg_toast           | pg_toast_22566                         | TOAST table       | postgres
+ pg_toast           | pg_toast_22594                         | TOAST table       | postgres
+ pg_toast           | pg_toast_22622                         | TOAST table       | postgres
+ pg_toast           | pg_toast_22650                         | TOAST table       | postgres
+ pg_toast           | pg_toast_22678                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23072                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23097                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23120                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23146                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23189                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23215                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23235                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23277                         | TOAST table       | postgres
+ pg_toast           | pg_toast_2328                          | TOAST table       | postgres
+ pg_toast           | pg_toast_23299                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23321                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23343                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23365                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23387                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23407                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23429                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23449                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23471                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23487                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23502                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23526                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23546                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23557                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23576                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23591                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23615                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23653                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23694                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23708                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23722                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23736                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23750                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23777                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23811                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23825                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23839                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23853                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23867                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23894                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23911                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23933                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23952                         | TOAST table       | postgres
+ pg_toast           | pg_toast_2396                          | TOAST table       | postgres
+ pg_toast           | pg_toast_23975                         | TOAST table       | postgres
+ pg_toast           | pg_toast_23995                         | TOAST table       | postgres
+ pg_toast           | pg_toast_24052                         | TOAST table       | postgres
+ pg_toast           | pg_toast_24072                         | TOAST table       | postgres
+ pg_toast           | pg_toast_24096                         | TOAST table       | postgres
+ pg_toast           | pg_toast_24124                         | TOAST table       | postgres
+ pg_toast           | pg_toast_24151                         | TOAST table       | postgres
+ pg_toast           | pg_toast_24174                         | TOAST table       | postgres
+ pg_toast           | pg_toast_24197                         | TOAST table       | postgres
+ pg_toast           | pg_toast_24227                         | TOAST table       | postgres
+ pg_toast           | pg_toast_24252                         | TOAST table       | postgres
+ pg_toast           | pg_toast_24278                         | TOAST table       | postgres
+ pg_toast           | pg_toast_24302                         | TOAST table       | postgres
+ pg_toast           | pg_toast_24339                         | TOAST table       | postgres
+ pg_toast           | pg_toast_24358                         | TOAST table       | postgres
+ pg_toast           | pg_toast_24377                         | TOAST table       | postgres
+ pg_toast           | pg_toast_24396                         | TOAST table       | postgres
+ pg_toast           | pg_toast_24415                         | TOAST table       | postgres
+ pg_toast           | pg_toast_24470                         | TOAST table       | postgres
+ pg_toast           | pg_toast_24490                         | TOAST table       | postgres
+ pg_toast           | pg_toast_24516                         | TOAST table       | postgres
+ pg_toast           | pg_toast_24556                         | TOAST table       | postgres
+ pg_toast           | pg_toast_24584                         | TOAST table       | postgres
+ pg_toast           | pg_toast_24612                         | TOAST table       | postgres
+ pg_toast           | pg_toast_24630                         | TOAST table       | postgres
+ pg_toast           | pg_toast_24648                         | TOAST table       | postgres
+ pg_toast           | pg_toast_24666                         | TOAST table       | postgres
+ pg_toast           | pg_toast_24705                         | TOAST table       | postgres
+ pg_toast           | pg_toast_24747                         | TOAST table       | postgres
+ pg_toast           | pg_toast_24772                         | TOAST table       | postgres
+ pg_toast           | pg_toast_24797                         | TOAST table       | postgres
+ pg_toast           | pg_toast_24822                         | TOAST table       | postgres
+ pg_toast           | pg_toast_24873                         | TOAST table       | postgres
+ pg_toast           | pg_toast_24890                         | TOAST table       | postgres
+ pg_toast           | pg_toast_24907                         | TOAST table       | postgres
+ pg_toast           | pg_toast_24924                         | TOAST table       | postgres
+ pg_toast           | pg_toast_25062                         | TOAST table       | postgres
+ pg_toast           | pg_toast_25080                         | TOAST table       | postgres
+ pg_toast           | pg_toast_25098                         | TOAST table       | postgres
+ pg_toast           | pg_toast_25259                         | TOAST table       | postgres
+ pg_toast           | pg_toast_25302                         | TOAST table       | postgres
+ pg_toast           | pg_toast_25318                         | TOAST table       | postgres
+ pg_toast           | pg_toast_25334                         | TOAST table       | postgres
+ pg_toast           | pg_toast_25523                         | TOAST table       | postgres
+ pg_toast           | pg_toast_25542                         | TOAST table       | postgres
+ pg_toast           | pg_toast_25561                         | TOAST table       | postgres
+ pg_toast           | pg_toast_25598                         | TOAST table       | postgres
+ pg_toast           | pg_toast_25614                         | TOAST table       | postgres
+ pg_toast           | pg_toast_25630                         | TOAST table       | postgres
+ pg_toast           | pg_toast_25646                         | TOAST table       | postgres
+ pg_toast           | pg_toast_25702                         | TOAST table       | postgres
+ pg_toast           | pg_toast_2600                          | TOAST table       | postgres
+ pg_toast           | pg_toast_2604                          | TOAST table       | postgres
+ pg_toast           | pg_toast_2606                          | TOAST table       | postgres
+ pg_toast           | pg_toast_2609                          | TOAST table       | postgres
+ pg_toast           | pg_toast_2612                          | TOAST table       | postgres
+ pg_toast           | pg_toast_2615                          | TOAST table       | postgres
+ pg_toast           | pg_toast_2618                          | TOAST table       | postgres
+ pg_toast           | pg_toast_2619                          | TOAST table       | postgres
+ pg_toast           | pg_toast_2620                          | TOAST table       | postgres
+ pg_toast           | pg_toast_2964                          | TOAST table       | postgres
+ pg_toast           | pg_toast_3079                          | TOAST table       | postgres
+ pg_toast           | pg_toast_3118                          | TOAST table       | postgres
+ pg_toast           | pg_toast_3256                          | TOAST table       | postgres
+ pg_toast           | pg_toast_3350                          | TOAST table       | postgres
+ pg_toast           | pg_toast_3381                          | TOAST table       | postgres
+ pg_toast           | pg_toast_3394                          | TOAST table       | postgres
+ pg_toast           | pg_toast_3429                          | TOAST table       | postgres
+ pg_toast           | pg_toast_3456                          | TOAST table       | postgres
+ pg_toast           | pg_toast_3466                          | TOAST table       | postgres
+ pg_toast           | pg_toast_3592                          | TOAST table       | postgres
+ pg_toast           | pg_toast_3596                          | TOAST table       | postgres
+ pg_toast           | pg_toast_3600                          | TOAST table       | postgres
+ pg_toast           | pg_toast_6000                          | TOAST table       | postgres
+ pg_toast           | pg_toast_6100                          | TOAST table       | postgres
+ pg_toast           | pg_toast_6106                          | TOAST table       | postgres
+ pg_toast           | pg_toast_6243                          | TOAST table       | postgres
+ pg_toast           | pg_toast_826                           | TOAST table       | postgres
+ plugins            | plugin_executions                      | table             | postgres
+ plugins            | plugin_installations                   | table             | postgres
+ plugins            | plugin_versions                        | table             | postgres
+ plugins            | plugins                                | table             | postgres
+ prompt             | prompt_experiments                     | table             | postgres
+ prompt             | prompt_templates                       | table             | postgres
+ prompt             | prompt_versions                        | table             | postgres
+ public             | alembic_version                        | table             | postgres
+ voice              | agent_versions                         | table             | postgres
+ voice              | agents                                 | table             | postgres
+ voice              | call_sessions                          | partitioned table | postgres
+ voice              | call_sessions_2026_08                  | table             | postgres
+ voice              | call_sessions_2026_09                  | table             | postgres
+ voice              | call_sessions_2026_10                  | table             | postgres
+ voice              | call_sessions_2026_11                  | table             | postgres
+ voice              | call_sessions_default                  | table             | postgres
+ voice              | conversations                          | table             | postgres
+ voice              | language_evaluation_records            | table             | postgres
+ voice              | provider_configs                       | table             | postgres
+ voice              | recordings                             | table             | postgres
+ voice              | tenant_phone_numbers                   | table             | postgres
+ voice              | tool_definitions                       | table             | postgres
+ voice              | tool_executions                        | table             | postgres
+ voice              | transcript_segments                    | partitioned table | postgres
+ voice              | transcript_segments_2026_08            | table             | postgres
+ voice              | transcript_segments_2026_09            | table             | postgres
+ voice              | transcript_segments_2026_10            | table             | postgres
+ voice              | transcript_segments_2026_11            | table             | postgres
+ voice              | transcript_segments_default            | table             | postgres
+ voice              | transcripts                            | table             | postgres
+ voice              | turns                                  | table             | postgres
+ webhooks           | inbound_webhook_events                 | table             | postgres
+ webhooks           | webhook_deliveries                     | partitioned table | postgres
+ webhooks           | webhook_deliveries_2026_08             | table             | postgres
+ webhooks           | webhook_deliveries_2026_09             | table             | postgres
+ webhooks           | webhook_deliveries_2026_10             | table             | postgres
+ webhooks           | webhook_deliveries_2026_11             | table             | postgres
+ webhooks           | webhook_deliveries_default             | table             | postgres
+ webhooks           | webhook_endpoints                      | table             | postgres
+ workflow           | workflow_definitions                   | table             | postgres
+ workflow           | workflow_executions                    | partitioned table | postgres
+ workflow           | workflow_executions_2026_08            | table             | postgres
+ workflow           | workflow_executions_2026_09            | table             | postgres
+ workflow           | workflow_executions_2026_10            | table             | postgres
+ workflow           | workflow_executions_2026_11            | table             | postgres
+ workflow           | workflow_executions_default            | table             | postgres
+ workflow           | workflow_versions                      | table             | postgres
+(459 rows)
+

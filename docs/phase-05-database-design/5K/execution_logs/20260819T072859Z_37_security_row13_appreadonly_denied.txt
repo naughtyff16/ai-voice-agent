@@ -1,0 +1,6 @@
+ session_user 
+--------------
+ app_readonly
+(1 row)
+
+psql:test18_row13_readonly.sql:2: ERROR:  permission denied for table audit_events

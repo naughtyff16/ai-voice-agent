@@ -1,0 +1,17 @@
+Phase 5K.1 — Alembic chain integrity check post-076 (single linear chain, single head).
+
+$ alembic -c alembic.ini heads
+076_5K1 (head)
+
+$ alembic -c alembic.ini current
+076_5K1 (head)
+
+$ alembic -c alembic.ini branches (expect empty = no branch points)
+(no output above => confirmed no branches)
+
+$ alembic -c alembic.ini history | grep -c '\->' (expect 76)
+76
+
+File-count cross-check:
+migrations/*.sql count: 76
+alembic/versions/*.py count: 76

@@ -1,0 +1,9 @@
+ pg_sleep 
+----------
+ 
+(1 row)
+
+ conn_a_claimed 
+----------------
+(0 rows)
+

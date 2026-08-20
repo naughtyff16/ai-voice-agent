@@ -1,0 +1,84 @@
+Phase 5K.1 — fresh-database Alembic upgrade, base -> 076_5K1 (76/76 revisions).
+Command: docker exec -w /repo/docs/phase-05-database-design/5K/alembic 5k_alembic_runner alembic -c alembic.ini upgrade head
+Database: voice_agent_5k_validate on fresh 5k_validate_pg (see 20260819T110500Z_42_fresh_docker_env_setup_5K1.txt)
+
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade  -> 001_5B, Phase 5K — wraps frozen migration 001_5B.sql.
+INFO  [alembic.runtime.migration] Running upgrade 001_5B -> 002_5B, Phase 5K — wraps frozen migration 002_5B.sql.
+INFO  [alembic.runtime.migration] Running upgrade 002_5B -> 003_5B, Phase 5K — wraps frozen migration 003_5B.sql.
+INFO  [alembic.runtime.migration] Running upgrade 003_5B -> 004_5B, Phase 5K — wraps frozen migration 004_5B.sql.
+INFO  [alembic.runtime.migration] Running upgrade 004_5B -> 005_5B, Phase 5K — wraps frozen migration 005_5B.sql.
+INFO  [alembic.runtime.migration] Running upgrade 005_5B -> 006_5B, Phase 5K — wraps frozen migration 006_5B.sql.
+INFO  [alembic.runtime.migration] Running upgrade 006_5B -> 007_5B, Phase 5K — wraps frozen migration 007_5B.sql.
+INFO  [alembic.runtime.migration] Running upgrade 007_5B -> 008_5B, Phase 5K — wraps frozen migration 008_5B.sql.
+INFO  [alembic.runtime.migration] Running upgrade 008_5B -> 009_5C, Phase 5K — wraps frozen migration 009_5C.sql.
+INFO  [alembic.runtime.migration] Running upgrade 009_5C -> 010_5C, Phase 5K — wraps frozen migration 010_5C.sql.
+INFO  [alembic.runtime.migration] Running upgrade 010_5C -> 011_5C, Phase 5K — wraps frozen migration 011_5C.sql.
+INFO  [alembic.runtime.migration] Running upgrade 011_5C -> 012_5C, Phase 5K — wraps frozen migration 012_5C.sql.
+INFO  [alembic.runtime.migration] Running upgrade 012_5C -> 013_5C, Phase 5K — wraps frozen migration 013_5C.sql.
+INFO  [alembic.runtime.migration] Running upgrade 013_5C -> 014_5C, Phase 5K — wraps frozen migration 014_5C.sql.
+INFO  [alembic.runtime.migration] Running upgrade 014_5C -> 015_5C, Phase 5K — wraps frozen migration 015_5C.sql.
+INFO  [alembic.runtime.migration] Running upgrade 015_5C -> 016_5C, Phase 5K — wraps frozen migration 016_5C.sql.
+INFO  [alembic.runtime.migration] Running upgrade 016_5C -> 017_5C, Phase 5K — wraps frozen migration 017_5C.sql.
+INFO  [alembic.runtime.migration] Running upgrade 017_5C -> 018_5C, Phase 5K — wraps frozen migration 018_5C.sql.
+INFO  [alembic.runtime.migration] Running upgrade 018_5C -> 019_5D, Phase 5K — wraps frozen migration 019_5D.sql.
+INFO  [alembic.runtime.migration] Running upgrade 019_5D -> 020_5D, Phase 5K — wraps frozen migration 020_5D.sql.
+INFO  [alembic.runtime.migration] Running upgrade 020_5D -> 021_5D, Phase 5K — wraps frozen migration 021_5D.sql.
+INFO  [alembic.runtime.migration] Running upgrade 021_5D -> 022_5D, Phase 5K — wraps frozen migration 022_5D.sql.
+INFO  [alembic.runtime.migration] Running upgrade 022_5D -> 023_5D, Phase 5K — wraps frozen migration 023_5D.sql.
+INFO  [alembic.runtime.migration] Running upgrade 023_5D -> 024_5D, Phase 5K — wraps frozen migration 024_5D.sql.
+INFO  [alembic.runtime.migration] Running upgrade 024_5D -> 025_5D, Phase 5K — wraps frozen migration 025_5D.sql.
+INFO  [alembic.runtime.migration] Running upgrade 025_5D -> 026_5D, Phase 5K — wraps frozen migration 026_5D.sql.
+INFO  [alembic.runtime.migration] Running upgrade 026_5D -> 027_5E, Phase 5K — wraps frozen migration 027_5E.sql.
+INFO  [alembic.runtime.migration] Running upgrade 027_5E -> 028_5E, Phase 5K — wraps frozen migration 028_5E.sql.
+INFO  [alembic.runtime.migration] Running upgrade 028_5E -> 029_5E, Phase 5K — wraps frozen migration 029_5E.sql.
+INFO  [alembic.runtime.migration] Running upgrade 029_5E -> 030_5E, Phase 5K — wraps frozen migration 030_5E.sql.
+INFO  [alembic.runtime.migration] Running upgrade 030_5E -> 031_5E, Phase 5K — wraps frozen migration 031_5E.sql.
+INFO  [alembic.runtime.migration] Running upgrade 031_5E -> 032_5E, Phase 5K — wraps frozen migration 032_5E.sql.
+INFO  [alembic.runtime.migration] Running upgrade 032_5E -> 033_5E, Phase 5K — wraps frozen migration 033_5E.sql.
+INFO  [alembic.runtime.migration] Running upgrade 033_5E -> 034_5F, Phase 5K — wraps frozen migration 034_5F.sql.
+INFO  [alembic.runtime.migration] Running upgrade 034_5F -> 035_5F, Phase 5K — wraps frozen migration 035_5F.sql.
+INFO  [alembic.runtime.migration] Running upgrade 035_5F -> 036_5F, Phase 5K — wraps frozen migration 036_5F.sql.
+INFO  [alembic.runtime.migration] Running upgrade 036_5F -> 037_5F, Phase 5K — wraps frozen migration 037_5F.sql.
+INFO  [alembic.runtime.migration] Running upgrade 037_5F -> 038_5F, Phase 5K — wraps frozen migration 038_5F.sql.
+INFO  [alembic.runtime.migration] Running upgrade 038_5F -> 039_5G, Phase 5K — wraps frozen migration 039_5G.sql.
+INFO  [alembic.runtime.migration] Running upgrade 039_5G -> 040_5G, Phase 5K — wraps frozen migration 040_5G.sql.
+INFO  [alembic.runtime.migration] Running upgrade 040_5G -> 041_5G, Phase 5K — wraps frozen migration 041_5G.sql.
+INFO  [alembic.runtime.migration] Running upgrade 041_5G -> 042_5G, Phase 5K — wraps frozen migration 042_5G.sql.
+INFO  [alembic.runtime.migration] Running upgrade 042_5G -> 043_5F, Phase 5K — wraps frozen migration 043_5F.sql.
+INFO  [alembic.runtime.migration] Running upgrade 043_5F -> 044_5F, Phase 5K — wraps frozen migration 044_5F.sql.
+INFO  [alembic.runtime.migration] Running upgrade 044_5F -> 045_5G, Phase 5K — wraps frozen migration 045_5G.sql.
+INFO  [alembic.runtime.migration] Running upgrade 045_5G -> 046_5G, Phase 5K — wraps frozen migration 046_5G.sql.
+INFO  [alembic.runtime.migration] Running upgrade 046_5G -> 047_5H, Phase 5K — wraps frozen migration 047_5H.sql.
+INFO  [alembic.runtime.migration] Running upgrade 047_5H -> 048_5H, Phase 5K — wraps frozen migration 048_5H.sql.
+INFO  [alembic.runtime.migration] Running upgrade 048_5H -> 049_5H, Phase 5K — wraps frozen migration 049_5H.sql.
+INFO  [alembic.runtime.migration] Running upgrade 049_5H -> 050_5H, Phase 5K — wraps frozen migration 050_5H.sql.
+INFO  [alembic.runtime.migration] Running upgrade 050_5H -> 051_5H, Phase 5K — wraps frozen migration 051_5H.sql.
+INFO  [alembic.runtime.migration] Running upgrade 051_5H -> 052_5H, Phase 5K — wraps frozen migration 052_5H.sql.
+INFO  [alembic.runtime.migration] Running upgrade 052_5H -> 053_5H, Phase 5K — wraps frozen migration 053_5H.sql.
+INFO  [alembic.runtime.migration] Running upgrade 053_5H -> 054_5H, Phase 5K — wraps frozen migration 054_5H.sql.
+INFO  [alembic.runtime.migration] Running upgrade 054_5H -> 055_5H, Phase 5K — wraps frozen migration 055_5H.sql.
+INFO  [alembic.runtime.migration] Running upgrade 055_5H -> 056_5H, Phase 5K — wraps frozen migration 056_5H.sql.
+INFO  [alembic.runtime.migration] Running upgrade 056_5H -> 057_5H, Phase 5K — wraps frozen migration 057_5H.sql.
+INFO  [alembic.runtime.migration] Running upgrade 057_5H -> 058_5H, Phase 5K — wraps frozen migration 058_5H.sql.
+INFO  [alembic.runtime.migration] Running upgrade 058_5H -> 059_5I, Phase 5K — wraps frozen migration 059_5I.sql.
+INFO  [alembic.runtime.migration] Running upgrade 059_5I -> 060_5I, Phase 5K — wraps frozen migration 060_5I.sql.
+INFO  [alembic.runtime.migration] Running upgrade 060_5I -> 061_5I, Phase 5K — wraps frozen migration 061_5I.sql.
+INFO  [alembic.runtime.migration] Running upgrade 061_5I -> 062_5I, Phase 5K — wraps frozen migration 062_5I.sql.
+INFO  [alembic.runtime.migration] Running upgrade 062_5I -> 063_5I, Phase 5K — wraps frozen migration 063_5I.sql.
+INFO  [alembic.runtime.migration] Running upgrade 063_5I -> 064_5I, Phase 5K — wraps frozen migration 064_5I.sql.
+INFO  [alembic.runtime.migration] Running upgrade 064_5I -> 065_5I, Phase 5K — wraps frozen migration 065_5I.sql.
+INFO  [alembic.runtime.migration] Running upgrade 065_5I -> 066_5I, Phase 5K — wraps frozen migration 066_5I.sql.
+INFO  [alembic.runtime.migration] Running upgrade 066_5I -> 067_5J, Phase 5K — wraps frozen migration 067_5J.sql.
+INFO  [alembic.runtime.migration] Running upgrade 067_5J -> 068_5J, Phase 5K — wraps frozen migration 068_5J.sql.
+INFO  [alembic.runtime.migration] Running upgrade 068_5J -> 069_5J, Phase 5K — wraps frozen migration 069_5J.sql.
+INFO  [alembic.runtime.migration] Running upgrade 069_5J -> 070_5J, Phase 5K — wraps frozen migration 070_5J.sql.
+INFO  [alembic.runtime.migration] Running upgrade 070_5J -> 071_5J, Phase 5K — wraps frozen migration 071_5J.sql.
+INFO  [alembic.runtime.migration] Running upgrade 071_5J -> 072_5J, Phase 5K — wraps frozen migration 072_5J.sql.
+INFO  [alembic.runtime.migration] Running upgrade 072_5J -> 073_5J, Phase 5K — wraps frozen migration 073_5J.sql.
+INFO  [alembic.runtime.migration] Running upgrade 073_5J -> 074_5J, Phase 5K — wraps frozen migration 074_5J.sql.
+INFO  [alembic.runtime.migration] Running upgrade 074_5J -> 075_5J, Phase 5K — wraps frozen migration 075_5J.sql.
+INFO  [alembic.runtime.migration] Running upgrade 075_5J -> 076_5K1, Phase 5K.1 — wraps frozen corrective migration 076_5K1.sql.
+
+Result: all 76 revisions applied successfully, no errors. Final revision: 076_5K1.

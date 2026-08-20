@@ -1,0 +1,10 @@
+ pg_sleep 
+----------
+ 
+(1 row)
+
+ conn_b_result 
+---------------
+ t
+(1 row)
+

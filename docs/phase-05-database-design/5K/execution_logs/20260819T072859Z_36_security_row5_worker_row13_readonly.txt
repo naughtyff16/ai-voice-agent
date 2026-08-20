@@ -1,0 +1,10 @@
+SET
+psql:test18_row5_worker_readonly.sql:6: ERROR:  audit: caller postgres is not authorized to create platform audit events
+CONTEXT:  PL/pgSQL function fn_insert_audit_event(uuid,text,uuid,text,text,text,uuid,text,text,inet,text,text,uuid,uuid,jsonb,boolean) line 19 at RAISE
+RESET
+SET
+psql:test18_row5_worker_readonly.sql:11: ERROR:  permission denied for table audit_events
+RESET
+SET
+psql:test18_row5_worker_readonly.sql:18: ERROR:  permission denied for function fn_insert_audit_event
+RESET

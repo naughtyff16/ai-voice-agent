@@ -1,0 +1,10 @@
+SET
+ERROR:  function gen_random_bytes(integer) does not exist
+LINE 1: gen_random_bytes(10)
+        ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+QUERY:  gen_random_bytes(10)
+CONTEXT:  PL/pgSQL function public.gen_uuid_v7() line 4 during statement block local variable initialization
+SQL statement "INSERT INTO plugins.plugin_installations (organization_id, plugin_id, plugin_version_id, configuration, credential_ref, installed_by_ref)
+  VALUES (p_organization_id, p_plugin_id, p_plugin_version_id, p_configuration, p_credential_ref, p_installed_by_ref) RETURNING id"
+PL/pgSQL function fn_create_plugin_installation(uuid,uuid,uuid,jsonb,text,uuid) line 11 at SQL statement

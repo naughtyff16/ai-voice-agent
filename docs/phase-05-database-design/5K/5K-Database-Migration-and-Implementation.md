@@ -737,7 +737,7 @@ Run after every fresh install or upgrade:
 | `app_worker` calls `fn_insert_audit_event(p_is_platform_event => TRUE)` | Allowed |
 | `app_api` direct `INSERT INTO workflow.workflow_executions` | Denied (REVOKE INSERT) |
 | `app_worker` direct `INSERT INTO workflow.workflow_executions` | Denied (REVOKE INSERT) |
-| `app_platform_admin` direct `INSERT INTO workflow.workflow_executions` | Denied (REVOKE INSERT) |
+| `app_platform_admin` direct `INSERT INTO workflow.workflow_executions` | ~~Denied (REVOKE INSERT)~~ **Actual (confirmed live, Phase 5K final validation, 2026-08-19): Allowed.** Migration `046_5G.sql`'s blanket `GRANT ... ON ALL TABLES IN SCHEMA workflow TO app_platform_admin` (5 files after this REVOKE in `041_5G.sql`) silently re-grants INSERT. Classified **BLOCKING** (fix deferred to Phase 6+/5K.1 patch, not fixed here). See `validation/MIGRATION_RECONCILIATION_REPORT.md` §3 and `EXECUTION_REPORT.md` §11.1 finding #2. |
 | `app_api` calls `fn_start_workflow_execution` when session already ACTIVE | Exception raised |
 | Two concurrent `fn_start_workflow_execution` calls for same session | Exactly one succeeds |
 | UPDATE `session_ref` on any `workflow.workflow_executions` row | Denied (trigger) |
@@ -811,6 +811,8 @@ def run_migrations_online():
 
 Migration 043's Alembic revision file must override `transaction_per_migration = False` for that specific revision. The Alembic migration runner must not silently wrap migration 043 in a transaction — failure to configure this correctly will result in `ERROR: CREATE INDEX CONCURRENTLY cannot run inside a transaction block`.
 
+> **Implementation note (added at Phase 5K final validation, 2026-08-19):** the paragraph above describes the plan as originally written; it does not describe what was actually built. The frozen `migrations/043_5F.sql` does not use `CREATE INDEX CONCURRENTLY` at all — at migration time `document_chunks` has only its empty `DEFAULT` partition, so a plain, transactional `CREATE INDEX` is used instead, and `CONCURRENTLY` is deferred to the application-layer `create_kb_partition()` path for future per-KB partitions (documented in that file's own header comment). Consequently `alembic/versions/043_5F.py` runs like every other revision — no `transaction_per_migration = False` override, no `autocommit_block()` — and `alembic/gen_revisions.py`'s `AUTOCOMMIT_REVISIONS` set is empty. This was a deliberate implementation simplification made after this section was written, not a defect; it is documented in full in `alembic/README.md` and `EXECUTION_REPORT.md` §10, and independently confirmed by a real fresh-database `alembic upgrade head` run (`validation/ALEMBIC_VALIDATION_REPORT.md` §2).
+
 `DATABASE_URL` must be environment-variable-provided. No credentials are hardcoded in `alembic.ini` or `env.py`.
 
 ---
@@ -818,6 +820,8 @@ Migration 043's Alembic revision file must override `transaction_per_migration =
 ## 22. Migration Manifest
 
 SHA-256 checksums are generated from actual migration files after SQL generation, not fabricated in advance. The manifest table below records migration metadata; checksum values are populated during the package-build step.
+
+> **Superseded (2026-08-19):** the table below is the original planning manifest, kept for historical reference. It predates the migration-043 implementation simplification noted in §21 above, so its row 043 (marked `non-transactional`) no longer matches the shipped `migrations/043_5F.sql` (transactional). The live, checksum-populated, corrected manifest is `MIGRATION_MANIFEST.md` at the root of this folder — that file, not the table below, is authoritative for SHA-256 values and per-row transaction mode.
 
 | # | Filename | Phase | down_revision | Txn Mode | SHA-256 |
 |---|---|---|---|---|---|
@@ -929,36 +933,74 @@ SHA-256 checksums are generated from actual migration files after SQL generation
 
 ---
 
-## 24. Architecture Verified vs. Implementation Executed
+## 24. Architecture Verified vs. Implementation Executed — HISTORICAL, see §27 for current final state
 
 This document specifies the complete, authoritative implementation plan. The distinction between these two states is explicit:
 
 **Architecture verified (status: COMPLETE):** The frozen Phase 5A–5J architecture has been mapped, reconciled, forward-reference-checked, conflict-resolved, and fully specified in this document and its associated reconciliation artifacts. All 14 implementation-layer corrections (§10) have been identified, independently re-verified against raw source, and specified precisely.
 
-**Implementation executed (status: PENDING):** The actual SQL migration files (001–075) have not yet been generated and executed on a fresh PostgreSQL 16 database. The full validation suite, security tests, concurrency tests, checksum verification, and Alembic configuration have not yet been run end-to-end. The final manifest SHA-256 values have not yet been computed.
+**Implementation executed (status as of 2026-08-19 — see `EXECUTION_REPORT.md` and, for the current final state, §27 below):** The actual SQL migration files (001–075) have been generated and executed successfully on a fresh, empty PostgreSQL 16 database (`alembic upgrade head`, 75/75, exit code 0, re-confirmed after fixing one Alembic-layer defect — see `EXECUTION_REPORT.md` §10). The §17 validation suite (13/13 checks), the manifest checksums (regenerated from actual file contents, all 75 rows), and the Alembic configuration have all been run and confirmed. **Correction (2026-08-19):** the paragraph originally reported the §18/§19 suites as having only partial live-connection coverage (8/13 and 1/7 rows); Phase 5K final validation has since completed the remaining coverage — see §27 below for the current figures, which include 2 confirmed FAIL results (not merely "untested") that this partial-coverage framing did not surface.
 
 ---
 
-## 25. Implementation Gates — Remaining Steps
+## 25. Implementation Gates — Remaining Steps (historical — see §27 for current final state)
 
-The following gates must be completed before Phase 5K can be declared fully executed:
+The following gates were the plan for declaring Phase 5K fully executed. **Status as of the interim pass, 2026-08-19 (superseded by §27 below):**
 
-1. **Generate migration files** — produce `001_5B.sql` through `075_5J.sql` using the source boundaries in §4, applying all corrections in §10 and §11.
-2. **Execute on fresh PostgreSQL 16** — run all 75 migrations in linear order against an empty database. Migration 043 must be run non-transactionally. Record actual per-migration pass/fail results.
-3. **Run validation suite** — execute all 13 checks in §17 and confirm zero discrepancies.
-4. **Run security tests** — execute all tests in §18 and confirm all expected denials and allowances.
-5. **Run concurrency tests** — execute all tests in §19 and confirm all invariants hold.
-6. **Compute manifest checksums** — `sha256sum` each migration file; populate the SHA-256 column in §22.
-7. **Verify Alembic configuration** — confirm `transaction_per_migration = False` for migration 043; confirm DATABASE_URL is environment-variable-provided.
-8. **Generate execution report** — document exact PostgreSQL version, extension versions, per-migration results, test outcomes, and final pass/fail counts.
-9. **Final approval** — sign off only after 75/75 migrations pass on a clean database and all test suites pass.
+1. **Generate migration files** — produce `001_5B.sql` through `075_5J.sql` using the source boundaries in §4, applying all corrections in §10 and §11. — **DONE.**
+2. **Execute on fresh PostgreSQL 16** — run all 75 migrations in linear order against an empty database. ~~Migration 043 must be run non-transactionally.~~ Migration 043 runs transactionally, same as every other revision (see §21 implementation note). Record actual per-migration pass/fail results. — **DONE, 75/75 pass, evidence in `execution_logs/`.**
+3. **Run validation suite** — execute all 13 checks in §17 and confirm zero discrepancies. — **DONE, 13/13, see `validation/FINAL_5K_VALIDATION_REPORT.md` §1.**
+4. **Run security tests** — execute all tests in §18 and confirm all expected denials and allowances. — **COMPLETE as of Phase 5K final validation: 16 listed scenarios covered, 15 PASS, 1 confirmed FAIL** (the `app_platform_admin`/`workflow.workflow_executions` grant-conflict finding — §27 below). This supersedes the interim pass's "8/13, partial" figure.
+5. **Run concurrency tests** — execute all tests in §19 and confirm all invariants hold. — **COMPLETE as of Phase 5K final validation: 7/7 rows covered, 6 PASS, 1 confirmed FAIL** (the `fn_claim_projection_slot` search_path finding — §27 below). This supersedes the interim pass's "1/7, partial" figure.
+6. **Compute manifest checksums** — `sha256sum` each migration file; populate the SHA-256 column in §22. — **DONE** — in `MIGRATION_MANIFEST.md` (the authoritative, current manifest; the table in §22 above is the historical planning version, now superseded per the note there).
+7. **Verify Alembic configuration** — ~~confirm `transaction_per_migration = False` for migration 043~~; confirm DATABASE_URL is environment-variable-provided. — **DONE**, with the migration-043 override not needed in the shipped implementation (§21).
+8. **Generate execution report** — document exact PostgreSQL version, extension versions, per-migration results, test outcomes, and final pass/fail counts. — **DONE**, `EXECUTION_REPORT.md` (see its §11 addendum for the current final state).
+9. **Final approval** — sign off only after 75/75 migrations pass on a clean database and all test suites pass. — See §27 below for the final gate-by-gate determination, including the 2 confirmed BLOCKING findings carried forward (not fixed, deferred to Phase 6+/5K.1 per governing rule).
 
 ---
 
-## 26. Final Status
+## 26. Final Status — HISTORICAL (interim pass; see §27 for current final state)
 
 ```
 PHASE 5K — DATABASE MIGRATION & IMPLEMENTATION
+
+Architecture mapped:                        75/75 migrations
+Dependency graph valid:                     YES — single linear chain, no branches
+Implementation-layer corrections:           14 items, all independently verified
+                                            against raw source (§10, §11)
+Migration 043 transaction handling:         Transactional (plain CREATE INDEX;
+                                            CONCURRENTLY deferred to app-layer
+                                            create_kb_partition() — see §21)
+Migration 005/006 verification-only:        Designed and tested (§4.1)
+Schema count:                               16 physical (15 business + public)
+Foreign key strategy:                       No cross-schema FKs
+Partitioned tables:                         22
+SECURITY DEFINER standards:                 Defined (§16), 43/43 hardened and verified live
+Validation suite:                           13/13 checks executed and passed (§17)
+Security test suite:                        8/13 rows have live-connection evidence (§18)
+Concurrency tests:                          1/7 rows has live-connection evidence (§19)
+Manifest:                                   75/75 rows, SHA-256 computed from actual files
+                                            — see MIGRATION_MANIFEST.md (authoritative)
+
+ARCHITECTURE VERIFIED
+
+IMPLEMENTATION EXECUTED: COMPLETE (as of 2026-08-19)
+
+75/75 migrations executed successfully on a genuinely fresh, empty PostgreSQL 16
+database (alembic upgrade head, exit code 0). Full evidence in execution_logs/
+and validation/01_final_validation_report.md, including the honest statement
+that the §18 security suite and §19 concurrency suite have partial (not
+exhaustive) live-connection re-verification — the remaining rows rely on their
+underlying DB mechanism being structurally confirmed present rather than a
+fresh live race/adversarial test in this pass. This is recorded as a residual
+gap, not concealed, and does not reopen the schema/migration-chain/manifest
+gates above, which are each fully and independently verified.
+```
+
+*(This block updates the original planning-stage status below, which is retained immediately after for historical reference — it reflects Phase 5K's state before generation and execution had occurred.)*
+
+```
+PHASE 5K — DATABASE MIGRATION & IMPLEMENTATION (historical, pre-execution)
 
 Architecture mapped:                        75/75 migrations
 Dependency graph valid:                     YES — single linear chain, no branches
@@ -983,4 +1025,58 @@ Remaining gates: generate SQL files (001–075), execute on fresh PostgreSQL 16,
 run validation/security/concurrency tests, compute checksums, generate execution
 report. Phase 5K reaches IMPLEMENTATION EXECUTED only after 75/75 migrations
 pass on a clean database and all test suites confirm zero failures.
+```
+
+---
+
+## 27. Final Addendum — Phase 5K Closure (2026-08-19) — CURRENT FINAL STATE
+
+This section is the authoritative, current-final-state summary for this
+document, superseding the partial-coverage figures in §24-§26 above. §1-§23
+remain the accurate specification of the approved architecture and are
+unaffected. Full detail, root cause, and live evidence live in the four
+§7-mandated validation reports under `validation/`:
+
+- `validation/ALEMBIC_VALIDATION_REPORT.md`
+- `validation/SCHEMA_VALIDATION_REPORT.md`
+- `validation/MIGRATION_RECONCILIATION_REPORT.md`
+- `validation/FINAL_5K_VALIDATION_REPORT.md`
+
+**§18/§19 coverage is now complete** (not partial): the security test suite
+(§18, 16 listed scenarios) and concurrency test suite (§19, 7 rows) have each
+been fully executed against a fresh, disposable PostgreSQL 16 database, with
+real captured output for every row — see `validation/FINAL_5K_VALIDATION_REPORT.md`
+§2-§3. This supersedes §24's and §25's "8/13" and "1/7" partial-coverage
+figures, which predate the remaining test runs.
+
+**Two genuine defects were found by this remaining coverage, and are
+classified BLOCKING** (not merely "untested" or "deferred" — the defects
+themselves are real and confirmed live):
+
+1. §18 — `app_platform_admin` direct `INSERT INTO workflow.workflow_executions` is **Allowed**, not Denied as §18's table above states (row corrected in place). Root cause: migration `046_5G.sql` silently re-grants what `041_5G.sql` revoked. See `validation/MIGRATION_RECONCILIATION_REPORT.md` §3.
+2. §19 — `analytics.fn_claim_projection_slot` (and 2 other functions) fail under real concurrent connections with `gen_random_bytes(integer) does not exist`, because their `SECURITY DEFINER SET search_path` omits `public`. See `validation/MIGRATION_RECONCILIATION_REPORT.md` §2.
+
+Per the governing rule for Phase 5K ("do not change the approved Phase 5A–5J
+architecture"), **neither defect was fixed** — no frozen `.sql` migration
+file was edited. Both defects are classified **BLOCKING** for treating the
+affected write paths as production-ready today; the fix for each (a new
+migration file) is classified **DEFERRED TO PHASE 6+ / an emergency 5K.1
+patch migration**.
+
+```
+PHASE 5K — CURRENT FINAL STATE (2026-08-19)
+
+Architecture:                YES — unchanged, approved, frozen (§1-§23)
+Migrations executed:         75/75 PASS (fresh, disposable PostgreSQL 16)
+Validation suite (§17):      13/13 PASS
+Security test suite (§18):   16 scenarios — 15 PASS, 1 confirmed FAIL (BLOCKING)
+Concurrency suite (§19):     7 rows — 6 PASS, 1 confirmed FAIL (BLOCKING)
+Manifest:                    75/75 rows, SHA-256 + Txn-Mode corrected and verified
+Total defects across 5K:     15 (13 fixed during implementation; 2 found during
+                              final validation, BLOCKING, fix deferred to
+                              Phase 6+ / 5K.1 patch migration)
+
+PHASE 5K STATUS: VALIDATION COMPLETE — DOCUMENTED — FROZEN FOR REVIEW,
+WITH 2 BLOCKING DEFECTS CARRIED FORWARD (not fixed, per governing rule;
+fully evidenced and classified for Phase 6+ / a 5K.1 patch migration).
 ```

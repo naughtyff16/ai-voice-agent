@@ -1,0 +1,8 @@
+SET
+ pg_sleep 
+----------
+ 
+(1 row)
+
+psql:test19_row1_concurrent_a.sql:7: ERROR:  fn_start_workflow_execution: session 33333333-3333-3333-3333-333333333333 already has an ACTIVE workflow execution (id=01a018df-03e6-7627-835f-5f587e31fa8d). Complete or fail it first.
+CONTEXT:  PL/pgSQL function fn_start_workflow_execution(uuid,uuid,uuid,timestamp with time zone) line 33 at RAISE

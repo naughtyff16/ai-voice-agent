@@ -1,0 +1,17 @@
+                  id                  
+--------------------------------------
+ 01a018ee-f162-73f5-81c4-c40e183fdc39
+(1 row)
+
+INSERT 0 1
+SET
+ERROR:  function gen_random_bytes(integer) does not exist
+LINE 1: gen_random_bytes(10)
+        ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+QUERY:  gen_random_bytes(10)
+CONTEXT:  PL/pgSQL function gen_uuid_v7() line 4 during statement block local variable initialization
+SQL statement "INSERT INTO integrations.integration_connections (organization_id, definition_id, display_name, credential_ref, configuration, status)
+  VALUES (p_organization_id, p_definition_id, p_display_name, p_credential_ref, p_configuration, 'CONNECTING')
+  RETURNING id"
+PL/pgSQL function fn_create_integration_connection(uuid,uuid,text,text,jsonb) line 13 at SQL statement

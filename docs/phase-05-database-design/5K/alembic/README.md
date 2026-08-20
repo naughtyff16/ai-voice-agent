@@ -130,24 +130,59 @@ From then on, `alembic upgrade head` is a no-op against this database
 way: a new frozen `.sql` file plus one new wrapper revision with
 `down_revision = "075_5J"`.
 
-## What was NOT done in this environment
+## Update (Phase 5K final validation, 2026-08-19): executed against a live database
 
-This Alembic package was authored and syntax-checked (`python3 -m
-py_compile` on all 75 revision files; chain linearity verified
-programmatically: single root `001_5B`, single head `075_5J`, 75
-nodes, no branches) but **not executed against a live database**:
+The "What was NOT done" section below described the state of this package
+before Phase 5K final validation. It has since been **executed successfully
+against a genuinely fresh, empty PostgreSQL 16 database** (`pgvector/pgvector:pg16`,
+disposable Docker instance, dropped and recreated immediately before the run
+to guarantee emptiness): `alembic upgrade head` applied all 75 revisions in
+order, `alembic current` / `alembic heads` both report `075_5J (head)`, and
+the resulting schema was independently queried and validated. Full command
+output is in `../execution_logs/`; the consolidated result is in
+`../validation/ALEMBIC_VALIDATION_REPORT.md` (the interim
+`01_final_validation_report.md` this used to point to has since been split
+into the four §7-mandated validation reports and removed).
+
+One real defect was found and fixed during this run: `_frozen_sql.py`'s
+`run_frozen_sql()` originally called `op.get_bind().exec_driver_sql(sql)`
+with no `execution_options`. Several frozen files (e.g. `002_5B.sql`) contain
+literal `%` characters — `LIKE 'secret_manager://%'` patterns and
+`RAISE EXCEPTION '...: %, %'` format specifiers — which psycopg2's default
+pyformat paramstyle misreads as bind-parameter placeholders, failing with
+`TypeError: ... immutabledict is not a sequence` before any SQL reaches the
+server. Fix: `bind.execution_options(no_parameters=True).exec_driver_sql(sql)`
+tells the DBAPI the statement takes no bind parameters, so `%` passes through
+verbatim. This is an Alembic-integration-layer defect only — no `.sql` file
+in `migrations/` was touched. Re-run from a dropped/recreated empty database
+confirmed 75/75 revisions pass cleanly with the fix applied.
+
+Given this, the manual "Baseline strategy: stamp, don't upgrade" procedure
+below still applies to any database that already has 001-075 applied outside
+of Alembic's bookkeeping (e.g. an existing `voice_agent_dev`) — use `alembic
+stamp 075_5J` there, exactly as documented. It does **not** apply to a
+genuinely empty database, which should simply run `alembic upgrade head`.
+
+## What was NOT done in this environment (historical — see update above)
+
+This section describes an earlier point in Phase 5K's history, before final
+validation. At that time, this Alembic package had been authored and
+syntax-checked (`python3 -m py_compile` on all 75 revision files; chain
+linearity verified programmatically: single root `001_5B`, single head
+`075_5J`, 75 nodes, no branches) but **not yet executed against a live
+database**:
 
 - `alembic`, `sqlalchemy`, and a PostgreSQL driver (`psycopg2`/`psycopg`)
-  are not installed in this environment, and installing them requires
-  `pip`/`venv` support (`ensurepip`) that isn't available without
-  `sudo`, which wasn't run.
+  were not installed in that environment, and installing them required
+  `pip`/`venv` support (`ensurepip`) that wasn't available without `sudo`.
 - No PostgreSQL credentials for `voice_agent_dev` (or any role) were
-  available in the environment, repo, or a `.env` file — `psql`
+  available in that environment, repo, or a `.env` file — `psql`
   connection attempts with no password failed authentication.
 
-Because of this, `alembic stamp 075_5J` above was **not** run. Doing so
-blind, without confirming the live schema state first, is exactly the
-"blindly run upgrade head" failure mode this package is designed to
-avoid — so it was left as a documented, reviewable manual step instead
-of guessed at. Once `DATABASE_URL` (with working credentials) is
-available, run the "Baseline strategy" steps above in order.
+Because of this, `alembic stamp 075_5J` was not run at that time. Doing so
+blind, without confirming the live schema state first, would have been
+exactly the "blindly run upgrade head" failure mode this package is designed
+to avoid — so it was left as a documented, reviewable manual step instead of
+guessed at. That gap has since been closed for the fresh-database case (see
+the update above); the stamp procedure remains the correct path for an
+already-migrated database.

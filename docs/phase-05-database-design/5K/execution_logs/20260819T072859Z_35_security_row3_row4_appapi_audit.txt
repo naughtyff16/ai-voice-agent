@@ -1,0 +1,11 @@
+SET
+SET
+     app_api_audit_insert_result      
+--------------------------------------
+ 01a018e7-6139-7a5c-8939-399619b011d9
+(1 row)
+
+RESET
+SET
+psql:test18_row3_4_5_audit.sql:12: ERROR:  permission denied for table audit_events
+RESET

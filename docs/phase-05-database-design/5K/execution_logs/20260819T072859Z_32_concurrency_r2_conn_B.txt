@@ -1,0 +1,14 @@
+ pg_sleep 
+----------
+ 
+(1 row)
+
+psql:t19r2_b.sql:2: ERROR:  function gen_random_bytes(integer) does not exist
+LINE 1: gen_random_bytes(10)
+        ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+QUERY:  gen_random_bytes(10)
+CONTEXT:  PL/pgSQL function public.gen_uuid_v7() line 4 during statement block local variable initialization
+SQL statement "INSERT INTO analytics.analytics_projection_events (projection_name, analytics_event_id, occurred_at)
+  VALUES (p_projection_name, p_analytics_event_id, p_occurred_at) ON CONFLICT (projection_name, analytics_event_id) DO NOTHING"
+PL/pgSQL function fn_claim_projection_slot(text,uuid,timestamp with time zone) line 4 at SQL statement

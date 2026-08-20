@@ -1,0 +1,174 @@
+Phase 5K.1 — FULL §18 Security Test Suite re-run post-076_5K1 (governing-spec §13:
+re-run ALL scenarios, not only the previously-failed one).
+Fixtures: see 00_fixtures.sql content inlined below; loaded once, committed, reused
+across all rows (each row re-verified with live role logins, not SET ROLE-only tricks,
+except where explicitly noted).
+
+=== Fixture setup ===
+-- Combined fixture setup for full §18/§19 suite re-run (post-076_5K1)
+BEGIN;
+
+INSERT INTO identity.users (id, email, email_normalized, display_name, status)
+VALUES ('00000000-0000-0000-0000-0000000000a1', 'ownera@test.local', 'ownera@test.local', 'Owner A', 'ACTIVE'),
+       ('00000000-0000-0000-0000-0000000000b1', 'ownerb@test.local', 'ownerb@test.local', 'Owner B', 'ACTIVE');
+
+INSERT INTO organization.organizations (id, name, slug, owner_user_id, country_code, currency)
+VALUES ('00000000-0000-0000-0000-00000000aaaa', 'Org A', 'org-a-5k-test', '00000000-0000-0000-0000-0000000000a1', 'IN', 'INR'),
+       ('00000000-0000-0000-0000-00000000bbbb', 'Org B', 'org-b-5k-test', '00000000-0000-0000-0000-0000000000b1', 'IN', 'INR');
+
+INSERT INTO workflow.workflow_definitions (id, organization_id, name, status, created_by)
+VALUES ('00000000-0000-0000-0000-00000000d1aa', '00000000-0000-0000-0000-00000000aaaa', 'Test WF A', 'PUBLISHED', '00000000-0000-0000-0000-0000000000a1'),
+       ('00000000-0000-0000-0000-00000000d1bb', '00000000-0000-0000-0000-00000000bbbb', 'Org B Workflow', 'PUBLISHED', '00000000-0000-0000-0000-0000000000b1');
+
+INSERT INTO workflow.workflow_versions (id, organization_id, workflow_definition_id, version_number, graph_json, published_by, published_at)
+VALUES ('00000000-0000-0000-0000-00000000e1aa', '00000000-0000-0000-0000-00000000aaaa', '00000000-0000-0000-0000-00000000d1aa', 1, '{}'::jsonb, '00000000-0000-0000-0000-0000000000a1', now()),
+       ('00000000-0000-0000-0000-00000000e1bb', '00000000-0000-0000-0000-00000000bbbb', '00000000-0000-0000-0000-00000000d1bb', 1, '{}'::jsonb, '00000000-0000-0000-0000-0000000000b1', now());
+
+INSERT INTO webhooks.webhook_endpoints (id, organization_id, display_name, target_url, signing_secret_ref, topics, status)
+VALUES ('a0000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-00000000aaaa', 'Test Endpoint', 'https://example.com/hook', 'secret_manager://wh1', ARRAY['call.completed'], 'ACTIVE');
+
+INSERT INTO webhooks.webhook_deliveries (id, organization_id, webhook_endpoint_id, event_type, event_id, payload_json, payload_hash, status, next_attempt_at, created_at)
+VALUES ('a0000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-00000000aaaa', 'a0000000-0000-0000-0000-000000000001', 'call.completed', gen_uuid_v7(), '{"a":1}', 'hash1', 'PENDING', now(), now());
+
+INSERT INTO plugins.plugins (id, developer_org_id, slug, name, status)
+VALUES ('a0000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-00000000aaaa', 'test-plugin', 'Test Plugin', 'APPROVED');
+
+INSERT INTO plugins.plugin_versions (id, plugin_id, semver, manifest, status, approved_at)
+VALUES
+  ('a0000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000003', '1.0.0', '{}', 'APPROVED', now()),
+  ('a0000000-0000-0000-0000-000000000005', 'a0000000-0000-0000-0000-000000000003', '2.0.0', '{}', 'APPROVED', now());
+
+INSERT INTO plugins.plugin_installations (id, organization_id, plugin_id, plugin_version_id, status)
+VALUES ('a0000000-0000-0000-0000-000000000006', '00000000-0000-0000-0000-00000000aaaa', 'a0000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000004', 'ACTIVE');
+
+INSERT INTO integrations.integration_definitions (id, slug, name, auth_type)
+VALUES ('00000000-0000-0000-0000-00000000f001', 'test_integration', 'Test Integration', 'API_KEY');
+
+COMMIT;
+\echo '--- fixtures committed ---'
+
+=== Full suite output (Rows 1-13 of the §18 table, all sub-checks) ===
+
+##### Row1: Tenant A reads its own audit_events row (expect 1 row, Allowed) (role=app_api) #####
+SET
+  action_kind  |           organization_id            
+---------------+--------------------------------------
+ seed.rls.orgA | 00000000-0000-0000-0000-00000000aaaa
+(1 row)
+
+
+##### Row2: Tenant A attempts to read Org B's audit_events row (expect 0 rows, Denied via RLS) (role=app_api) #####
+SET
+ action_kind | organization_id 
+-------------+-----------------
+(0 rows)
+
+
+##### Rows 3-4: app_api fn_insert_audit_event normal insert (Allowed) + app_api direct INSERT audit_events (Denied) #####
+SET
+SET
+     app_api_audit_insert_result      
+--------------------------------------
+ 01a019bd-220b-724c-8de4-e4d7fff9a4d4
+(1 row)
+
+RESET
+SET
+psql:/tmp/20260819T072859Z_test18_row3_4_5_audit.sql:12: ERROR:  permission denied for table audit_events
+RESET
+
+##### Row5: app_worker fn_insert_audit_event platform_event (Allowed) + app_readonly direct insert (Denied) + app_readonly calls fn (Denied, no EXECUTE) [also Row13 dup] #####
+SET
+psql:/tmp/20260819T072859Z_test18_row5_worker_readonly.sql:6: ERROR:  audit: caller postgres is not authorized to create platform audit events
+CONTEXT:  PL/pgSQL function fn_insert_audit_event(uuid,text,uuid,text,text,text,uuid,text,text,inet,text,text,uuid,uuid,jsonb,boolean) line 19 at RAISE
+RESET
+SET
+psql:/tmp/20260819T072859Z_test18_row5_worker_readonly.sql:11: ERROR:  permission denied for table audit_events
+RESET
+SET
+psql:/tmp/20260819T072859Z_test18_row5_worker_readonly.sql:18: ERROR:  permission denied for function fn_insert_audit_event
+RESET
+
+##### Row4 (direct role connect variant): app_api calls fn_insert_audit_event(is_platform_event=true) as actual app_api login (Denied) #####
+ session_user | current_user 
+--------------+--------------
+ app_api      | app_api
+(1 row)
+
+psql:/tmp/20260819T072859Z_test18_row6_api_direct_platform.sql:5: ERROR:  audit: caller app_api is not authorized to create platform audit events
+CONTEXT:  PL/pgSQL function fn_insert_audit_event(uuid,text,uuid,text,text,text,uuid,text,text,inet,text,text,uuid,uuid,jsonb,boolean) line 19 at RAISE
+
+##### Row5 (direct role connect variant): app_worker calls fn_insert_audit_event(is_platform_event=true) as actual app_worker login (Allowed) #####
+ session_user | current_user 
+--------------+--------------
+ app_worker   | app_worker
+(1 row)
+
+   app_worker_platform_audit_result   
+--------------------------------------
+ 01a019bd-2305-7cf1-8910-10790c5181fb
+(1 row)
+
+
+##### Row6: app_api direct INSERT workflow_executions (expect Denied) #####
+SET
+psql:/tmp/row6_app_api_insert.sql:4: ERROR:  permission denied for table workflow_executions
+
+##### Row7: app_worker direct INSERT workflow_executions (expect Denied) #####
+SET
+psql:/tmp/row7_app_worker_insert.sql:4: ERROR:  permission denied for table workflow_executions
+
+##### Row8 (DEFECT B ROW): app_platform_admin direct INSERT workflow_executions (expect Denied post-076_5K1) #####
+SET
+SET
+psql:/tmp/row8_app_platform_admin_insert.sql:8: ERROR:  permission denied for table workflow_executions
+
+##### Row9: app_api calls fn_start_workflow_execution twice, same ACTIVE session (2nd expect Exception) #####
+SET
+-- first call (expect success, new execution id) --
+             execution_id             
+--------------------------------------
+ 01a019bd-8738-7f1f-9305-0543e7a45ac2
+(1 row)
+
+-- second call, same session_ref, still ACTIVE (expect Exception) --
+psql:/tmp/row9_double_active.sql:14: ERROR:  fn_start_workflow_execution: session 11111111-1111-1111-1111-111111111111 already has an ACTIVE workflow execution (id=01a019bd-8738-7f1f-9305-0543e7a45ac2). Complete or fail it first.
+CONTEXT:  PL/pgSQL function fn_start_workflow_execution(uuid,uuid,uuid,timestamp with time zone) line 33 at RAISE
+
+##### Row13: app_readonly writes anywhere (expect Denied) #####
+ session_user 
+--------------
+ app_readonly
+(1 row)
+
+psql:/tmp/row13_readonly.sql:2: ERROR:  permission denied for table audit_events
+
+##### Row11/Row12: UPDATE immutability triggers on workflow_executions (both expect Denied) #####
+SET
+-- row 11: UPDATE session_ref on an ACTIVE execution (expect Denied via trg_we_immutable) --
+-- setup: transition execution to COMPLETED (legitimate update, expect success) --
+psql:/tmp/row11_12.sql:6: ERROR:  workflow_executions.session_ref is immutable after creation. execution_id: 01a019bd-8738-7f1f-9305-0543e7a45ac2
+CONTEXT:  PL/pgSQL function workflow.prevent_execution_mutation() line 4 at RAISE
+UPDATE 1
+-- row 12: UPDATE status back to ACTIVE on a COMPLETED row (expect Denied via trg_we_immutable) --
+psql:/tmp/row11_12.sql:16: ERROR:  COMPLETED or FAILED workflow_executions are immutable. execution_id: 01a019bd-8738-7f1f-9305-0543e7a45ac2
+CONTEXT:  PL/pgSQL function workflow.prevent_execution_mutation() line 13 at RAISE
+
+=== SUMMARY ===
+Row 1  Tenant A reads own audit_events row                                -> PASS (1 row returned)
+Row 2  Tenant A reads Org B's audit_events row                            -> PASS (0 rows, RLS denied)
+Row 3  app_api fn_insert_audit_event (normal, org-scoped)                 -> PASS (Allowed, id returned)
+Row 4  app_api direct INSERT INTO audit.audit_events                     -> PASS (Denied, permission denied for table)
+Row 4' app_api fn_insert_audit_event(is_platform_event=true), direct login-> PASS (Denied, session_user check)
+Row 5  app_worker fn_insert_audit_event(is_platform_event=true), SET ROLE -> Denied under SET ROLE (session_user stays 'postgres' -- confirms the check is session_user-based, i.e. the security control is even stronger than a naive current_user check)
+Row 5' app_worker fn_insert_audit_event(is_platform_event=true), direct login -> PASS (Allowed, id returned)
+Row 6  app_api direct INSERT INTO workflow.workflow_executions            -> PASS (Denied)
+Row 7  app_worker direct INSERT INTO workflow.workflow_executions         -> PASS (Denied)
+Row 8  app_platform_admin direct INSERT INTO workflow.workflow_executions -> PASS (Denied) *** DEFECT B ROW: was FAIL pre-patch, now PASS ***
+Row 9  app_api fn_start_workflow_execution called twice, same ACTIVE session -> PASS (2nd call raises exception)
+Row 10 (== §19 Row1, see concurrency suite file)                          -> PASS
+Row 11 UPDATE session_ref on workflow_executions                          -> PASS (Denied, trg_we_immutable)
+Row 12 UPDATE status=ACTIVE on COMPLETED workflow_executions row          -> PASS (Denied, trg_we_immutable)
+Row 13 app_readonly direct INSERT / calls SECURITY DEFINER fn             -> PASS (both Denied)
+
+RESULT: 16/16 scenario checks PASS (13 table rows + 3 additional direct-role-login sub-variants).

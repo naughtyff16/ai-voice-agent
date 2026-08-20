@@ -1,82 +1,178 @@
 # Phase 5K Migration Manifest
 
-Generated from the actual final migration files after all execution-verified fixes.
-SHA-256 checksums computed directly from file contents (not fabricated).
+Regenerated 2026-08-19 during Phase 5K final validation. SHA-256 and size
+values below are computed directly from the current contents of each file
+in `migrations/` (verified via a fresh-DB `alembic upgrade head` run — see
+`validation/ALEMBIC_VALIDATION_REPORT.md`). The previous version of this
+table (generated at an earlier point in Phase 5K's execution history) had
+become stale relative to the final frozen file contents — every one of the
+75 rows' size/SHA-256 no longer matched the files on disk, and this
+regeneration corrects that. See "Reconciliation" below for details.
 
 | # | Phase | Filename | Down Revision | Txn Mode | Size (bytes) | SHA-256 |
 |---|---|---|---|---|---|---|
-| 001 | 5B | `001_5B.sql` | `None (root)` | transactional | 5852 | `3b2a69ea2f84958995987fdd35d8b071005917894e53c765f1def3ba4f8c2815` |
-| 002 | 5B | `002_5B.sql` | `001_5B` | transactional | 8971 | `f34b3f82dcb7bcf662ac8c6ff682ca9a4cff34814bfdd1020a99031bf894ed38` |
-| 003 | 5B | `003_5B.sql` | `002_5B` | transactional | 20119 | `ca6f9211429a04168d85c54c8f63376e380f36bd916fb1042be841b4034bb8ac` |
-| 004 | 5B | `004_5B.sql` | `003_5B` | transactional | 661 | `73bc699619933faa68dac34305d197a3625209913fe1d9b12233ea2723197a90` |
-| 005 | 5B | `005_5B.sql` | `004_5B` | transactional | 789 | `e9b0f128f567410626ed739cddfbf355d1c5c5706d622eed5b5be3b22b3b1b31` |
-| 006 | 5B | `006_5B.sql` | `005_5B` | transactional | 426 | `bbbc307ff4aaa59e4d6d23577462589eac725184f463ada6801891bb43f7d2b2` |
-| 007 | 5B | `007_5B.sql` | `006_5B` | transactional | 6451 | `9b084ded7018a5f4fbc86a51b46fa083c6b63a1fdac8f2bffcb659d0c73801b5` |
-| 008 | 5B | `008_5B.sql` | `007_5B` | transactional | 616 | `278b9bff41380024a6d9795f623abd6b9a3137d89346fbe2a81f9bdd77f6ef6c` |
-| 009 | 5C | `009_5C.sql` | `008_5B` | transactional | 1892 | `b1dbfd04a6c243b17b6fa65d6361902acac7f998ab31c74d295d7ff45022b1b5` |
-| 010 | 5C | `010_5C.sql` | `009_5C` | transactional | 3530 | `8647da096bc258a603c4c43746e4880c9a032938a337ec38be5eae76dfc4bcf8` |
-| 011 | 5C | `011_5C.sql` | `010_5C` | transactional | 6108 | `74127b2089571b5a060dd9464bc58a6979c1d0de1752d583fe0b35bafa580959` |
-| 012 | 5C | `012_5C.sql` | `011_5C` | transactional | 5953 | `e70db7c8223b8e0fff34dbe6e8bdea96529a6918d51668ae4f2f78cc599b79f0` |
-| 013 | 5C | `013_5C.sql` | `012_5C` | transactional | 5157 | `0a7636698bae79c6bc2c7ce1cf2b80e8fac42c4120f0a22cddd20196724a8f0e` |
-| 014 | 5C | `014_5C.sql` | `013_5C` | transactional | 7023 | `e772c15ee60aef6de40dc452e8c5e24cf334c151e670fffbcb6d5800d6d6412c` |
-| 015 | 5C | `015_5C.sql` | `014_5C` | transactional | 7738 | `684ea5bb27658788d8ea0ee30c653c280e406dc709ac36996e78d5872971c161` |
-| 016 | 5C | `016_5C.sql` | `015_5C` | transactional | 1139 | `19a73c27019f72acce4dda30a26486a74b9de55c202ae56c533af7c770cda892` |
-| 017 | 5C | `017_5C.sql` | `016_5C` | transactional | 3088 | `fbf10f9ab9953fd9d192459270d0e5d242b0775c41980cc97b36f5fa586145cc` |
-| 018 | 5C | `018_5C.sql` | `017_5C` | transactional | 267 | `689b419627b07278e6218f68b037ff321ad8907fe7d01683304acd09117c50c5` |
-| 019 | 5D | `019_5D.sql` | `018_5C` | transactional | 682 | `be6d660eb24fbd37d1a3c086f46afeef7a1187bca8ec17e754dbdf7a223a9625` |
-| 020 | 5D | `020_5D.sql` | `019_5D` | transactional | 7932 | `ab9f6e71c1cb79df112b6bcec9720136e6db5aa7256b9b6f0c2db53687b1caf3` |
-| 021 | 5D | `021_5D.sql` | `020_5D` | transactional | 4081 | `ae95156260bd0cad48664cd1fc0007ce96efbc2b0780df78fc043389d746c114` |
-| 022 | 5D | `022_5D.sql` | `021_5D` | transactional | 6935 | `241fd4ece584c0490af8e60187b6f84c5cce92aba826d895e3864586f0186c07` |
-| 023 | 5D | `023_5D.sql` | `022_5D` | transactional | 5055 | `68694f95e1573cc59a06783766d1fac90fcb97ab72e1bdba254a44b40a6b8c17` |
-| 024 | 5D | `024_5D.sql` | `023_5D` | transactional | 8910 | `d54a918ed63e911e62ac785b05a73ae85d3aa3bc0389186fb23d376dacab56d2` |
-| 025 | 5D | `025_5D.sql` | `024_5D` | transactional | 1142 | `f6f27b7c7dd41e1936828aa8090d22d9975c4988a4f42f0092f22d7dce1c5593` |
-| 026 | 5D | `026_5D.sql` | `025_5D` | transactional | 369 | `d8718e84dcb65ca2532e8d116865a175a9cdef702cd82d89cba7603e3dba6d43` |
-| 027 | 5E | `027_5E.sql` | `026_5D` | transactional | 370 | `cdf8f6ed7501a86c8de17a4dd691419705868b25c3a20e6ffb88542927a28976` |
-| 028 | 5E | `028_5E.sql` | `027_5E` | transactional | 3836 | `8fd38a2f02e39bc895f690c89982f4b6f81746f6f70dd63d7d34578a71470e6a` |
-| 029 | 5E | `029_5E.sql` | `028_5E` | transactional | 3697 | `d60a4ad805bee6a44802f10b0366d9f9c500abd8ac38cafd5f70e32fbb2e0be7` |
-| 030 | 5E | `030_5E.sql` | `029_5E` | transactional | 4354 | `3999c3046b837f029e845f9194ae9dda0542ef12b19372c81fddf3e85c247929` |
-| 031 | 5E | `031_5E.sql` | `030_5E` | transactional | 2987 | `05a165c911d9be7ed426bb58b5e342bdbe7d646e27f46f71632244e12f6004d1` |
-| 032 | 5E | `032_5E.sql` | `031_5E` | transactional | 3293 | `2bc589bd3fddd85eed983bb4bcc7e7e52d86634928226ea0377d202ab841320e` |
-| 033 | 5E | `033_5E.sql` | `032_5E` | transactional | 501 | `1fe847065c8bb08e1d09c78bca8c77ae43e4fbe200d95eb4605e60cebc80b015` |
-| 034 | 5F | `034_5F.sql` | `033_5E` | transactional | 6970 | `aa3acf6f8bc0f50e428050e3b47208d7391c9457b8a061d0ccd5b29693548c36` |
-| 035 | 5F | `035_5F.sql` | `034_5F` | transactional | 2252 | `ff8df7315c15c0de416e3f1302a95d88e753b03334bdb3e325d89999a91b260c` |
-| 036 | 5F | `036_5F.sql` | `035_5F` | transactional | 6116 | `bdf2606ee26677bb3e70fcc799de938c1016fa208d9d33dc5215848c246a7bd7` |
-| 037 | 5F | `037_5F.sql` | `036_5F` | transactional | 2276 | `1c726f61dac2e84afb6367d466a9247532a2ff103d9d088a64ad1e1355884ffe` |
-| 038 | 5F | `038_5F.sql` | `037_5F` | transactional | 2627 | `2123d58429675be3d85e792793fdcaac8f2f17db83a05b1971d3c61230ad598e` |
-| 039 | 5G | `039_5G.sql` | `038_5F` | transactional | 6180 | `caa79743f2e7156a803858554ff70271ca830a975ec06a55fe9c217b9a92ba9f` |
-| 040 | 5G | `040_5G.sql` | `039_5G` | transactional | 3572 | `39c1a7d186b8ccfacc054e410d3f8d251318660ce3b46a9215d783c860e7454d` |
-| 041 | 5G | `041_5G.sql` | `040_5G` | transactional | 4063 | `5953b3b72cfb5955d38d8d488698f22969cd12114d10801510c3c823a4b30749` |
-| 042 | 5G | `042_5G.sql` | `041_5G` | transactional | 5294 | `aa4182dca74b427114f4191286bd596ee3fcb4cf42dba5125ce8c41fbbe07087` |
-| 043 | 5F | `043_5F.sql` | `042_5G` | NON-TRANSACTIONAL (CONCURRENTLY) | 2227 | `1d5546e1b0647d4cd0740a9e28cb4f42ce9e633b1e3c56ba80a354d8a86cb72d` |
-| 044 | 5F | `044_5F.sql` | `043_5F` | transactional | 454 | `e2ffc656ce7e9532a5a451a3d5642ddfcaa0ba8674e91f3df9e685c9e26ce40b` |
-| 045 | 5G | `045_5G.sql` | `044_5F` | transactional | 4210 | `ddb1adee7f611d019cec5c3d98c0f888f3344cd58fc30fd1d385fcd5528ee7d1` |
-| 046 | 5G | `046_5G.sql` | `045_5G` | transactional | 516 | `9242ae81daf0ed59c0c2f3820e7962762f0ca90e2eb1194e1d38de5c2fa8c5b6` |
-| 047 | 5H | `047_5H.sql` | `046_5G` | transactional | 8388 | `360b0c3e046fbdf04b001c156dd905dbc52a6e1ada637117fbac3a735deabfc1` |
-| 048 | 5H | `048_5H.sql` | `047_5H` | transactional | 2723 | `712b15a8112b79b3ba1f9e0f96a3f4b3642d5a9d4f034bae6b8a8fbc0bd1a04b` |
-| 049 | 5H | `049_5H.sql` | `048_5H` | transactional | 5336 | `c81e2c108977877e9f0409371f8f97647dee246d73e65cb42b09c79dd95d6d07` |
-| 050 | 5H | `050_5H.sql` | `049_5H` | transactional | 4246 | `f5bae0ebe5b32940e0926d6a5142d51d23579e8eb085793e595fb950a1707bd7` |
-| 051 | 5H | `051_5H.sql` | `050_5H` | transactional | 2711 | `e3da51a86374964e039806ac5f968be3b5de47edf6aa7d3fc4295870043a3157` |
-| 052 | 5H | `052_5H.sql` | `051_5H` | transactional | 6629 | `df75c5136042b3e39bec193f7aa54559c840ffac1a85bd7332618acc128146d7` |
-| 053 | 5H | `053_5H.sql` | `052_5H` | transactional | 5581 | `93e1a6c459a7cbbc5563bb30bb1ee946dfc3cf0ec42cca82cfd44c971e91395e` |
-| 054 | 5H | `054_5H.sql` | `053_5H` | transactional | 8791 | `f82b9a912b486e155d9665c84f1742d4d0d916702e6b4134cb6f8645a4b16403` |
-| 055 | 5H | `055_5H.sql` | `054_5H` | transactional | 5467 | `1f996aef7e7fb106d4722dc46ac5933412986b5c31b24c0dff075e47e0dce9cf` |
-| 056 | 5H | `056_5H.sql` | `055_5H` | transactional | 1779 | `24c56dc6e74e415a38b6897acffbe15f89151db7197c53e25564c1d8879ab277` |
-| 057 | 5H | `057_5H.sql` | `056_5H` | transactional | 6540 | `888ba9abe6780a0345c88fc3e30c4beccc490d0818e58b3544d52dd9f7cc166e` |
-| 058 | 5H | `058_5H.sql` | `057_5H` | transactional | 192 | `50902a3bbb37c92758769536399a65bd5ac6922c124db2c02195c6228858adc1` |
-| 059 | 5I | `059_5I.sql` | `058_5H` | transactional | 578 | `24af792db52eb3f6584d777bfa208e56fa0d6fd30cc8f1dfbdc888db0da70208` |
-| 060 | 5I | `060_5I.sql` | `059_5I` | transactional | 2205 | `1632fc3eced4fa7351fae063a6961638b1144271ecf2d533ca9c07cb5fa38d73` |
-| 061 | 5I | `061_5I.sql` | `060_5I` | transactional | 13541 | `26aaaf92c3bd8bf9602c4e2a96b484c0aa79c583fc5b1407f3c317fc4a2b77ec` |
-| 062 | 5I | `062_5I.sql` | `061_5I` | transactional | 6269 | `22885f4bc27bb344f277914eafc0c16ece471ee12c44934f4806313b7bd85218` |
-| 063 | 5I | `063_5I.sql` | `062_5I` | transactional | 11646 | `4da475d8365c11be2ae5fa63193fee106ad7f9e51df5bf5016f33d1d4859ea10` |
-| 064 | 5I | `064_5I.sql` | `063_5I` | transactional | 3974 | `3576fb1db1e942805328ecf557f7f4f03a0ea7635514e6cc3539a21b1791e178` |
-| 065 | 5I | `065_5I.sql` | `064_5I` | transactional | 14643 | `b4ee562a56407eeea2339c509231a6234e83802d341dea0b40e446e972e6c4a4` |
-| 066 | 5I | `066_5I.sql` | `065_5I` | transactional | 531 | `dbe3b90570867481be05bca36a607a493ad7505160ea18c75a5c5534fcd659ec` |
-| 067 | 5J | `067_5J.sql` | `066_5I` | transactional | 662 | `0ed58f989de696982aff67a29e17b02d52c3d2b0f319a96733c79f7e8f8058a8` |
-| 068 | 5J | `068_5J.sql` | `067_5J` | transactional | 16330 | `2e277ea80db49e27ec848593a00680fe1a0698246bd2c4ba999b4683c08e12b4` |
-| 069 | 5J | `069_5J.sql` | `068_5J` | transactional | 10331 | `0657f38a0605f714c6a828740e2410de9be46c3a6c3343f2076dd849298daca8` |
-| 070 | 5J | `070_5J.sql` | `069_5J` | transactional | 4886 | `5bc68df25a590797bccda293d3cc4532ab523714fe369245eafabd43bc8a47af` |
-| 071 | 5J | `071_5J.sql` | `070_5J` | transactional | 19368 | `281307753715fd7d0fbe209cc7c61055707e412669f789f131e7cc714705f4c9` |
-| 072 | 5J | `072_5J.sql` | `071_5J` | transactional | 12162 | `93ebdb1e8c470c344fd624b1ee759afc85b99d398056b576681f11bdd6db0a77` |
-| 073 | 5J | `073_5J.sql` | `072_5J` | transactional | 909 | `558ced7bdcb680f748293a0c78f0d6cdead681d3fb57495e54cb8ce5c21db71d` |
-| 074 | 5J | `074_5J.sql` | `073_5J` | transactional | 1232 | `4d05b70dacea995f2449f8ac31d7e72811f67f37d70324f69b59532ddb846c80` |
-| 075 | 5J | `075_5J.sql` | `074_5J` | transactional | 1648 | `d1ea6181d8f41feb7182b9e2db3a8a595c3aee0b01b358c7aa1f5769cd894476` |
+| 001 | 5B | `001_5B.sql` | `None (root)` | transactional | 3190 | `35a2c12ec7bdf68fdc490a6a60824b09c0d56a8851ec2a2c91e68e0f3980ad08` |
+| 002 | 5B | `002_5B.sql` | `001_5B` | transactional | 7183 | `53ae74f72f6b73c0b0496fd94644434a51ee417614b9cc65b5b100b453e90dfa` |
+| 003 | 5B | `003_5B.sql` | `002_5B` | transactional | 13087 | `02968c8c4b9b54d13f9caf240f628094aeb8a3b4c752e5ad7374d82d9f3785b3` |
+| 004 | 5B | `004_5B.sql` | `003_5B` | transactional | 5938 | `88961a52c0e25a694bddbf7ac2a86c3d75d41c4a36aeffaf71662680bac9f174` |
+| 005 | 5B | `005_5B.sql` | `004_5B` | transactional | 847 | `b2f5b6d205802c8288878950680ba785fcfd07d5be2ccc760a57b48849ac2030` |
+| 006 | 5B | `006_5B.sql` | `005_5B` | transactional | 2133 | `a0197fe8944ac9823628c4f6620539503b35f34ac953b231d89692c5607b222d` |
+| 007 | 5B | `007_5B.sql` | `006_5B` | transactional | 11243 | `3b92392276e0d13f07d4eb464dd62aa7c37292ef9c51be7f7ba9919fdd985935` |
+| 008 | 5B | `008_5B.sql` | `007_5B` | transactional | 2612 | `967eb6c22b32459af2ef706f9a74ea0fb11cf79adfa20ac92e01a44bf3d1b5b3` |
+| 009 | 5C | `009_5C.sql` | `008_5B` | transactional | 1233 | `4620810e781427002c18893363be048eebc812c693248d93109d1f34c328b9e8` |
+| 010 | 5C | `010_5C.sql` | `009_5C` | transactional | 3150 | `7348d6719989f1f77987412bb55b079e0f7c8bafd930467d35b9d797757f469b` |
+| 011 | 5C | `011_5C.sql` | `010_5C` | transactional | 4930 | `54242eabd161453440e47c1e944fb90f2a1e35c3ee52db6447a99ebc3816bd23` |
+| 012 | 5C | `012_5C.sql` | `011_5C` | transactional | 5842 | `f3fb8bf40fcf2b9206ef6c5fc0b69abb87888dda3c05cb2dec9385b2da827343` |
+| 013 | 5C | `013_5C.sql` | `012_5C` | transactional | 4967 | `f85139b871b5519b32004b1c241a3d5af8a4446e04743951f72f8e3c047167c6` |
+| 014 | 5C | `014_5C.sql` | `013_5C` | transactional | 6690 | `d1ed39f9cdfaff4834d7a1b4c1b430bb8e06a83e20ad345284dcf96146ca5546` |
+| 015 | 5C | `015_5C.sql` | `014_5C` | transactional | 7420 | `20e0b7328c0caaeeb7023f04edf1d47226a5a642f7b52df798274bcb382a645f` |
+| 016 | 5C | `016_5C.sql` | `015_5C` | transactional | 1153 | `8ffcfbe63d43cf6352a3033c95cae6f085bb239640c6054af40db7982a4b2156` |
+| 017 | 5C | `017_5C.sql` | `016_5C` | transactional | 3054 | `9512dec141e81b184ee277ba04bb171d57e534400c0e3d35f954e597e2406bc6` |
+| 018 | 5C | `018_5C.sql` | `017_5C` | transactional | 638 | `fe76ff29b922b605c147748e6497aea4c3239d572a5c3f8515d34769d44d1407` |
+| 019 | 5D | `019_5D.sql` | `018_5C` | transactional | 699 | `511c2b44797ac0113e92293eef457c77e49df36214db5f083ee12f1b29c3d073` |
+| 020 | 5D | `020_5D.sql` | `019_5D` | transactional | 7211 | `c73ba5a91eea4c00f480834e3044a2e2d96138676a3d46ba7531752203d2ce39` |
+| 021 | 5D | `021_5D.sql` | `020_5D` | transactional | 4015 | `50d9f130c5e937e301a7aae7c072a68af40307294afc646bd5e8b1b17944f7d6` |
+| 022 | 5D | `022_5D.sql` | `021_5D` | transactional | 7064 | `50953fcf5b9b33d07d2bdd8225aee329876f7351efc957b609c2803e35fb301f` |
+| 023 | 5D | `023_5D.sql` | `022_5D` | transactional | 5006 | `64e627377c57fe84f7bbeec2c1e072f702fcf3f8536b2ab46cfb50b8209f0be0` |
+| 024 | 5D | `024_5D.sql` | `023_5D` | transactional | 7624 | `49c0f7d93976aeb5d2bebc1567648975b23c3740d198307644a09675595b3ee3` |
+| 025 | 5D | `025_5D.sql` | `024_5D` | transactional | 1055 | `35d08b87b94a0ee4f7961da2cf0b501edfdfc613197497704fa51d4a0822055c` |
+| 026 | 5D | `026_5D.sql` | `025_5D` | transactional | 321 | `70051284eb5e141067b81b41ac53f20a5aad95972e7657d9ed60e08b7e73622a` |
+| 027 | 5E | `027_5E.sql` | `026_5D` | transactional | 358 | `a9abbf576ca294a0a2cf52ad14d73861e198679177ddfdbc05bb448379d341f3` |
+| 028 | 5E | `028_5E.sql` | `027_5E` | transactional | 3718 | `3c2effa5e728bf07f17e17e04f8c0957af2cd9d1bc90622299a082b1e3eef7c3` |
+| 029 | 5E | `029_5E.sql` | `028_5E` | transactional | 3340 | `e97e749e7bc28fa38d48ccbc24cd09b44175c1b2ed153f48acd997871a2e6b01` |
+| 030 | 5E | `030_5E.sql` | `029_5E` | transactional | 4229 | `99907464c49f472dcc6636c0b3ea0c148fdf7eb8c7593781fbf00697b6be6ec7` |
+| 031 | 5E | `031_5E.sql` | `030_5E` | transactional | 2408 | `a3570f1a973b72ef1869da9cae2fe2d9d49cec7c184d709b958935ccb126df81` |
+| 032 | 5E | `032_5E.sql` | `031_5E` | transactional | 3319 | `498f07a7748015a3cb6242c2f0cc61fafd6bda9d26b8339929fe83399ae298d3` |
+| 033 | 5E | `033_5E.sql` | `032_5E` | transactional | 717 | `cab77935c7941f1f9e95731d7969b7cca6eb30b7b3a906d98eaa02a83a2c65a2` |
+| 034 | 5F | `034_5F.sql` | `033_5E` | transactional | 5447 | `d44747a2b6266e428cef65bc7c975ddcdd89ac39d58a19e7284514e3a7de20e6` |
+| 035 | 5F | `035_5F.sql` | `034_5F` | transactional | 2417 | `e9ffe4b07fc34f055167f4d856b5e6acf7d3846127cf0d91143ed4eb88097de7` |
+| 036 | 5F | `036_5F.sql` | `035_5F` | transactional | 5265 | `b8319ca51f667b86e1dd088d89cc4044cfae2ab279e7c322588d316012d27520` |
+| 037 | 5F | `037_5F.sql` | `036_5F` | transactional | 2438 | `4e6eb49556964ba3f714e9896cbe4604bf262f486195dc10bc94da4610b0fdbf` |
+| 038 | 5F | `038_5F.sql` | `037_5F` | transactional | 2700 | `dc4db7edd695b1efea03aa16684e8384c3a2002a5e1020f9ce8b8ee0865f51c8` |
+| 039 | 5G | `039_5G.sql` | `038_5F` | transactional | 5905 | `7291bb1144791240074e7c08bffbaae3785540fb859f61d8a614dcd99bf75e81` |
+| 040 | 5G | `040_5G.sql` | `039_5G` | transactional | 3537 | `7e40e372c4d1e5490d107521d3783666aaf81a2351db3f08afd9bffe0f30d1b9` |
+| 041 | 5G | `041_5G.sql` | `040_5G` | transactional | 6884 | `3fbf53c1dbf7f7307adb25ee7afa081fea41468bd5335fac4cbfeb172233d43b` |
+| 042 | 5G | `042_5G.sql` | `041_5G` | transactional | 5125 | `a2458d5f6b7874f676e4f10ace3868b30de61ffabc946c339b9cc18eb8ce2019` |
+| 043 | 5F | `043_5F.sql` | `042_5G` | transactional | 1198 | `2bf08a86d6dbd18363288ab51cd1f740298729f8ce3e4a1a8117d1a28a697a6d` |
+| 044 | 5F | `044_5F.sql` | `043_5F` | transactional | 681 | `590ea6912339f4d0d3b9c3f8d440b148b47818599aac5583f203a86e139fda12` |
+| 045 | 5G | `045_5G.sql` | `044_5F` | transactional | 4020 | `4f24f9dec4b58b5ea936c44a90ab38d411653e5b1ae152f047eb3809ab4852bb` |
+| 046 | 5G | `046_5G.sql` | `045_5G` | transactional | 746 | `0df3a8b9f4db599dea3f88bd763916d85c3c51b35eb249b308ad5e65a41fca99` |
+| 047 | 5H | `047_5H.sql` | `046_5G` | transactional | 7284 | `8cfe774e31a38ffdf43fb3838a958da599243c13187635e63cd1413c2c2c8f54` |
+| 048 | 5H | `048_5H.sql` | `047_5H` | transactional | 2548 | `37f9c481b9dae5c5da343cf06d4f95f6d74adad9fccf07b943de74a426f26e94` |
+| 049 | 5H | `049_5H.sql` | `048_5H` | transactional | 4991 | `991ae1c7561afbffac9e1e3ebe368b703b7c49bd35ae12cf11441db241722fb9` |
+| 050 | 5H | `050_5H.sql` | `049_5H` | transactional | 3988 | `ada3d087582f04fe48f78d8e9acf42bbe12b34a2ea5a8c2092457c0c91be4367` |
+| 051 | 5H | `051_5H.sql` | `050_5H` | transactional | 3027 | `80da4312c17bc8219553bf0c267764cfa48d5d23a7d081494af2aeb337244517` |
+| 052 | 5H | `052_5H.sql` | `051_5H` | transactional | 5908 | `e269ee955e9ae1f048b82295c577d1fbe824280c869d25459b9b03433ea9d814` |
+| 053 | 5H | `053_5H.sql` | `052_5H` | transactional | 4994 | `63be1177fcffb24569655864eb3a820986d159e886b2128686688f3de399ad82` |
+| 054 | 5H | `054_5H.sql` | `053_5H` | transactional | 8090 | `7bcd9083053349977fd25412a6bf15506233ff870117b0bd07ac19066c3e5906` |
+| 055 | 5H | `055_5H.sql` | `054_5H` | transactional | 5079 | `0cc35518b29e4e024c6524aa54a7051a63b64cd37a7e6f0599c7a1d46c16dc15` |
+| 056 | 5H | `056_5H.sql` | `055_5H` | transactional | 1660 | `7fa25ababb1c726e5f814366f8bb8e2f61d633d817c1e416c109add6b680a845` |
+| 057 | 5H | `057_5H.sql` | `056_5H` | transactional | 5763 | `65ba1856b89bead754925dcabc04a52b7c841184e8bf092ba03a7e2cefa3792a` |
+| 058 | 5H | `058_5H.sql` | `057_5H` | transactional | 236 | `f7f5473f0998a6f3940f05919061c4cbdd06aca47a0d73da31e7798400300059` |
+| 059 | 5I | `059_5I.sql` | `058_5H` | transactional | 490 | `6f3c654d18a419fe7e0b62fdeb31c753a8d15ab4c00e95147ca5d5afb59849ac` |
+| 060 | 5I | `060_5I.sql` | `059_5I` | transactional | 2038 | `e05e7d6403b49dcf9795625e0ab27b69bc0d82d3aec10f45e38ebeb863637d4b` |
+| 061 | 5I | `061_5I.sql` | `060_5I` | transactional | 12178 | `bb3af94df067a3036c144c4202d917db1929c81e465d8a5bf05ab4e71e87996a` |
+| 062 | 5I | `062_5I.sql` | `061_5I` | transactional | 5723 | `b6443fcefbcdd9c33e6974a273e60992dc5d009293ec3b7f8d431ab63633c223` |
+| 063 | 5I | `063_5I.sql` | `062_5I` | transactional | 10185 | `914248d3b96c9b4b6cc560c43b379fb860d82218684c7b36365bffbf09dc0a82` |
+| 064 | 5I | `064_5I.sql` | `063_5I` | transactional | 3726 | `198db4e7cb4aa22eb2435a2a8381be03b89c16553aab7a6645e0952ec06ddb3a` |
+| 065 | 5I | `065_5I.sql` | `064_5I` | transactional | 12625 | `8274167b1ee175ce02933075689280ade474639ed383f02ab013d2520ffb5993` |
+| 066 | 5I | `066_5I.sql` | `065_5I` | transactional | 566 | `a6fad90dea2180c9a67627c3c3aea809ddb738f68b357b316413a9ef31e75257` |
+| 067 | 5J | `067_5J.sql` | `066_5I` | transactional | 336 | `e56d57f171979b9cd545635291a1e91f4267bf2aadda14e7fedacbc0fba4a6d0` |
+| 068 | 5J | `068_5J.sql` | `067_5J` | transactional | 12706 | `f32d9dc6c0742c2656dd2e9a9677defe0b424c36c7cade5a23a08aef9b394f19` |
+| 069 | 5J | `069_5J.sql` | `068_5J` | transactional | 8448 | `3c4c4acc16e7ab436f35bf1f9282d136303a7e94b6969fc8bbde938443b110e0` |
+| 070 | 5J | `070_5J.sql` | `069_5J` | transactional | 4752 | `2ca413f41f68f75623a8fb8d812e1aaa5afe1224cc977f35a9443061a60b2863` |
+| 071 | 5J | `071_5J.sql` | `070_5J` | transactional | 16820 | `3dd291421ca800ea0997137bc26f063bcbd140d9ad59f4bed5b76ef056387a27` |
+| 072 | 5J | `072_5J.sql` | `071_5J` | transactional | 11457 | `2ec15fa296e2774eee9f47bb60d62b18a1296b3d40aee7047f58dafdb6f8ff44` |
+| 073 | 5J | `073_5J.sql` | `072_5J` | transactional | 1006 | `586955c138f3c271fa27b13d8b997269a0c3406699e6afe537d4e045aa0c1999` |
+| 074 | 5J | `074_5J.sql` | `073_5J` | transactional | 1476 | `1c8c810bf16b4a3b190afc202d666eeefe7140deb612e158eaecbf37c5abb17b` |
+| 075 | 5J | `075_5J.sql` | `074_5J` | transactional | 1862 | `678ab37141943d27cf6b8bc02c2bb5de8a6892637cb27f8e1655ed0b633860d6` |
+| 076 | 5K.1 | `076_5K1.sql` | `075_5J` | transactional | 15399 | `f787be772f5d78095eb69e16d29b5189ba7af72086e972df17d267c8e294429c` |
+
+---
+
+## Reconciliation (Phase 5K Final Validation, 2026-08-19)
+
+**Scope of this table.** This manifest tracks exactly one thing: the 75 frozen
+`migrations/*.sql` files, their linear ordering, and a checksum proving each
+`alembic/versions/*.py` wrapper executes the exact bytes recorded here. It is
+not a migration *status* tracker (applied/pending/failed) — that state lives
+in the target database's `alembic_version` table — and it never contained a
+"canonical / conflict-resolved / unconfirmed / blocked" classification. If
+prior verbal summaries of Phase 5K described a baseline of "~75 mapped, 66
+canonical, 8 conflicts resolved, 5 unconfirmed, 2 blocked," that
+categorization does not correspond to any field this file has ever had; it is
+not carried forward here because there is nothing in the actual manifest
+schema to reconcile it against. The count that *does* exist and *is* verified
+below is the only one that matters for this file: **75/75 rows present, in
+order, with correct checksums.**
+
+**What was found wrong and fixed:**
+
+1. **All 75 rows had stale Size/SHA-256 values.** The table above was
+   regenerated by hashing the current contents of every file in
+   `migrations/001_5B.sql`..`075_5J.sql` with SHA-256, computed in this
+   validation pass and cross-checked against `sha256sum` on a sample of 5
+   files (001, 002, 020, 043, 075) — 0 mismatches. The previous checksums in
+   this file did not match any current file on disk for any of the 75 rows,
+   despite the file's own header claiming they were "computed directly from
+   file contents." Root cause: the table was generated once against an
+   earlier draft of the frozen SQL package and never regenerated after
+   subsequent fixes (see `EXECUTION_REPORT.md` §3.1 and its addendum below)
+   changed file contents. This is a documentation-drift defect, not a schema
+   or migration-content defect — fixed by regeneration in this pass.
+2. **Row 043's Txn Mode was wrong.** Previously listed as
+   `NON-TRANSACTIONAL (CONCURRENTLY)`. The current `migrations/043_5F.sql`
+   builds its HNSW index with a plain transactional `CREATE INDEX` (no
+   `CONCURRENTLY`) — see that file's own header comment, which explains
+   `document_chunks` has only an empty `DEFAULT` partition at migration time,
+   so `CONCURRENTLY` is unnecessary and is deferred to the application-layer
+   `create_kb_partition()` runtime path. `alembic/versions/043_5F.py` matches
+   this — it runs `run_frozen_sql` with no `autocommit_block()`, identically
+   to every other revision, and `alembic/gen_revisions.py`'s
+   `AUTOCOMMIT_REVISIONS` set is empty (confirmed by inspection). This is
+   corrected above: **all 75 rows are `transactional`.**
+
+**Independent confirmation.** Both corrections above were independently
+verified by actually running `alembic upgrade head` against a genuinely
+empty PostgreSQL 16 database — all 75 revisions applied in a single
+`transaction_per_migration=True` pass with no autocommit block invoked
+anywhere, and the final per-file bytes hashed to the table above. See
+`validation/ALEMBIC_VALIDATION_REPORT.md` and `execution_logs/` for the
+captured command output.
+
+---
+
+## Phase 5K.1 — corrective patch (row 076, 2026-08-19)
+
+Row `076` above (`076_5K1.sql`, Alembic revision `076_5K1`, `down_revision =
+"075_5J"`) is a **new forward migration**, added after and on top of the
+validated 75-row baseline above. No row 001-075 was edited, renumbered, or
+had its checksum changed to produce this row — the baseline table above is
+reproduced byte-for-byte from the prior validation pass.
+
+076_5K1's SHA-256 (`f787be772f5d78095eb69e16d29b5189ba7af72086e972df17d267c8e294429c`)
+and size (15399 bytes) were computed directly against the current contents
+of `migrations/076_5K1.sql` with `sha256sum`/`stat` in this pass (not
+invented or copied from an earlier draft). `alembic/versions/076_5K1.py`
+wraps this file via the same `run_frozen_sql()` pattern used by every other
+revision, with `downgrade()` raising `NotImplementedError` (forward-only,
+matching every other revision in this package).
+
+076_5K1 fixes the two BLOCKING defects discovered during Phase 5K final
+validation (see `MIGRATION_RECONCILIATION_REPORT.md` and
+`EXECUTION_REPORT.md` for full root-cause detail):
+
+- **Defect A** — adds `public` to the `search_path` of 5 `SECURITY DEFINER`
+  functions whose `INSERT`s relied on `public.gen_uuid_v7()` /
+  `public.gen_random_bytes()`.
+- **Defect B** — re-`REVOKE`s `INSERT` on `workflow.workflow_executions`
+  (and all its partitions) from `app_platform_admin`, restoring migration
+  `041_5G.sql`'s original intent that `046_5G.sql`'s blanket grant had
+  silently undone.
+
+**Reconciled totals after this patch:** 76/76 `migrations/*.sql` files,
+76/76 `alembic/versions/*.py` files, single linear Alembic chain, single
+head `076_5K1` — independently confirmed by re-running `alembic upgrade
+head` against a fresh, genuinely empty PostgreSQL 16 database (see
+`execution_logs/20260819T110500Z_43_alembic_upgrade_head_001_to_076_fresh_db.txt`
+and `_44_alembic_history_heads_current_post076.txt`).

@@ -1,0 +1,108 @@
+Phase 5K.1 — Package hygiene final audit
+Timestamp: 2026-08-19T11:05:00Z (closure pass, run after files 42-49)
+Purpose: final §21/§23 package-hygiene sweep of the entire 5K/ directory before
+declaring Phase 5K.1 / Phase 5K closure. Not limited to the newly-added files.
+
+--- COMMAND ---
+find . \( -name "__pycache__" -o -name "*.pyc" -o -name ".DS_Store" -o -name "*.bak" -o -name ".env" -o -name "*.swp" \)
+
+--- OUTPUT (before cleanup) ---
+./alembic/__pycache__
+./alembic/__pycache__/_frozen_sql.cpython-311.pyc
+./alembic/__pycache__/env.cpython-311.pyc
+./alembic/versions/__pycache__
+./alembic/versions/__pycache__/<74 x NNN_5X.cpython-311.pyc, one per revision incl. 076_5K1.cpython-311.pyc>
+
+FINDING: 76 root-owned __pycache__ artifacts (2 in alembic/, 74 in
+alembic/versions/) were present, left behind by the Dockerized Alembic-runner
+container (`5k_alembic_runner`, image python:3.11-slim) writing .pyc files
+into the bind-mounted repo path as the container's root user during the
+fresh-DB upgrade test runs (execution_logs files 05, 43). Not writable by the
+local non-root user directly (`rm` returned "Permission denied" for each
+file) because the container process owns them as uid 0.
+
+CLASSIFICATION: NON-BLOCKING housekeeping defect — build/test-runner
+byproduct, not a schema, migration, or documentation defect. No secret or
+credential content. Does not affect any of the 26 §21 acceptance-checklist
+items other than package-hygiene (§21 "no __pycache__/.pyc/temp artifacts").
+
+--- FIX ---
+Removed via a throwaway root container bind-mounting the same repo path
+(the same mechanism that created them, used in reverse):
+
+  docker run --rm -v <repo>/docs/phase-05-database-design/5K:/repo \
+    python:3.11-slim bash -c "find /repo -name '__pycache__' -type d -exec rm -rf {} + ; echo done"
+
+  -> done
+
+--- RE-VERIFICATION ---
+$ find . \( -name "__pycache__" -o -name "*.pyc" -o -name ".DS_Store" -o -name "*.bak" -o -name ".env" -o -name "*.swp" \)
+(no output — clean)
+
+$ find . -name "*.py" | wc -l
+79
+  (76 in alembic/versions/ — 001_5B.py .. 075_5J.py + 076_5K1.py — plus 3
+  top-level: alembic/env.py, alembic/gen_revisions.py, alembic/_frozen_sql.py)
+
+$ find migrations -name "*.sql" | wc -l
+76
+
+$ find alembic/versions -name "*.py" | wc -l
+76
+
+$ ls validation/*.md | wc -l
+4
+
+--- SECRET SCAN (full package, not just new files) ---
+$ grep -riEn "password|DATABASE_URL|secret[^_]|token|apikey|api_key" \
+    --include="*.md" --include="*.sql" --include="*.py" --include="*.txt" -r .
+
+Matches reviewed individually. No real credential, connection string, or
+secret found anywhere in the package. All matches are one of:
+  - the literal enum value 'API_KEY' (an auth_type choice, not a secret)
+  - the table/column name password_reset_tokens / password_reset_token_hash
+    (schema identifiers, not secret values)
+  - documentation prose describing the REVOKE/GRANT/search_path defects
+    (the word "secret_manager://%" LIKE-pattern literal in 002_5B.sql,
+    a pre-existing frozen-migration string, not a live secret)
+  - the already-redacted placeholders in file 42
+    (<redacted-local-test-credential>, <redacted — local ephemeral test
+    container, not a real credential>)
+
+RESULT: PASS — full-package secret scan clean.
+
+--- RESULT (first pass) ---
+PACKAGE HYGIENE: PASS (after one fix: __pycache__ cleanup).
+Counts cross-checked and consistent: 76 migrations/*.sql, 76
+alembic/versions/*.py, 4 validation/*.md, 0 cache/temp/secret artifacts.
+
+--- SECOND OCCURRENCE (found during final closure audit, same session) ---
+After the first cleanup above, the final closure pass ran three more live
+`alembic current` / `alembic heads` / `alembic history` commands inside
+`5k_alembic_runner` (to independently re-confirm the single-head chain
+state with fresh evidence rather than trusting the earlier catalog dump).
+Those commands re-imported the versions/*.py modules and regenerated 80
+root-owned __pycache__/.pyc files by the same bind-mount mechanism as
+before. This was caught by re-running the same hygiene `find` command
+immediately afterward, rather than assumed clean from the first pass.
+
+FIX (repeated): same throwaway root container pattern —
+  docker run --rm -v <repo>/docs/phase-05-database-design/5K:/repo \
+    python:3.11-slim bash -c "find /repo -name '__pycache__' -type d -exec rm -rf {} + ; find /repo -name '*.pyc' -delete ; echo cleaned"
+  -> cleaned
+
+RE-VERIFICATION: find command re-run, no output (clean).
+
+ROOT-CAUSE CLOSURE: to prevent a third recurrence, the test containers
+themselves (`5k_alembic_runner`, `5k_validate_pg`) were stopped and
+removed (`docker stop` + `docker rm`) once all live re-verification for
+this closure pass was complete, retiring the mechanism that could
+regenerate root-owned artifacts.
+
+--- RESULT (final) ---
+PACKAGE HYGIENE: PASS. Two occurrences of the same root-owned
+__pycache__/.pyc byproduct were found and fixed during this closure
+session (first during initial audit, second after subsequent live
+verification commands regenerated it); both are fully remediated, the
+producing containers have been retired, and a final `find` immediately
+before closure confirms zero cache/temp/secret artifacts remain.

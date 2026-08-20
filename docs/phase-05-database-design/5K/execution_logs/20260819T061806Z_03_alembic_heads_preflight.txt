@@ -1,0 +1,15 @@
+Rev: 075_5J (head)
+Parent: 074_5J
+Path: /home/crm-lp-1/karthi/Chunk_Mates/ai-voice-agent/docs/phase-05-database-design/5K/alembic/versions/075_5J.py
+
+    Phase 5K — wraps frozen migration 075_5J.sql.
+    
+    This revision does not define schema itself. It executes the frozen,
+    canonical SQL file 5K/migrations/075_5J.sql verbatim via
+    op.get_bind().exec_driver_sql(). Do not add DDL here; edit is
+    forbidden on the .sql file (frozen) and adding parallel DDL here would
+    create a second, competing schema history — see 5K/alembic/README.md.
+    
+    Revision ID: 075_5J
+    Revises: '074_5J'
+

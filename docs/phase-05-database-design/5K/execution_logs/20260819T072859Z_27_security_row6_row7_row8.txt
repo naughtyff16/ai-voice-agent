@@ -1,0 +1,15 @@
+--- row6 (app_api) ---
+SET
+psql:test18_row6_app_api_insert.sql:4: ERROR:  permission denied for table workflow_executions
+--- row7 (app_worker) ---
+SET
+psql:test18_row7_app_worker_insert.sql:4: ERROR:  permission denied for table workflow_executions
+--- row8 (app_platform_admin) ---
+SET
+SET
+                  id                  | status 
+--------------------------------------+--------
+ 01a018de-5633-7d6e-9bdc-dcb67b1f075e | ACTIVE
+(1 row)
+
+INSERT 0 1

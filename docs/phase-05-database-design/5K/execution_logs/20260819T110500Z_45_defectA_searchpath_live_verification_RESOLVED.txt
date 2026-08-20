@@ -1,0 +1,114 @@
+Phase 5K.1 — Defect A (SECURITY DEFINER search_path) LIVE re-verification, post-076_5K1.
+This DISCOVERED->ROOT CAUSED->PATCHED->RETESTED->RESOLVED chain continues from:
+  20260819T072859Z_32_concurrency_r2_conn_A.txt / _conn_B.txt (original DISCOVERED failure)
+  20260819T072859Z_39/_40_defect_confirm_*.txt (ROOT CAUSED — isolated to missing 'public' in search_path)
+This file is the RETESTED/RESOLVED evidence: all 5 previously-broken SECURITY DEFINER
+functions executed directly (not merely inspected via pg_proc) and confirmed to now
+succeed, producing valid gen_uuid_v7() values via public.gen_random_bytes().
+
+Test script:
+\pset pager off
+\set ON_ERROR_STOP on
+
+BEGIN;
+
+-- Fixtures
+INSERT INTO organization.organizations (id, name, slug, owner_user_id, country_code, currency)
+VALUES ('00000000-0000-0000-0000-000000000001', '5K1 Test Org', '5k1-test-org', gen_random_uuid(), 'IN', 'INR');
+
+INSERT INTO integrations.integration_definitions (id, slug, name, auth_type)
+VALUES ('00000000-0000-0000-0000-000000000002', 'test_integration', 'Test Integration', 'API_KEY');
+
+INSERT INTO plugins.plugins (id, developer_org_id, slug, name, status)
+VALUES ('00000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', 'test-plugin', 'Test Plugin', 'APPROVED');
+
+INSERT INTO plugins.plugin_versions (id, plugin_id, semver, manifest, status, approved_at)
+VALUES ('00000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000003', '1.0.0', '{}'::jsonb, 'APPROVED', now());
+
+-- ================= TEST 1: integrations.fn_create_integration_connection =================
+\echo '=== TEST 1: integrations.fn_create_integration_connection ==='
+SELECT integrations.fn_create_integration_connection(
+  '00000000-0000-0000-0000-000000000001',
+  '00000000-0000-0000-0000-000000000002',
+  'My Test Connection',
+  'secret_manager://test/creds/1',
+  '{}'::jsonb
+) AS new_connection_id;
+
+-- ================= TEST 2: plugins.fn_create_plugin_installation =================
+\echo '=== TEST 2: plugins.fn_create_plugin_installation ==='
+SELECT plugins.fn_create_plugin_installation(
+  '00000000-0000-0000-0000-000000000001',
+  '00000000-0000-0000-0000-000000000003',
+  '00000000-0000-0000-0000-000000000004',
+  '{}'::jsonb,
+  NULL,
+  NULL
+) AS new_installation_id;
+
+-- ================= TEST 3: analytics.fn_claim_projection_slot (direct) =================
+\echo '=== TEST 3: analytics.fn_claim_projection_slot (direct) ==='
+SELECT analytics.fn_claim_projection_slot(
+  'direct_test_projection',
+  gen_random_uuid(),
+  now()
+) AS claimed;
+
+-- ================= TEST 4: analytics.fn_apply_projection_call_metrics (calls fn_claim_projection_slot internally) =================
+\echo '=== TEST 4: analytics.fn_apply_projection_call_metrics ==='
+SELECT analytics.fn_apply_projection_call_metrics(
+  gen_random_uuid(), now(), '00000000-0000-0000-0000-000000000001',
+  date_trunc('hour', now()), NULL, 'OUTBOUND', 'ANSWERED', 'test_provider', 'en-IN',
+  1, 1, 0, 60, 45, 15, 0, 1
+) AS applied;
+
+-- ================= TEST 5: analytics.fn_apply_projection_call_latency (calls fn_claim_projection_slot internally) =================
+\echo '=== TEST 5: analytics.fn_apply_projection_call_latency ==='
+SELECT analytics.fn_apply_projection_call_latency(
+  gen_random_uuid(), now(), '00000000-0000-0000-0000-000000000001',
+  date_trunc('hour', now()), 'test_provider', 'STT', 'test-model', 120, false
+) AS applied;
+
+\echo '=== ALL 5 DEFECT-A FUNCTIONS EXECUTED WITHOUT ERROR ==='
+
+ROLLBACK;
+
+=== psql output ===
+Pager usage is off.
+BEGIN
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+=== TEST 1: integrations.fn_create_integration_connection ===
+          new_connection_id           
+--------------------------------------
+ 01a019b6-af65-7aa2-acfd-fd004d578b2f
+(1 row)
+
+=== TEST 2: plugins.fn_create_plugin_installation ===
+         new_installation_id          
+--------------------------------------
+ 01a019b6-af67-7219-b7e2-e25744d71d4e
+(1 row)
+
+=== TEST 3: analytics.fn_claim_projection_slot (direct) ===
+ claimed 
+---------
+ t
+(1 row)
+
+=== TEST 4: analytics.fn_apply_projection_call_metrics ===
+ applied 
+---------
+ t
+(1 row)
+
+=== TEST 5: analytics.fn_apply_projection_call_latency ===
+ applied 
+---------
+ t
+(1 row)
+
+=== ALL 5 DEFECT-A FUNCTIONS EXECUTED WITHOUT ERROR ===
+ROLLBACK

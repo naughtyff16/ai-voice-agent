@@ -1,0 +1,83 @@
+--- PK count (contype=p, non-partition-duplicated: pg_constraint on partitioned parents+children both counted, matches original 12_schema_pk_count) ---
+ pk_count 
+----------
+      259
+(1 row)
+
+--- PK count DISTINCT by conname+connamespace (collapses inherited/partition child PKs that share the parent constraint name pattern) ---
+ pk_count_distinct_relnamespace 
+--------------------------------
+                            259
+(1 row)
+
+--- PK count restricted to top-level (non-partition-child) relations only ---
+ pk_count_no_partitions 
+------------------------
+                    173
+(1 row)
+
+--- UNIQUE count variants ---
+ unique_count 
+--------------
+          142
+(1 row)
+
+ unique_count_no_partitions 
+----------------------------
+                         95
+(1 row)
+
+--- CHECK count variants ---
+ check_count 
+-------------
+         558
+(1 row)
+
+ check_count_no_partitions 
+---------------------------
+                       306
+(1 row)
+
+ check_count_no_partitions_no_notnull 
+--------------------------------------
+                                  306
+(1 row)
+
+--- FUNCTION count variants ---
+ function_count 
+----------------
+            223
+(1 row)
+
+ function_count_funcs_only 
+---------------------------
+                       219
+(1 row)
+
+ prokind | count 
+---------+-------
+ a       |     4
+ f       |   219
+(2 rows)
+
+--- via information_schema.table_constraints, contype PK ---
+ constraint_type | count 
+-----------------+-------
+ CHECK           |  2541
+ FOREIGN KEY     |    50
+ PRIMARY KEY     |   197
+ UNIQUE          |    94
+(4 rows)
+
+--- pg_constraint PK, excluding schemas public (extension tables e.g. pg_stat_statements) ---
+ count 
+-------
+   196
+(1 row)
+
+--- pg_constraint PK, only DEFAULT partitions + non-partitioned (i.e. exclude the dated/range children but KEEP default) ---
+ count 
+-------
+   173
+(1 row)
+

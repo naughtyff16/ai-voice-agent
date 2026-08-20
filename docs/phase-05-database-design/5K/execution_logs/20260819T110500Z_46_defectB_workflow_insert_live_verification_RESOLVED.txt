@@ -1,0 +1,180 @@
+Phase 5K.1 — Defect B (app_platform_admin INSERT on workflow.workflow_executions) LIVE re-verification, post-076_5K1.
+Continues from: 20260819T081500Z_41_grant_conflict_041_vs_046_platform_admin_insert.txt (original DISCOVERED failure).
+This file is the RETESTED/RESOLVED evidence: real INSERT attempts by all three roles
+(app_api, app_worker, app_platform_admin) via SET ROLE, plus real calls to the approved
+workflow.fn_start_workflow_execution() path for all three roles, plus the
+no-double-active-session invariant, executed against the live post-076 database.
+
+Test script:
+\pset pager off
+
+BEGIN;
+
+SET app.tenant_id = '00000000-0000-0000-0000-000000000001';
+
+INSERT INTO organization.organizations (id, name, slug, owner_user_id, country_code, currency)
+VALUES ('00000000-0000-0000-0000-000000000001', '5K1 Test Org', '5k1-test-org', gen_random_uuid(), 'IN', 'INR');
+
+INSERT INTO workflow.workflow_definitions (id, organization_id, name, status, created_by)
+VALUES ('00000000-0000-0000-0000-000000000010', '00000000-0000-0000-0000-000000000001', 'Test WF', 'PUBLISHED', gen_random_uuid());
+
+INSERT INTO workflow.workflow_versions (id, organization_id, workflow_definition_id, version_number, graph_json, published_by, published_at)
+VALUES ('00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 1, '{}'::jsonb, gen_random_uuid(), now());
+
+\echo '=== DIRECT-INSERT DENIAL TESTS (each role attempts INSERT INTO workflow.workflow_executions directly) ==='
+
+\echo '--- as app_api ---'
+SET ROLE app_api;
+DO $$
+BEGIN
+  BEGIN
+    INSERT INTO workflow.workflow_executions (organization_id, workflow_version_id, session_ref, started_at)
+    VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000011', gen_random_uuid(), now());
+    RAISE NOTICE 'UNEXPECTED: app_api direct INSERT SUCCEEDED (should have been denied)';
+  EXCEPTION WHEN insufficient_privilege THEN
+    RAISE NOTICE 'EXPECTED: app_api direct INSERT DENIED (%)', SQLERRM;
+  END;
+END $$;
+RESET ROLE;
+
+\echo '--- as app_worker ---'
+SET ROLE app_worker;
+DO $$
+BEGIN
+  BEGIN
+    INSERT INTO workflow.workflow_executions (organization_id, workflow_version_id, session_ref, started_at)
+    VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000011', gen_random_uuid(), now());
+    RAISE NOTICE 'UNEXPECTED: app_worker direct INSERT SUCCEEDED (should have been denied)';
+  EXCEPTION WHEN insufficient_privilege THEN
+    RAISE NOTICE 'EXPECTED: app_worker direct INSERT DENIED (%)', SQLERRM;
+  END;
+END $$;
+RESET ROLE;
+
+\echo '--- as app_platform_admin (THE DEFECT B ROLE) ---'
+SET ROLE app_platform_admin;
+DO $$
+BEGIN
+  BEGIN
+    INSERT INTO workflow.workflow_executions (organization_id, workflow_version_id, session_ref, started_at)
+    VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000011', gen_random_uuid(), now());
+    RAISE NOTICE 'UNEXPECTED: app_platform_admin direct INSERT SUCCEEDED (DEFECT B WOULD STILL BE PRESENT)';
+  EXCEPTION WHEN insufficient_privilege THEN
+    RAISE NOTICE 'EXPECTED: app_platform_admin direct INSERT DENIED -- DEFECT B FIXED (%)', SQLERRM;
+  END;
+END $$;
+RESET ROLE;
+
+\echo '=== APPROVED-PATH TESTS (each role calls workflow.fn_start_workflow_execution) ==='
+
+\echo '--- as app_api via fn_start_workflow_execution ---'
+SET ROLE app_api;
+SELECT workflow.fn_start_workflow_execution(
+  '00000000-0000-0000-0000-000000000001',
+  '00000000-0000-0000-0000-000000000011',
+  gen_random_uuid()
+) AS execution_id_via_app_api;
+RESET ROLE;
+
+\echo '--- as app_worker via fn_start_workflow_execution ---'
+SET ROLE app_worker;
+SELECT workflow.fn_start_workflow_execution(
+  '00000000-0000-0000-0000-000000000001',
+  '00000000-0000-0000-0000-000000000011',
+  gen_random_uuid()
+) AS execution_id_via_app_worker;
+RESET ROLE;
+
+\echo '--- as app_platform_admin via fn_start_workflow_execution ---'
+SET ROLE app_platform_admin;
+SELECT workflow.fn_start_workflow_execution(
+  '00000000-0000-0000-0000-000000000001',
+  '00000000-0000-0000-0000-000000000011',
+  gen_random_uuid()
+) AS execution_id_via_app_platform_admin;
+RESET ROLE;
+
+\echo '=== NO-DOUBLE-ACTIVE-SESSION INVARIANT STILL ENFORCED (same session_ref twice) ==='
+SET ROLE app_api;
+DO $$
+DECLARE v_session UUID := gen_random_uuid();
+BEGIN
+  PERFORM workflow.fn_start_workflow_execution('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000011', v_session);
+  BEGIN
+    PERFORM workflow.fn_start_workflow_execution('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000011', v_session);
+    RAISE NOTICE 'UNEXPECTED: second ACTIVE execution for same session_ref SUCCEEDED';
+  EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'EXPECTED: second ACTIVE execution for same session_ref REJECTED (%)', SQLERRM;
+  END;
+END $$;
+RESET ROLE;
+
+\echo '=== SELECT/UPDATE still function for legitimate roles ==='
+SET ROLE app_api;
+SELECT count(*) AS visible_executions FROM workflow.workflow_executions WHERE organization_id = '00000000-0000-0000-0000-000000000001';
+RESET ROLE;
+
+ROLLBACK;
+
+=== psql output ===
+Pager usage is off.
+BEGIN
+SET
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+=== DIRECT-INSERT DENIAL TESTS (each role attempts INSERT INTO workflow.workflow_executions directly) ===
+--- as app_api ---
+SET
+DO
+RESET
+--- as app_worker ---
+NOTICE:  EXPECTED: app_api direct INSERT DENIED (permission denied for table workflow_executions)
+SET
+NOTICE:  EXPECTED: app_worker direct INSERT DENIED (permission denied for table workflow_executions)
+DO
+RESET
+--- as app_platform_admin (THE DEFECT B ROLE) ---
+SET
+DO
+RESET
+NOTICE:  EXPECTED: app_platform_admin direct INSERT DENIED -- DEFECT B FIXED (permission denied for table workflow_executions)
+=== APPROVED-PATH TESTS (each role calls workflow.fn_start_workflow_execution) ===
+--- as app_api via fn_start_workflow_execution ---
+SET
+       execution_id_via_app_api       
+--------------------------------------
+ 01a019b8-0b90-7d77-ae2f-2fe34206b346
+(1 row)
+
+RESET
+--- as app_worker via fn_start_workflow_execution ---
+SET
+     execution_id_via_app_worker      
+--------------------------------------
+ 01a019b8-0b96-7e64-a811-118785c5ef88
+(1 row)
+
+RESET
+--- as app_platform_admin via fn_start_workflow_execution ---
+SET
+ execution_id_via_app_platform_admin  
+--------------------------------------
+ 01a019b8-0b97-729f-86ba-ba92b60c6654
+(1 row)
+
+RESET
+=== NO-DOUBLE-ACTIVE-SESSION INVARIANT STILL ENFORCED (same session_ref twice) ===
+SET
+NOTICE:  EXPECTED: second ACTIVE execution for same session_ref REJECTED (fn_start_workflow_execution: session 9ed445f2-9f59-4774-87bf-d408e8a5961b already has an ACTIVE workflow execution (id=01a019b8-0b97-71ef-849f-9fa4e988369b). Complete or fail it first.)
+DO
+RESET
+=== SELECT/UPDATE still function for legitimate roles ===
+SET
+ visible_executions 
+--------------------
+                  4
+(1 row)
+
+RESET
+ROLLBACK

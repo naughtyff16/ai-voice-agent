@@ -1,0 +1,9 @@
+SET
+-- row 11: UPDATE session_ref on an ACTIVE execution (expect Denied via trg_we_immutable) --
+psql:test18_row11_row12_immutability.sql:6: ERROR:  workflow_executions.session_ref is immutable after creation. execution_id: 01a018de-91f8-7f5b-ad13-13283e60adc0
+CONTEXT:  PL/pgSQL function workflow.prevent_execution_mutation() line 4 at RAISE
+-- setup: transition execution to COMPLETED (legitimate update, expect success) --
+UPDATE 1
+-- row 12: UPDATE status back to ACTIVE on a COMPLETED row (expect Denied via trg_we_immutable) --
+psql:test18_row11_row12_immutability.sql:16: ERROR:  COMPLETED or FAILED workflow_executions are immutable. execution_id: 01a018de-91f8-7f5b-ad13-13283e60adc0
+CONTEXT:  PL/pgSQL function workflow.prevent_execution_mutation() line 13 at RAISE

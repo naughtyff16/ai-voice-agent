@@ -1,0 +1,7 @@
+ pg_sleep 
+----------
+ 
+(1 row)
+
+psql:t19r4_a.sql:3: ERROR:  duplicate key value violates unique constraint "uq_iwe_org_provider_event"
+DETAIL:  Key (organization_id, provider_slug, provider_event_id)=(00000000-0000-0000-0000-00000000aaaa, twilio, evt-race-1) already exists.

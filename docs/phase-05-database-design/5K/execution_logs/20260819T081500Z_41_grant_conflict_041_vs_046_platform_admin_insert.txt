@@ -1,0 +1,100 @@
+Note: this file is a root-cause deep-dive on a finding that was already
+live-observed in the second batch, file
+`20260819T072859Z_27_security_row6_row7_row8.txt` (§18 row 8: the
+app_platform_admin INSERT there succeeded, returning id
+`01a018de-5633-7d6e-9bdc-dcb67b1f075e`, contrary to the spec's "Denied"
+expectation) — that earlier file recorded the *symptom* without yet
+tracing the cause or classifying it. This file adds the GRANT-level root
+cause (041 vs 046) and an independent re-confirmation. The leftover
+fixture row from the earlier test (`01a018de-...`) was found still
+present in the database when this file was produced and has now been
+deleted; no fixture data remains from either test.
+
+Command:
+  docker exec ... psql -U postgres -d voice_agent_5k_validate \
+    -c "SELECT grantee, privilege_type FROM information_schema.role_table_grants
+        WHERE table_schema='workflow' AND table_name='workflow_executions'
+        AND grantee='app_platform_admin' ORDER BY privilege_type;"
+
+Output:
+      grantee       | privilege_type
+--------------------+----------------
+ app_platform_admin | DELETE
+ app_platform_admin | INSERT
+ app_platform_admin | SELECT
+ app_platform_admin | UPDATE
+(4 rows)
+
+---
+
+Finding: migration 041_5G.sql (line 53) explicitly does:
+  REVOKE INSERT ON workflow.workflow_executions FROM app_api, app_worker, app_platform_admin;
+  GRANT SELECT, UPDATE ON workflow.workflow_executions TO app_api, app_worker;
+  GRANT SELECT, UPDATE, DELETE ON workflow.workflow_executions TO app_platform_admin;
+
+  This is a deliberate design decision: workflow_executions rows must only be
+  created via workflow.fn_start_workflow_execution() (a SECURITY DEFINER
+  function enforcing the "no double active session" business rule and other
+  invariants), never by direct application-role INSERT. This matches
+  5K-Database-Migration-and-Implementation.md's own §18 security-test row 8,
+  which expects app_platform_admin's direct INSERT on workflow_executions to
+  be DENIED.
+
+  migration 046_5G.sql (line 12), run 5 migrations later in the same forward
+  chain, does a blanket:
+  GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA workflow TO app_platform_admin;
+
+  This silently re-grants INSERT on workflow.workflow_executions (and every
+  other current table in the workflow schema) to app_platform_admin, undoing
+  041's deliberate revoke. Since GRANT/REVOKE are just role-privilege state
+  (not additive "first wins" or versioned), the final, actually-applied state
+  after all 75 migrations is whatever 046 leaves it as: app_platform_admin
+  DOES have INSERT.
+
+Live confirmation (direct INSERT attempt as app_platform_admin):
+
+Command:
+  SET ROLE app_platform_admin;
+  SET app.tenant_id = '00000000-0000-0000-0000-00000000aaaa';
+  SET app.is_platform_admin = 'true';
+  INSERT INTO workflow.workflow_executions
+      (started_at, organization_id, workflow_version_id, session_ref, status)
+  VALUES
+      (now(), '00000000-0000-0000-0000-00000000aaaa',
+       '00000000-0000-0000-0000-00000000e1aa',
+       gen_random_uuid(), 'ACTIVE')
+  RETURNING id, status;
+
+Output:
+                  id                  | status
+--------------------------------------+--------
+ 01a018f2-bac2-7f57-b820-20c2a08e412e | ACTIVE
+(1 row)
+
+INSERT 0 1
+
+Result: SUCCEEDED — not denied. Confirms the grant conflict is real and
+exploitable: app_platform_admin can create a workflow_executions row by
+direct INSERT, completely bypassing fn_start_workflow_execution's
+double-active-session guard (advisory lock + uniqueness invariant enforced
+only inside that function's own logic, not by any DB constraint — there is
+no UNIQUE index on (organization_id, session_ref) WHERE status='ACTIVE';
+idx_we_active_session is a plain non-unique index, by design, per
+EXECUTION_REPORT.md §3.1 defect #8, which assumed the INSERT path was
+already locked down by GRANT alone).
+
+Cleanup: the inserted row was deleted immediately after
+(DELETE FROM workflow.workflow_executions WHERE id='01a018f2-...'; -> DELETE 1).
+No fixture data left behind.
+
+Checked for a BEFORE INSERT trigger that might independently block this:
+none exists (only trg_we_updated_at and trg_we_immutable, both BEFORE
+UPDATE only). RLS on the table only enforces tenant scoping
+(organization_id = organization.current_tenant_id()), not "must come from
+fn_start_workflow_execution" — nothing else stands in the way.
+
+Classification: this is a genuine conflict between two migrations within
+the already-approved Phase 5G architecture (041 vs 046), not a new design
+decision proposed here. Per governing instructions this is reported, not
+silently redesigned. See MIGRATION_RECONCILIATION_REPORT.md for the
+BLOCKING/NON-BLOCKING/DEFERRED classification.

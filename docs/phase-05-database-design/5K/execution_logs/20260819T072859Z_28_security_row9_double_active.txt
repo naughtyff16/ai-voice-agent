@@ -1,0 +1,10 @@
+SET
+-- first call (expect success, new execution id) --
+             execution_id             
+--------------------------------------
+ 01a018de-91f8-7f5b-ad13-13283e60adc0
+(1 row)
+
+-- second call, same session_ref, still ACTIVE (expect Exception) --
+psql:test18_row9_double_active.sql:14: ERROR:  fn_start_workflow_execution: session 11111111-1111-1111-1111-111111111111 already has an ACTIVE workflow execution (id=01a018de-91f8-7f5b-ad13-13283e60adc0). Complete or fail it first.
+CONTEXT:  PL/pgSQL function fn_start_workflow_execution(uuid,uuid,uuid,timestamp with time zone) line 33 at RAISE
