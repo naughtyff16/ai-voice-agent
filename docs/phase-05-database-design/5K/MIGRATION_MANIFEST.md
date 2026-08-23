@@ -87,6 +87,7 @@ regeneration corrects that. See "Reconciliation" below for details.
 | 074 | 5J | `074_5J.sql` | `073_5J` | transactional | 1476 | `1c8c810bf16b4a3b190afc202d666eeefe7140deb612e158eaecbf37c5abb17b` |
 | 075 | 5J | `075_5J.sql` | `074_5J` | transactional | 1862 | `678ab37141943d27cf6b8bc02c2bb5de8a6892637cb27f8e1655ed0b633860d6` |
 | 076 | 5K.1 | `076_5K1.sql` | `075_5J` | transactional | 15399 | `f787be772f5d78095eb69e16d29b5189ba7af72086e972df17d267c8e294429c` |
+| 077 | 5J.1 | `077_5J1.sql` | `076_5K1` | transactional | 15559 | `eac7022c4f96993d2e691947d8ebf2fa91ca3db2b9116beaf2c205dd5ee4a990` |
 
 ---
 
@@ -176,3 +177,88 @@ head `076_5K1` — independently confirmed by re-running `alembic upgrade
 head` against a fresh, genuinely empty PostgreSQL 16 database (see
 `execution_logs/20260819T110500Z_43_alembic_upgrade_head_001_to_076_fresh_db.txt`
 and `_44_alembic_history_heads_current_post076.txt`).
+
+---
+
+## Phase 5J.1 — controlled amendment for Phase 6C dependency closure (row 077)
+
+Row `077` above (`077_5J1.sql`, Alembic revision `077_5J1`, `down_revision =
+"076_5K1"`) is a **new forward migration**, added after and on top of the
+validated 76-row baseline above (001-075 baseline + 076_5K1 corrective
+patch). No row 001-076 was edited, renumbered, or had its checksum changed
+to produce this row.
+
+077_5J1's SHA-256 (`eac7022c4f96993d2e691947d8ebf2fa91ca3db2b9116beaf2c205dd5ee4a990`)
+and size (15559 bytes) were computed directly against the current contents of
+`migrations/077_5J1.sql` with `sha256sum`/`wc -c` in this pass. `alembic/versions/077_5J1.py`
+wraps this file via the same `run_frozen_sql()` pattern used by every other
+revision, with `downgrade()` raising `NotImplementedError` (forward-only,
+matching every other revision in this package).
+
+**Trigger:** `docs/phase-06-api-design/6C-Core-Platform-APIs.md`'s DEP-6C-16
+(no concrete PostgreSQL transactional-outbox relation existed anywhere in the
+frozen schema, verified by direct search across every Phase 5 document and
+this manifest before 077 was authored).
+
+**What 077_5J1 adds (audit schema only, no existing object altered):**
+
+- `audit.domain_event_outbox` — the durable transactional-outbox table.
+- `audit.fn_outbox_tenant_check()` + `trg_outbox_tenant_check` — BEFORE INSERT
+  tenant-forgery guard (reuses `organization.current_tenant_id()`, 5B §16.2).
+- `audit.fn_claim_outbox_events(worker_id, limit, claim_timeout_seconds)` —
+  `SELECT ... FOR UPDATE SKIP LOCKED` claiming, mirroring
+  `webhooks.fn_claim_delivery` (migration 063) exactly.
+- `audit.fn_mark_outbox_published(id, worker_id)` and
+  `audit.fn_mark_outbox_failed(id, worker_id, error, next_attempt_at)` —
+  CAS-guarded completion/retry, mirroring `webhooks.fn_delivery_succeeded`/
+  `fn_delivery_failed` (migration 063).
+
+No RLS is added to `audit.domain_event_outbox` — see the migration file's own
+header comment for the full reasoning (identical precedent to
+`identity.sessions`/`identity.password_reset_tokens`, 5B §16.3, not a
+`BYPASSRLS` workaround).
+
+**What 077_5J1 does NOT do:** it does not add any new `action_kind` value to
+`audit.audit_events` — `audit.audit_events.action_kind` is `TEXT` with only a
+length `CHECK` (`chk_ae_action_kind`, migration 072), not a `CHECK ... IN
+(...)` enum list and not backed by any reference/lookup table anywhere in
+this schema. The ten new canonical `action_kind` values 6C's DEP-6C-07/10/11/14/15
+required (`ORGANIZATION_CANCELLED`, `MEMBER_REACTIVATED`, `TEAM_CREATED`,
+`TEAM_UPDATED`, `TEAM_ARCHIVED`, `TEAM_MEMBER_ADDED`, `TEAM_MEMBER_REMOVED`,
+`DATA_SUBJECT_REQUEST_VERIFYING`, `DATA_SUBJECT_REQUEST_ON_HOLD`,
+`USER_PROFILE_UPDATED`) are therefore a **pure governance/documentation
+amendment** to `5J-Analytics-Audit-Schema.md` §14.3's canonical vocabulary
+list — recorded there, not here, and requiring zero SQL. This manifest entry
+exists only to record that this fact was verified, not assumed, before
+concluding no migration was needed for that half of the closure package.
+
+**Reconciled totals after this amendment:** 77/77 `migrations/*.sql` files,
+77/77 `alembic/versions/*.py` files, single linear Alembic chain, single head
+`077_5J1`.
+
+**Validation status (updated 2026-08-23):** `validation/077_5J1_VALIDATION_REPORT.md`
+— **18/18 checks PASS with live PostgreSQL execution evidence**, closing the
+residual follow-up noted below. Row 077 was executed against a genuinely
+fresh database (local native PostgreSQL 18 server; no Docker engine in this
+environment) walking the full `001_5B → ... → 076_5K1 → 077_5J1` chain,
+exit code 0, single head `077_5J1`. Live-tested beyond the prior
+static-only pass: exact column/constraint/index inventory (correcting two
+miscounts — 17 columns not 16, 7 CHECK constraints + 1 PK not "8 CHECK"),
+`SECURITY DEFINER`/`search_path` hardening, `app_api`/`app_worker`/
+`app_readonly` grant boundaries via `SET ROLE`, atomic domain+outbox
+COMMIT/ROLLBACK, the `organization.created` and `compliance.policy_activated`
+event flows (insert + claim), a genuine two-connection concurrency race
+against `fn_claim_outbox_events` (0 double-claims across 20 rows), wrong-worker
+publish rejection, retry/failure and max-attempts→FAILED transitions,
+stale-claim recovery with a fresh-claim negative control, and a full
+security/Alembic regression pass. See `execution_logs/README.md`'s "Fifth
+batch" section (files `51`-`62`, prefix `20260823T061055Z`) for the raw
+command/query evidence. `077_5J1.sql` was **not modified** by this
+validation pass — no defect was found — so the SHA-256/size recorded above
+remain byte-for-byte current (independently reconfirmed via `sha256sum`/
+`wc -c` in this pass).
+
+**Consumer:** `docs/phase-06-api-design/6C-Core-Platform-APIs.md` §7.7/§12.2/§20/§27
+(DEP-6C-16) — 6C's Revision 6 uses `audit.domain_event_outbox` as the
+concrete outbox relation for its `organization.created` and
+`compliance.policy_activated` event flows.

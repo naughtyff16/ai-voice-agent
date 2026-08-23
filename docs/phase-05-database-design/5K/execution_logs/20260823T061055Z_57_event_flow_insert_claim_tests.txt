@@ -1,0 +1,50 @@
+=== organization.created: insert ===
+                  id                  |      event_type      | status  |           organization_id            | aggregate_type 
+--------------------------------------+----------------------+---------+--------------------------------------+----------------
+ 01a02d85-d5db-72a7-bead-adb4c5492ef4 | organization.created | PENDING | 5b8b1555-3eb1-43b9-bd72-2e95a0595583 | organization
+(1 row)
+
+INSERT 0 1
+=== compliance.policy_activated: insert ===
+                  id                  |         event_type          | status  |           organization_id            |  aggregate_type   
+--------------------------------------+-----------------------------+---------+--------------------------------------+-------------------
+ 01a02d85-d658-7bb3-acc5-c54f5ca963ed | compliance.policy_activated | PENDING | 5ad5086c-3efb-444e-9015-afa3f92a59e1 | compliance_policy
+(1 row)
+
+INSERT 0 1
+=== both PENDING and visible ===
+         event_type          | status  
+-----------------------------+---------
+ compliance.policy_activated | PENDING
+ organization.created        | PENDING
+(2 rows)
+
+=== claim both via fn_claim_outbox_events as app_worker ===
+SET
+                  id                  |         event_type          | status  |    claimed_by    
+--------------------------------------+-----------------------------+---------+------------------
+ 01a02d85-d658-7bb3-acc5-c54f5ca963ed | compliance.policy_activated | CLAIMED | flow_test_worker
+ 01a02d85-d5db-72a7-bead-adb4c5492ef4 | organization.created        | CLAIMED | flow_test_worker
+(2 rows)
+
+RESET
+SET
+ id | event_type | status | claimed_by 
+----+------------+--------+------------
+(0 rows)
+
+RESET
+=== confirm claimed status post-claim for our two fixtures ===
+         event_type          | status  |    claimed_by    
+-----------------------------+---------+------------------
+ compliance.policy_activated | CLAIMED | flow_test_worker
+ organization.created        | CLAIMED | flow_test_worker
+(2 rows)
+
+=== cleanup fixtures ===
+DELETE 2
+ count 
+-------
+     0
+(1 row)
+

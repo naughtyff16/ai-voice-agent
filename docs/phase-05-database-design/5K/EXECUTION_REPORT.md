@@ -416,3 +416,63 @@ Phase 5K FROZEN
 
 No further database changes, schema redesign, or Phase 6 work follows from
 this closure — see governing spec §25.
+
+## 13. Phase 5J.1 — Live Validation Closure (2026-08-23) — CURRENT FINAL STATE, supersedes nothing above (additive amendment only)
+
+Migration `077_5J1` (`audit.domain_event_outbox` + its three worker
+functions + tenant-check trigger, resolving `6C-Core-Platform-APIs.md`'s
+DEP-6C-16) was authored and structurally reviewed in an earlier session that
+had no functional PostgreSQL/Python/Alembic runtime available — that pass
+produced `validation/077_5J1_VALIDATION_REPORT.md` as a static/structural-only
+report (13/13 PASS by inspection, with two structural miscounts: 16 columns
+instead of 17, "8 CHECK constraints" instead of the actual 7) and explicitly
+named live PostgreSQL execution as an open residual follow-up.
+
+This section closes that follow-up. A live PostgreSQL 18 server (local
+native Windows service, `postgresql-x64-18`; no Docker engine in this
+environment) was reached, a disposable validation database
+(`voice_agent_5j1_validate`) created, and the full `001_5B → ... → 076_5K1 →
+077_5J1` chain executed against it from genuinely empty — this single run
+serves as both the standard "confirm 077 applies cleanly on top of 076" gate
+and Phase 5K's own fresh-DB 001→077 gate.
+
+### 13.1 Results
+
+| Gate | Result |
+|---|---|
+| Alembic: genuinely empty DB → `alembic upgrade head`, 001→077 | **PASS**, exit code 0, single head `077_5J1` before and after — `execution_logs/20260823T061055Z_51_...txt` |
+| `audit.domain_event_outbox` exists, exactly 17 columns matching the migration | **PASS** (corrects the prior static report's 16-column miscount) — `execution_logs/..._52_...txt` |
+| Exactly 7 CHECK constraints + 1 PRIMARY KEY | **PASS** (corrects the prior report's "8 CHECK constraints" miscount) — `execution_logs/..._53_...txt` |
+| 4 indexes, definitions (not just names) match every hot-path predicate | **PASS** — `execution_logs/..._53_...txt` |
+| All 4 `SECURITY DEFINER` functions have explicit, safe `search_path`; correct `EXECUTE` grants (`app_worker`/`app_platform_admin` only, never `app_api`) | **PASS** — `execution_logs/..._54_...txt` |
+| `app_api`/`app_worker`/`app_readonly` grant boundaries, live via `SET ROLE` | **PASS**, no BYPASSRLS regression — `execution_logs/..._55_...txt`, `_55b_...txt` |
+| Atomic domain+outbox COMMIT and ROLLBACK, live transactions | **PASS**, both proven live — `execution_logs/..._56_...txt` |
+| `organization.created` / `compliance.policy_activated` insert + claim | **PASS**, both DEP-6C-16 flows backed live — `execution_logs/..._57_...txt` |
+| Two-worker concurrency race against `fn_claim_outbox_events` (genuinely overlapping transactions, not sequential) | **PASS**, 20/20 rows partitioned with 0 double-claims — `execution_logs/..._58_...txt` |
+| Wrong-worker publish rejection, re-mark no-op, retry/failure, max-attempts→FAILED, stale-claim recovery + fresh-claim negative control | **PASS** on every sub-case — `execution_logs/..._59_...txt`, `_60_...txt`, `_61_...txt` |
+| Regression: repo-wide `SECURITY DEFINER`/search_path, BYPASSRLS list, 5K.1 Defect B fix, `audit.audit_events`/`audit_chain` untouched | **PASS**, no regression from 077 — `execution_logs/..._62_...txt` |
+| Redis publisher application integration | **N/A, not fabricated** — no Redis instance or publisher implementation exists yet in this repo (Phase 6D+ scope); DB persistence/claiming semantics are LIVE VERIFIED independently of that |
+
+### 13.2 Final Status (current)
+
+```
+Migration 077_5J1: 18/18 live-validated checks PASS (disposable, genuinely
+                    fresh database, this pass)
+No defect found — 077_5J1.sql and 077_5J1.py unmodified by this pass
+SHA-256 077_5J1.sql: eac7022c...4a990 (15559 bytes) — unchanged, reconfirmed
+Alembic: 77 revisions, single linear chain, single head 077_5J1
+Two-worker concurrency: PASS, 0 double-claims across 20 rows
+Security/grant suite (app_api/app_worker/app_readonly, SECURITY DEFINER
+  search_path, BYPASSRLS): PASS, no regression
+Fresh-DB 001->077: PASS
+Manifest: 077 entry validation status updated in place; checksum unchanged
+
+Phase 5J.1 LIVE VERIFIED
+```
+
+See `validation/077_5J1_VALIDATION_REPORT.md` (updated in place, live
+version supersedes the static-only version it also documents in its own
+revision history) and `execution_logs/README.md`'s "Fifth batch" section for
+full raw evidence. This closes DEP-6C-16's backing-implementation gap for
+`docs/phase-06-api-design/6C-Core-Platform-APIs.md`; see that document for
+its own approval-condition update.

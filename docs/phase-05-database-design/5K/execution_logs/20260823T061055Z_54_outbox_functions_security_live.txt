@@ -1,0 +1,30 @@
+=== functions: owner, security, search_path config, args, return type ===
+         proname          |                                         args                                          |             returns             |  owner   | security_definer |                     config                      
+--------------------------+---------------------------------------------------------------------------------------+---------------------------------+----------+------------------+-------------------------------------------------
+ fn_claim_outbox_events   | p_worker_id text, p_limit integer, p_claim_timeout_seconds integer                    | SETOF audit.domain_event_outbox | postgres | t                | {"search_path=audit, pg_catalog"}
+ fn_mark_outbox_failed    | p_id uuid, p_worker_id text, p_error text, p_next_attempt_at timestamp with time zone | text                            | postgres | t                | {"search_path=audit, pg_catalog"}
+ fn_mark_outbox_published | p_id uuid, p_worker_id text                                                           | boolean                         | postgres | t                | {"search_path=audit, pg_catalog"}
+ fn_outbox_tenant_check   |                                                                                       | trigger                         | postgres | t                | {"search_path=audit, organization, pg_catalog"}
+(4 rows)
+
+=== EXECUTE grants on the three worker functions ===
+       routine_name       |      grantee       | privilege_type 
+--------------------------+--------------------+----------------
+ fn_claim_outbox_events   | app_platform_admin | EXECUTE
+ fn_claim_outbox_events   | app_worker         | EXECUTE
+ fn_claim_outbox_events   | postgres           | EXECUTE
+ fn_mark_outbox_failed    | app_platform_admin | EXECUTE
+ fn_mark_outbox_failed    | app_worker         | EXECUTE
+ fn_mark_outbox_failed    | postgres           | EXECUTE
+ fn_mark_outbox_published | app_platform_admin | EXECUTE
+ fn_mark_outbox_published | app_worker         | EXECUTE
+ fn_mark_outbox_published | postgres           | EXECUTE
+ fn_outbox_tenant_check   | postgres           | EXECUTE
+(10 rows)
+
+=== trigger ===
+         tgname          |          tgrelid          | tgtype | tgenabled |                                                               pg_get_triggerdef                                                                
+-------------------------+---------------------------+--------+-----------+------------------------------------------------------------------------------------------------------------------------------------------------
+ trg_outbox_tenant_check | audit.domain_event_outbox |      7 | O         | CREATE TRIGGER trg_outbox_tenant_check BEFORE INSERT ON audit.domain_event_outbox FOR EACH ROW EXECUTE FUNCTION audit.fn_outbox_tenant_check()
+(1 row)
+

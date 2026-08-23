@@ -1,0 +1,57 @@
+=== Step 12: mark-published by CORRECT worker (ID1=01a02d86-2cc2-7305-b5c6-c63b746509f8, held by concurrency_worker_A) ===
+SET
+ result 
+--------
+ t
+(1 row)
+
+RESET
+                  id                  |  status   | claimed_by | claimed_at |           published_at           
+--------------------------------------+-----------+------------+------------+----------------------------------
+ 01a02d86-2cc2-7305-b5c6-c63b746509f8 | PUBLISHED |            |            | 2026-08-23 13:01:43.540985+05:30
+(1 row)
+
+=== Wrong-worker rejection: try to publish ID2=01a02d86-2cc7-76c4-82ab-ab78bcef4ab6 (held by concurrency_worker_A) as a DIFFERENT worker ===
+SET
+ result_should_be_false 
+------------------------
+ f
+(1 row)
+
+RESET
+                  id                  | status  |      claimed_by      
+--------------------------------------+---------+----------------------
+ 01a02d86-2cc7-76c4-82ab-ab78bcef4ab6 | CLAIMED | concurrency_worker_A
+(1 row)
+
+=== Re-mark behavior: call fn_mark_outbox_published again on ID1 (already PUBLISHED, not CLAIMED) ===
+SET
+ result_should_be_false_noop 
+-----------------------------
+ f
+(1 row)
+
+RESET
+                  id                  |  status   |           published_at           
+--------------------------------------+-----------+----------------------------------
+ 01a02d86-2cc2-7305-b5c6-c63b746509f8 | PUBLISHED | 2026-08-23 13:01:43.540985+05:30
+(1 row)
+
+=== Step 13: retry/failure test on ID3=01a02d86-2cc7-7beb-8139-39ac8437c21c (currently CLAIMED, attempt_count=1) ===
+                  id                  | status  | attempt_count | max_attempts |           available_at           
+--------------------------------------+---------+---------------+--------------+----------------------------------
+ 01a02d86-2cc7-7beb-8139-39ac8437c21c | CLAIMED |             1 |           10 | 2026-08-23 12:59:23.132723+05:30
+(1 row)
+
+SET
+ new_status 
+------------
+ PENDING
+(1 row)
+
+RESET
+                  id                  | status  | attempt_count | max_attempts |           available_at           | claimed_by | claimed_at |         last_attempt_at          |            last_error             
+--------------------------------------+---------+---------------+--------------+----------------------------------+------------+------------+----------------------------------+-----------------------------------
+ 01a02d86-2cc7-7beb-8139-39ac8437c21c | PENDING |             1 |           10 | 2026-08-23 13:02:14.727927+05:30 |            |            | 2026-08-23 13:00:18.987402+05:30 | simulated transient publish error
+(1 row)
+

@@ -1,0 +1,17 @@
+SET
+BEGIN
+                  id                  |       event_type       | status  |      claimed_by      
+--------------------------------------+------------------------+---------+----------------------
+ 01a02d86-2cc8-77b4-b65d-5d1f22f30969 | concurrency.test.event | CLAIMED | concurrency_worker_B
+ 01a02d86-2cc8-7960-94a5-a5879ffaac5a | concurrency.test.event | CLAIMED | concurrency_worker_B
+ 01a02d86-2cc8-79b1-9d1e-1e381449fcb8 | concurrency.test.event | CLAIMED | concurrency_worker_B
+ 01a02d86-2cc8-7b68-b9b6-b681e92085dd | concurrency.test.event | CLAIMED | concurrency_worker_B
+ 01a02d86-2cc8-7b8a-a207-07f8db2ac35e | concurrency.test.event | CLAIMED | concurrency_worker_B
+ 01a02d86-2cc8-7bb4-a86d-6d0d8aa21d3d | concurrency.test.event | CLAIMED | concurrency_worker_B
+ 01a02d86-2cc8-7bf1-b36c-6ccdff7ccbce | concurrency.test.event | CLAIMED | concurrency_worker_B
+ 01a02d86-2cc8-7cfe-a248-481b5eb47003 | concurrency.test.event | CLAIMED | concurrency_worker_B
+ 01a02d86-2cc8-7e61-a653-5304787269bb | concurrency.test.event | CLAIMED | concurrency_worker_B
+ 01a02d86-2cc8-7fae-9508-0836cb60ddff | concurrency.test.event | CLAIMED | concurrency_worker_B
+(10 rows)
+
+COMMIT

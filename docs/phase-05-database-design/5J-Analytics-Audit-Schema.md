@@ -749,13 +749,15 @@ For tenant events, the complementary check (`p_organization_id <> organization.c
 
 ### 14.3 Audit Action Kind Vocabulary
 
-**Authentication:** `USER_LOGIN`, `USER_LOGIN_FAILED`, `USER_LOGOUT`, `USER_MFA_ENABLED`, `USER_MFA_DISABLED`, `USER_PASSWORD_CHANGED`, `USER_REGISTERED`, `USER_EMAIL_VERIFIED`, `USER_ERASED`
+**Authentication:** `USER_LOGIN`, `USER_LOGIN_FAILED`, `USER_LOGOUT`, `USER_MFA_ENABLED`, `USER_MFA_DISABLED`, `USER_PASSWORD_CHANGED`, `USER_REGISTERED`, `USER_EMAIL_VERIFIED`, `USER_ERASED`, `USER_PROFILE_UPDATED` †
 
 **OAuth:** `OAUTH_LINKED`, `OAUTH_UNLINKED`
 
 **API Keys:** `API_KEY_CREATED`, `API_KEY_REVOKED`
 
-**Organization / Membership:** `ORGANIZATION_CREATED`, `ORGANIZATION_UPDATED`, `ORGANIZATION_SUSPENDED`, `ORGANIZATION_REACTIVATED`, `MEMBER_INVITED`, `MEMBER_JOINED`, `MEMBER_REMOVED`, `MEMBER_SUSPENDED`, `MEMBER_ROLE_CHANGED`, `DATA_RESIDENCY_CHANGED`
+**Organization / Membership:** `ORGANIZATION_CREATED`, `ORGANIZATION_UPDATED`, `ORGANIZATION_SUSPENDED`, `ORGANIZATION_REACTIVATED`, `ORGANIZATION_CANCELLED` †, `MEMBER_INVITED`, `MEMBER_JOINED`, `MEMBER_REMOVED`, `MEMBER_SUSPENDED`, `MEMBER_REACTIVATED` †, `MEMBER_ROLE_CHANGED`, `DATA_RESIDENCY_CHANGED`
+
+**Teams** †: `TEAM_CREATED`, `TEAM_UPDATED`, `TEAM_ARCHIVED`, `TEAM_MEMBER_ADDED`, `TEAM_MEMBER_REMOVED`
 
 **RBAC:** `ROLE_ASSIGNED`, `ROLE_REMOVED`, `PERMISSION_CHANGED`
 
@@ -767,9 +769,11 @@ For tenant events, the complementary check (`p_organization_id <> organization.c
 
 **Billing:** `SUBSCRIPTION_CREATED`, `SUBSCRIPTION_PLAN_CHANGED`, `SUBSCRIPTION_CANCELLED`, `INVOICE_GENERATED`, `PAYMENT_ATTEMPTED`, `PAYMENT_SUCCEEDED`, `PAYMENT_FAILED`, `REFUND_ISSUED`, `BILLING_ADJUSTMENT_CREATED`
 
-**Compliance / Data:** `COMPLIANCE_POLICY_UPDATED`, `DATA_SUBJECT_REQUEST_RECEIVED`, `DATA_SUBJECT_REQUEST_COMPLETED`, `DATA_SUBJECT_REQUEST_REJECTED`, `DATA_EXPORT_INITIATED`, `CONTACT_ERASED`, `SUPPRESSION_ADDED`, `SUPPRESSION_LIFTED`
+**Compliance / Data:** `COMPLIANCE_POLICY_UPDATED`, `DATA_SUBJECT_REQUEST_RECEIVED`, `DATA_SUBJECT_REQUEST_VERIFYING` †, `DATA_SUBJECT_REQUEST_ON_HOLD` †, `DATA_SUBJECT_REQUEST_COMPLETED`, `DATA_SUBJECT_REQUEST_REJECTED`, `DATA_EXPORT_INITIATED`, `CONTACT_ERASED`, `SUPPRESSION_ADDED`, `SUPPRESSION_LIFTED`
 
 **Admin / Security:** `BREAK_GLASS_GRANTED`, `BREAK_GLASS_RELEASED`, `ADMIN_ACTION`, `PLATFORM_CONFIG_CHANGED`
+
+**† Controlled Phase 5.x amendment (10 values, added by migration `077_5J1`'s governing task — see `MIGRATION_MANIFEST.md` "Phase 5J.1"), required to close Phase 6C's `DEP-6C-07`/`DEP-6C-10`/`DEP-6C-11`/`DEP-6C-14`/`DEP-6C-15`:** `ORGANIZATION_CANCELLED` (organization terminal-status closure, distinct from `ORGANIZATION_SUSPENDED`/`REACTIVATED`), `MEMBER_REACTIVATED` (mirrors the existing `ORGANIZATION_REACTIVATED` verb applied to membership, sibling to `MEMBER_SUSPENDED`), `TEAM_CREATED`/`TEAM_UPDATED`/`TEAM_ARCHIVED`/`TEAM_MEMBER_ADDED`/`TEAM_MEMBER_REMOVED` (no `TEAM_*` value existed at all prior to this amendment — the previously-largest single audit gap 6C identified), `DATA_SUBJECT_REQUEST_VERIFYING`/`DATA_SUBJECT_REQUEST_ON_HOLD` (named to match `organization.data_subject_requests.status`'s own `VERIFYING`/`ON_HOLD` values exactly, the same convention already used by the pre-existing `..._RECEIVED`/`..._COMPLETED`/`..._REJECTED` triplet), `USER_PROFILE_UPDATED` (editable-profile-field mutation, e.g. `display_name`/`phone_e164`, distinct from the credential/security mutations the rest of the Authentication category covers). **This is a pure vocabulary/governance amendment — no SQL migration touches `audit.audit_events` or its `chk_ae_action_kind` constraint**, because that constraint is `CHECK (length(action_kind) BETWEEN 1 AND 200)` (migration `072_5J.sql`), not a `CHECK ... IN (...)` enum list and not backed by any reference/lookup table; the ten strings above simply become newly *governed* (documented, sanctioned) values an application `INSERT` may legitimately use, exactly like every other value in this section. Verified before this amendment was made, not assumed: no enum type, no `IN`-list constraint, and no lookup table constraining `action_kind` exists anywhere in the frozen schema.
 
 ### 14.4 Actor Model
 

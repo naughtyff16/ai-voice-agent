@@ -1,0 +1,24 @@
+STALE_ID=01a02d86-2cc8-77b4-b65d-5d1f22f30969 FRESH_ID=01a02d86-2cc8-7960-94a5-a5879ffaac5a
+=== backdate STALE_ID's claimed_at to simulate a crashed worker's stuck claim (older than claim_timeout) ===
+UPDATE 1
+                  id                  | status  |      claimed_by      |            claimed_at            
+--------------------------------------+---------+----------------------+----------------------------------
+ 01a02d86-2cc8-7960-94a5-a5879ffaac5a | CLAIMED | concurrency_worker_B | 2026-08-23 13:00:21.168683+05:30
+ 01a02d86-2cc8-77b4-b65d-5d1f22f30969 | CLAIMED | concurrency_worker_B | 2026-08-23 12:53:04.501435+05:30
+(2 rows)
+
+=== call fn_claim_outbox_events with claim_timeout_seconds=300 (5 min) from a NEW worker; STALE_ID's claim (10 min old) should be reclaimed, FRESH_ID's claim should NOT be stolen ===
+SET
+                  id                  | status  |      claimed_by       
+--------------------------------------+---------+-----------------------
+ 01a02d86-2cc8-77b4-b65d-5d1f22f30969 | CLAIMED | stale_recovery_worker
+(1 row)
+
+RESET
+=== final state check: STALE_ID must now be claimed_by=stale_recovery_worker; FRESH_ID must remain claimed_by=concurrency_worker_B (untouched) ===
+                  id                  | status  |      claimed_by       | attempt_count 
+--------------------------------------+---------+-----------------------+---------------
+ 01a02d86-2cc8-77b4-b65d-5d1f22f30969 | CLAIMED | stale_recovery_worker |             2
+ 01a02d86-2cc8-7960-94a5-a5879ffaac5a | CLAIMED | concurrency_worker_B  |             1
+(2 rows)
+

@@ -1,0 +1,46 @@
+=== 1. Alembic single-head (re-confirm) ===
+(already captured in _51 log: single head 077_5J1)
+=== 2. All SECURITY DEFINER functions: any with unsafe/missing search_path? (expect 0) ===
+ fn | proconfig 
+----+-----------
+(0 rows)
+
+=== 3. BYPASSRLS role list unchanged (expect exactly app_migration, app_platform_admin) ===
+      rolname       
+--------------------
+ app_migration
+ app_platform_admin
+ postgres
+(3 rows)
+
+=== 4. Defect B regression check: app_platform_admin must NOT have INSERT on workflow.workflow_executions ===
+      grantee       | privilege_type 
+--------------------+----------------
+ app_platform_admin | SELECT
+ app_platform_admin | UPDATE
+ app_platform_admin | DELETE
+(3 rows)
+
+=== 5. Table/function/index/trigger counts (sanity totals) ===
+ tables | functions_nonpublic_schema | triggers | indexes 
+--------+----------------------------+----------+---------
+    200 |                         66 |      106 |     826
+(1 row)
+
+=== 6. RLS-enabled table count (sanity, should be >0 and stable) ===
+ count 
+-------
+    91
+(1 row)
+
+=== 7. audit.audit_events / audit.audit_chain untouched (row/column shape spot check) ===
+ audit_events_columns 
+----------------------
+                   17
+(1 row)
+
+    to_regclass    
+-------------------
+ audit.audit_chain
+(1 row)
+

@@ -1,0 +1,20 @@
+=== app_api INSERT (no RETURNING, since app_api has INSERT-only, no SELECT, by design) ===
+SET
+INSERT 0 1
+RESET
+=== confirm app_api genuinely CANNOT read it back (SELECT denied, RETURNING denied) - this is correct per design, not a defect ===
+SET
+ERROR:  permission denied for table domain_event_outbox
+=== confirm as postgres/app_worker the row(s) really landed ===
+         event_type         | status  
+----------------------------+---------
+ privtest.app_api_insert_v2 | PENDING
+(1 row)
+
+=== cleanup ===
+DELETE 1
+ count 
+-------
+     0
+(1 row)
+

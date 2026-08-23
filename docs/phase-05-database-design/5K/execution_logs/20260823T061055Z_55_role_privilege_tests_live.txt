@@ -1,0 +1,73 @@
+=== role attributes (confirm no BYPASSRLS on app_api/app_worker) ===
+      rolname       | rolsuper | rolbypassrls 
+--------------------+----------+--------------
+ app_api            | f        | f
+ app_worker         | f        | f
+ app_readonly       | f        | f
+ app_platform_admin | f        | t
+(4 rows)
+
+
+=== TEST: app_api CAN INSERT ===
+SET
+RESET
+
+=== TEST: app_api CANNOT UPDATE (expect permission denied) ===
+SET
+RESET
+
+=== TEST: app_api CANNOT DELETE (expect permission denied) ===
+SET
+RESET
+
+=== TEST: app_api CANNOT call fn_claim_outbox_events (expect permission denied) ===
+SET
+RESET
+
+=== TEST: app_api CANNOT call fn_mark_outbox_published (expect permission denied) ===
+SET
+RESET
+
+=== TEST: app_worker CAN INSERT ===
+SET
+                  id                  | status  
+--------------------------------------+---------
+ 01a02d84-13d4-79b3-a8ac-ac50a5086f43 | PENDING
+(1 row)
+
+INSERT 0 1
+RESET
+
+=== TEST: app_worker CAN execute fn_claim_outbox_events ===
+SET
+                  id                  | status  |   claimed_by    
+--------------------------------------+---------+-----------------
+ 01a02d84-13d4-79b3-a8ac-ac50a5086f43 | CLAIMED | privtest_worker
+(1 row)
+
+RESET
+
+=== TEST: app_worker CANNOT arbitrary UPDATE (bypassing functions) (expect permission denied) ===
+SET
+RESET
+
+=== TEST: app_worker CANNOT DELETE (expect permission denied) ===
+SET
+RESET
+
+=== TEST: app_readonly CAN SELECT but CANNOT INSERT ===
+SET
+ count 
+-------
+     1
+(1 row)
+
+RESET
+
+=== cleanup fixture rows (as postgres/app_platform_admin) ===
+DELETE 1
+ remaining_privtest_rows 
+-------------------------
+                       0
+(1 row)
+

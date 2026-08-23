@@ -231,3 +231,63 @@ file `42` and redacted in place.
 See `../MIGRATION_MANIFEST.md` (row `076_5K1`), `../EXECUTION_REPORT.md`
 (Phase 5K.1 section), and the four reports in `../validation/` for the
 consolidated result these logs support.
+
+## Fifth batch — Phase 5J.1 live validation closure (2026-08-23, prefix `20260823T061055Z`)
+
+Closes the residual "no live PostgreSQL execution" gap explicitly named in
+`../validation/077_5J1_VALIDATION_REPORT.md` §0 (that report was written in a
+session with no functional `psql`/Python/Alembic runtime available). This
+batch runs against a **local native PostgreSQL 18 server**
+(`postgresql-x64-18` Windows service), not a Docker container — no Docker
+engine was available in this session. A dedicated, disposable database
+(`voice_agent_5j1_validate`) was created and dropped/recreated (twice — see
+below) specifically for this batch; the user's own real local Postgres
+service was reached with a password the user supplied interactively (never
+written to any file in this repo or elsewhere). No password or connection
+string appears in any file below.
+
+**Environment note (non-blocking, resolved):** this server initially lacked
+the `vector` extension migration `034_5F` requires (unrelated to 5J.1 —
+that migration predates it by ~40 revisions). No official Windows pgvector
+build exists; after an explicit tradeoff discussion, the user installed
+`vector` 0.8.6 themselves (not installed by this session). The first
+`voice_agent_5j1_validate` database (created before that point) was dropped
+and recreated to guarantee a genuinely empty starting point once the
+extension was available — the run recorded below is against that second,
+truly fresh database.
+
+| File | Command | Purpose |
+|---|---|---|
+| `51a_alembic_upgrade_BLOCKED_vector_extension_missing.txt` | `alembic upgrade head` (first attempt, before the `vector` extension was installed) | Preserved for transparency, not a passing result: fails at migration `034_5F` with `extension "vector" is not available` — an environment gap (unrelated to 5J.1) that predates it by ~40 revisions. The database this ran against was dropped and recreated once `vector` was installed; file `51` below is the clean re-run. |
+| `51_alembic_pre_and_upgrade_001_to_077_fresh_db.txt` | `alembic current` / `heads` (pre), `alembic upgrade head`, `alembic current` / `heads` (post) | **The critical gate**, and also stands in for Phase 5K's own "fresh-DB 001→077" check (no separate run was done — see report note). Genuinely empty DB (`pg_tables` count = 0, confirmed immediately before), full `001_5B`→`077_5J1` chain, exit code 0, single head `077_5J1` before (as `heads`) and after (as both `current` and `heads`). |
+| `52_outbox_table_columns_live.txt` | `to_regclass`, `information_schema.columns` | `audit.domain_event_outbox` exists; exactly 17 columns, all names/types/nullability/defaults matching `077_5J1.sql` exactly. |
+| `53_outbox_constraints_indexes_live.txt` | `pg_constraint`, `pg_indexes` | Exactly 7 named `CHECK` constraints + 1 `PRIMARY KEY` (`pk_outbox`) — PostgreSQL 18 additionally surfaces 9 `contype='n'` (not-null) rows per column, a PG18 catalog-representation detail, not an additional CHECK. 4 `CREATE INDEX` statements confirmed live with exact predicate/column definitions matching the migration, plus the implicit unique index backing the PK (5 total `pg_indexes` rows). |
+| `54_outbox_functions_security_live.txt` | `pg_proc`/`pg_namespace`/`pg_roles` join, `information_schema.routine_privileges`, `pg_trigger` | All 4 functions (`fn_claim_outbox_events`, `fn_mark_outbox_published`, `fn_mark_outbox_failed`, `fn_outbox_tenant_check`) are `SECURITY DEFINER` with an explicit, non-empty `search_path` (`audit, pg_catalog` or `audit, organization, pg_catalog` for the trigger function) — no bare/implicit `public` regression. `EXECUTE` granted to exactly `app_worker`/`app_platform_admin` on the three callable functions, none to `app_api`, none (beyond owner) on the trigger function. Trigger `trg_outbox_tenant_check` confirmed `BEFORE INSERT`, enabled (`tgenabled='O'`). |
+| `55_role_privilege_tests_live.txt` + `55b_role_privilege_app_api_insert_corrected.txt` | `SET ROLE` live tests as `app_api`/`app_worker`/`app_readonly` | `app_api`: INSERT succeeds (plain, no `RETURNING` — see `55b`: `RETURNING`/direct `SELECT` correctly denied too, since `app_api` has INSERT-only, no SELECT, by design, not a defect), UPDATE/DELETE/all three functions correctly denied. `app_worker`: INSERT succeeds, `fn_claim_outbox_events` succeeds, direct UPDATE/DELETE correctly denied (must go through the functions). `app_readonly`: SELECT succeeds, INSERT correctly denied. No `BYPASSRLS` on `app_api`/`app_worker`/`app_readonly` (confirmed via `pg_roles`). |
+| `56_atomic_domain_outbox_rollback_commit.txt` | live `BEGIN`/`INSERT`×2/`ROLLBACK` then `BEGIN`/`INSERT`×2/`COMMIT` against `organization.organizations` + `audit.domain_event_outbox` in the same transaction | ROLLBACK: both rows absent afterward. COMMIT: both rows present afterward, then cleaned up. Proves the core transactional-outbox invariant live, not just by construction. |
+| `57_event_flow_insert_claim_tests.txt` | live INSERT + `fn_claim_outbox_events` as `app_worker` | `organization.created` and `compliance.policy_activated` events both insert as `PENDING` and are both successfully claimed (→`CLAIMED`) — DEP-6C-16's two required 6C flows are backed live, not just structurally. |
+| `58_concurrency_sessionA.txt` / `_sessionB.txt` | two **genuinely overlapping** `psql -f` sessions (A backgrounded: `BEGIN` → claim 10 of 20 seeded rows → `pg_sleep(6)` holding row locks open → `COMMIT`; B started 2s into A's sleep, while A's transaction and locks were still open: `BEGIN` → claim → `COMMIT`, returns immediately, proving `SKIP LOCKED` rather than lock-wait) | **Mandatory two-worker concurrency test.** A and B claimed disjoint sets of exactly 10 rows each (verified programmatically: 0-row intersection, 20-row union, no id returned to both). Real concurrency, not two sequential calls. |
+| `59_publish_wrongworker_remark_tests.txt` | `fn_mark_outbox_published` live calls | Correct-worker publish: returns `true`, `status→PUBLISHED`, `published_at` set, claim fields cleared. Wrong-worker publish attempt on another worker's still-claimed row: returns `false`, row unchanged. Re-mark on an already-`PUBLISHED` row: returns `false` (no-op, CAS-guarded on `status='CLAIMED'`). Also covers step 13 (retry/failure): `fn_mark_outbox_failed` before max attempts returns `PENDING`, `available_at` pushed forward ~30s, claim fields cleared, `last_error` populated. |
+| `60_max_attempts_failed_state_test.txt` | 9 iterations of claim→fail via `p_next_attempt_at=NOW()` to skip backoff wait | First 9 sub-attempts in the file are a documented test-design correction (see inline note in the file) — they tried to steal a row still within its fresh 300s claim window and were correctly rejected as no-ops, itself a valid confirmation of the "fresh claim not stolen" behavior later re-tested explicitly in `61`. After releasing the row properly: `attempt_count` climbs 1→10 across 9 claim/fail cycles, and at `attempt_count=max_attempts=10` the row transitions to terminal `FAILED`, is no longer returned by `fn_claim_outbox_events`, and remains observable in the table (not dropped). |
+| `61_stale_claim_recovery_test.txt` | manual `claimed_at` backdate (`NOW() - 10 minutes`) on one CLAIMED row + live claim call with `claim_timeout_seconds=300` from a new worker, alongside an untouched fresh CLAIMED row as a negative control | Stale (10-min-old) claim reclaimed by the new worker. Fresh (~2-min-old) claim on the control row correctly **not** stolen in the same call. |
+| `62_regression_security_suite.txt` | `pg_proc`/`pg_roles`/`information_schema.role_table_grants` queries against the same post-077 fresh DB | Zero `SECURITY DEFINER` functions repo-wide with missing/unsafe `search_path` (077's own 4 included, and no regression in the pre-existing ones). `BYPASSRLS` role list unchanged (`app_migration`, `app_platform_admin`, plus the connecting superuser). Phase 5K.1's Defect B fix still holds (`app_platform_admin` has no `INSERT` on `workflow.workflow_executions`). `audit.audit_events`/`audit.audit_chain` untouched. Aggregate table/function/trigger/index/RLS counts sane (200 tables, 66 non-system-schema functions, 106 triggers, 826 indexes, 91 RLS tables) — 077 added exactly its own 1 table / 4 functions / 1 trigger / 4 explicit indexes on top of the 076 baseline, nothing else moved. |
+
+**Step 17 (Redis integration) explicitly NOT performed and not fabricated:**
+no Redis instance and no runnable outbox-publisher application code exist
+anywhere in this repository at this stage (it is still a documentation-phase
+repo; Phase 6D/implementation has not started). Per the governing task's own
+instruction, this is recorded as N/A rather than a fabricated PASS: DB
+outbox persistence and claiming semantics are LIVE VERIFIED (above); Redis
+publisher *application* integration is out of this migration's scope until
+that implementation exists.
+
+**No SQL was modified.** Every live test passed against `077_5J1.sql` and
+`077_5J1.py` exactly as already committed — `sha256sum` reconfirms the file
+unchanged (`eac7022c...4a990`, 15559 bytes, matching `MIGRATION_MANIFEST.md`
+row 077 byte-for-byte). All test fixture rows were deleted from the
+validation database after use; the validation database itself
+(`voice_agent_5j1_validate`) is disposable, separate from any shared/dev
+database, and was left empty at the end of this batch.
+
+See `../validation/077_5J1_VALIDATION_REPORT.md` (updated by this batch) and
+`../MIGRATION_MANIFEST.md` row `077` for the consolidated result.

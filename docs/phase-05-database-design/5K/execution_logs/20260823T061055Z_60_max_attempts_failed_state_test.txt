@@ -1,0 +1,404 @@
+Testing max-attempts drive on ID4=01a02d86-2cc7-7c35-a4dc-dcb5a24a5492
+                  id                  | status  | attempt_count | max_attempts 
+--------------------------------------+---------+---------------+--------------
+ 01a02d86-2cc7-7c35-a4dc-dcb5a24a5492 | CLAIMED |             1 |           10
+(1 row)
+
+--- iteration 1: claim then fail (immediate retry via p_next_attempt_at=NOW()) ---
+SET
+ id | attempt_count | status 
+----+---------------+--------
+(0 rows)
+
+RESET
+SET
+ new_status 
+------------
+ 
+(1 row)
+
+RESET
+                  id                  | status  | attempt_count | max_attempts 
+--------------------------------------+---------+---------------+--------------
+ 01a02d86-2cc7-7c35-a4dc-dcb5a24a5492 | CLAIMED |             1 |           10
+(1 row)
+
+--- iteration 2: claim then fail (immediate retry via p_next_attempt_at=NOW()) ---
+SET
+ id | attempt_count | status 
+----+---------------+--------
+(0 rows)
+
+RESET
+SET
+ new_status 
+------------
+ 
+(1 row)
+
+RESET
+                  id                  | status  | attempt_count | max_attempts 
+--------------------------------------+---------+---------------+--------------
+ 01a02d86-2cc7-7c35-a4dc-dcb5a24a5492 | CLAIMED |             1 |           10
+(1 row)
+
+--- iteration 3: claim then fail (immediate retry via p_next_attempt_at=NOW()) ---
+SET
+ id | attempt_count | status 
+----+---------------+--------
+(0 rows)
+
+RESET
+SET
+ new_status 
+------------
+ 
+(1 row)
+
+RESET
+                  id                  | status  | attempt_count | max_attempts 
+--------------------------------------+---------+---------------+--------------
+ 01a02d86-2cc7-7c35-a4dc-dcb5a24a5492 | CLAIMED |             1 |           10
+(1 row)
+
+--- iteration 4: claim then fail (immediate retry via p_next_attempt_at=NOW()) ---
+SET
+ id | attempt_count | status 
+----+---------------+--------
+(0 rows)
+
+RESET
+SET
+ new_status 
+------------
+ 
+(1 row)
+
+RESET
+                  id                  | status  | attempt_count | max_attempts 
+--------------------------------------+---------+---------------+--------------
+ 01a02d86-2cc7-7c35-a4dc-dcb5a24a5492 | CLAIMED |             1 |           10
+(1 row)
+
+--- iteration 5: claim then fail (immediate retry via p_next_attempt_at=NOW()) ---
+SET
+ id | attempt_count | status 
+----+---------------+--------
+(0 rows)
+
+RESET
+SET
+ new_status 
+------------
+ 
+(1 row)
+
+RESET
+                  id                  | status  | attempt_count | max_attempts 
+--------------------------------------+---------+---------------+--------------
+ 01a02d86-2cc7-7c35-a4dc-dcb5a24a5492 | CLAIMED |             1 |           10
+(1 row)
+
+--- iteration 6: claim then fail (immediate retry via p_next_attempt_at=NOW()) ---
+SET
+ id | attempt_count | status 
+----+---------------+--------
+(0 rows)
+
+RESET
+SET
+ new_status 
+------------
+ 
+(1 row)
+
+RESET
+                  id                  | status  | attempt_count | max_attempts 
+--------------------------------------+---------+---------------+--------------
+ 01a02d86-2cc7-7c35-a4dc-dcb5a24a5492 | CLAIMED |             1 |           10
+(1 row)
+
+--- iteration 7: claim then fail (immediate retry via p_next_attempt_at=NOW()) ---
+SET
+ id | attempt_count | status 
+----+---------------+--------
+(0 rows)
+
+RESET
+SET
+ new_status 
+------------
+ 
+(1 row)
+
+RESET
+                  id                  | status  | attempt_count | max_attempts 
+--------------------------------------+---------+---------------+--------------
+ 01a02d86-2cc7-7c35-a4dc-dcb5a24a5492 | CLAIMED |             1 |           10
+(1 row)
+
+--- iteration 8: claim then fail (immediate retry via p_next_attempt_at=NOW()) ---
+SET
+ id | attempt_count | status 
+----+---------------+--------
+(0 rows)
+
+RESET
+SET
+ new_status 
+------------
+ 
+(1 row)
+
+RESET
+                  id                  | status  | attempt_count | max_attempts 
+--------------------------------------+---------+---------------+--------------
+ 01a02d86-2cc7-7c35-a4dc-dcb5a24a5492 | CLAIMED |             1 |           10
+(1 row)
+
+--- iteration 9: claim then fail (immediate retry via p_next_attempt_at=NOW()) ---
+SET
+ id | attempt_count | status 
+----+---------------+--------
+(0 rows)
+
+RESET
+SET
+ new_status 
+------------
+ 
+(1 row)
+
+RESET
+                  id                  | status  | attempt_count | max_attempts 
+--------------------------------------+---------+---------------+--------------
+ 01a02d86-2cc7-7c35-a4dc-dcb5a24a5492 | CLAIMED |             1 |           10
+(1 row)
+
+=== Final state after driving to max attempts ===
+                  id                  | status  | attempt_count | max_attempts | last_error 
+--------------------------------------+---------+---------------+--------------+------------
+ 01a02d86-2cc7-7c35-a4dc-dcb5a24a5492 | CLAIMED |             1 |           10 | 
+(1 row)
+
+=== Confirm FAILED row is no longer returned by fn_claim_outbox_events ===
+SET
+ should_be_zero 
+----------------
+              0
+(1 row)
+
+RESET
+NOTE: first 9 iterations above were a test-design mistake (tried to claim as a new worker while ID4 was still freshly CLAIMED by concurrency_worker_A, well within the 300s claim_timeout -- correctly rejected as a no-op, proving fresh claims are NOT stealable, which is actually a valid confirmation of Step 15's negative case). Correcting now: release ID4 back to PENDING via its actual holder first.
+SET
+ reset_status 
+--------------
+ PENDING
+(1 row)
+
+RESET
+                  id                  | status  | attempt_count | max_attempts 
+--------------------------------------+---------+---------------+--------------
+ 01a02d86-2cc7-7c35-a4dc-dcb5a24a5492 | PENDING |             1 |           10
+(1 row)
+
+--- iteration 1: claim (as max_attempt_tester) then fail immediately ---
+SET
+                  id                  | attempt_count | status  
+--------------------------------------+---------------+---------
+ 01a02d86-2cc7-7c35-a4dc-dcb5a24a5492 |             2 | CLAIMED
+(1 row)
+
+RESET
+SET
+ new_status 
+------------
+ PENDING
+(1 row)
+
+RESET
+                  id                  | status  | attempt_count | max_attempts 
+--------------------------------------+---------+---------------+--------------
+ 01a02d86-2cc7-7c35-a4dc-dcb5a24a5492 | PENDING |             2 |           10
+(1 row)
+
+--- iteration 2: claim (as max_attempt_tester) then fail immediately ---
+SET
+                  id                  | attempt_count | status  
+--------------------------------------+---------------+---------
+ 01a02d86-2cc7-7c35-a4dc-dcb5a24a5492 |             3 | CLAIMED
+(1 row)
+
+RESET
+SET
+ new_status 
+------------
+ PENDING
+(1 row)
+
+RESET
+                  id                  | status  | attempt_count | max_attempts 
+--------------------------------------+---------+---------------+--------------
+ 01a02d86-2cc7-7c35-a4dc-dcb5a24a5492 | PENDING |             3 |           10
+(1 row)
+
+--- iteration 3: claim (as max_attempt_tester) then fail immediately ---
+SET
+                  id                  | attempt_count | status  
+--------------------------------------+---------------+---------
+ 01a02d86-2cc7-7c35-a4dc-dcb5a24a5492 |             4 | CLAIMED
+(1 row)
+
+RESET
+SET
+ new_status 
+------------
+ PENDING
+(1 row)
+
+RESET
+                  id                  | status  | attempt_count | max_attempts 
+--------------------------------------+---------+---------------+--------------
+ 01a02d86-2cc7-7c35-a4dc-dcb5a24a5492 | PENDING |             4 |           10
+(1 row)
+
+--- iteration 4: claim (as max_attempt_tester) then fail immediately ---
+SET
+                  id                  | attempt_count | status  
+--------------------------------------+---------------+---------
+ 01a02d86-2cc7-7c35-a4dc-dcb5a24a5492 |             5 | CLAIMED
+(1 row)
+
+RESET
+SET
+ new_status 
+------------
+ PENDING
+(1 row)
+
+RESET
+                  id                  | status  | attempt_count | max_attempts 
+--------------------------------------+---------+---------------+--------------
+ 01a02d86-2cc7-7c35-a4dc-dcb5a24a5492 | PENDING |             5 |           10
+(1 row)
+
+--- iteration 5: claim (as max_attempt_tester) then fail immediately ---
+SET
+                  id                  | attempt_count | status  
+--------------------------------------+---------------+---------
+ 01a02d86-2cc7-7c35-a4dc-dcb5a24a5492 |             6 | CLAIMED
+(1 row)
+
+RESET
+SET
+ new_status 
+------------
+ PENDING
+(1 row)
+
+RESET
+                  id                  | status  | attempt_count | max_attempts 
+--------------------------------------+---------+---------------+--------------
+ 01a02d86-2cc7-7c35-a4dc-dcb5a24a5492 | PENDING |             6 |           10
+(1 row)
+
+--- iteration 6: claim (as max_attempt_tester) then fail immediately ---
+SET
+                  id                  | attempt_count | status  
+--------------------------------------+---------------+---------
+ 01a02d86-2cc7-7c35-a4dc-dcb5a24a5492 |             7 | CLAIMED
+(1 row)
+
+RESET
+SET
+ new_status 
+------------
+ PENDING
+(1 row)
+
+RESET
+                  id                  | status  | attempt_count | max_attempts 
+--------------------------------------+---------+---------------+--------------
+ 01a02d86-2cc7-7c35-a4dc-dcb5a24a5492 | PENDING |             7 |           10
+(1 row)
+
+--- iteration 7: claim (as max_attempt_tester) then fail immediately ---
+SET
+                  id                  | attempt_count | status  
+--------------------------------------+---------------+---------
+ 01a02d86-2cc7-7c35-a4dc-dcb5a24a5492 |             8 | CLAIMED
+(1 row)
+
+RESET
+SET
+ new_status 
+------------
+ PENDING
+(1 row)
+
+RESET
+                  id                  | status  | attempt_count | max_attempts 
+--------------------------------------+---------+---------------+--------------
+ 01a02d86-2cc7-7c35-a4dc-dcb5a24a5492 | PENDING |             8 |           10
+(1 row)
+
+--- iteration 8: claim (as max_attempt_tester) then fail immediately ---
+SET
+                  id                  | attempt_count | status  
+--------------------------------------+---------------+---------
+ 01a02d86-2cc7-7c35-a4dc-dcb5a24a5492 |             9 | CLAIMED
+(1 row)
+
+RESET
+SET
+ new_status 
+------------
+ PENDING
+(1 row)
+
+RESET
+                  id                  | status  | attempt_count | max_attempts 
+--------------------------------------+---------+---------------+--------------
+ 01a02d86-2cc7-7c35-a4dc-dcb5a24a5492 | PENDING |             9 |           10
+(1 row)
+
+--- iteration 9: claim (as max_attempt_tester) then fail immediately ---
+SET
+                  id                  | attempt_count | status  
+--------------------------------------+---------------+---------
+ 01a02d86-2cc7-7c35-a4dc-dcb5a24a5492 |            10 | CLAIMED
+(1 row)
+
+RESET
+SET
+ new_status 
+------------
+ FAILED
+(1 row)
+
+RESET
+                  id                  | status | attempt_count | max_attempts 
+--------------------------------------+--------+---------------+--------------
+ 01a02d86-2cc7-7c35-a4dc-dcb5a24a5492 | FAILED |            10 |           10
+(1 row)
+
+=== Final state after driving to max attempts ===
+                  id                  | status | attempt_count | max_attempts |     last_error      
+--------------------------------------+--------+---------------+--------------+---------------------
+ 01a02d86-2cc7-7c35-a4dc-dcb5a24a5492 | FAILED |            10 |           10 | iteration 9 failure
+(1 row)
+
+=== Confirm FAILED row is no longer returned by fn_claim_outbox_events (should be 0) ===
+SET
+ should_be_zero 
+----------------
+              0
+(1 row)
+
+RESET
+=== Confirm FAILED row still observable in the table (not silently dropped) ===
+ count 
+-------
+     1
+(1 row)
+

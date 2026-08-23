@@ -1,0 +1,47 @@
+=== TEST A: ROLLBACK — domain insert + outbox insert, then ROLLBACK ===
+BEGIN
+INSERT 0 1
+INSERT 0 1
+ROLLBACK
+=== VERIFY after ROLLBACK: both rows must be ABSENT ===
+ org_count 
+-----------
+         0
+(1 row)
+
+ outbox_count 
+--------------
+            0
+(1 row)
+
+
+=== TEST B: COMMIT — domain insert + outbox insert, then COMMIT ===
+BEGIN
+INSERT 0 1
+INSERT 0 1
+COMMIT
+=== VERIFY after COMMIT: both rows must be PRESENT ===
+                  id                  |           slug            
+--------------------------------------+---------------------------
+ 01a02d85-92b4-710e-ad83-83d089d96b45 | atomicity-test-org-commit
+(1 row)
+
+                  id                  |      event_type      | status  |           organization_id            |                                      payload                                      
+--------------------------------------+----------------------+---------+--------------------------------------+-----------------------------------------------------------------------------------
+ 01a02d85-92b9-75c7-868b-8b7600cab811 | organization.created | PENDING | 01a02d85-92b4-710e-ad83-83d089d96b45 | {"org_id": "01a02d85-92b4-710e-ad83-83d089d96b45", "fixture": "atomicity_commit"}
+(1 row)
+
+
+=== cleanup fixture B rows ===
+DELETE 1
+DELETE 1
+ count 
+-------
+     0
+(1 row)
+
+ count 
+-------
+     0
+(1 row)
+

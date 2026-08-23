@@ -1,0 +1,40 @@
+=== constraints (pg_constraint) ===
+                  conname                   | contype |                                        pg_get_constraintdef                                         
+--------------------------------------------+---------+-----------------------------------------------------------------------------------------------------
+ chk_outbox_attempt_count                   | c       | CHECK ((attempt_count >= 0))
+ chk_outbox_event_type_len                  | c       | CHECK (((length(event_type) >= 1) AND (length(event_type) <= 200)))
+ chk_outbox_last_error_len                  | c       | CHECK (((last_error IS NULL) OR (length(last_error) <= 2000)))
+ chk_outbox_max_attempts                    | c       | CHECK (((max_attempts >= 1) AND (max_attempts <= 20)))
+ chk_outbox_payload_size                    | c       | CHECK ((length((payload)::text) <= 262144))
+ chk_outbox_published_state                 | c       | CHECK (((status = 'PUBLISHED'::text) = (published_at IS NOT NULL)))
+ chk_outbox_status                          | c       | CHECK ((status = ANY (ARRAY['PENDING'::text, 'CLAIMED'::text, 'PUBLISHED'::text, 'FAILED'::text])))
+ domain_event_outbox_attempt_count_not_null | n       | NOT NULL attempt_count
+ domain_event_outbox_available_at_not_null  | n       | NOT NULL available_at
+ domain_event_outbox_event_type_not_null    | n       | NOT NULL event_type
+ domain_event_outbox_event_version_not_null | n       | NOT NULL event_version
+ domain_event_outbox_id_not_null            | n       | NOT NULL id
+ domain_event_outbox_max_attempts_not_null  | n       | NOT NULL max_attempts
+ domain_event_outbox_occurred_at_not_null   | n       | NOT NULL occurred_at
+ domain_event_outbox_payload_not_null       | n       | NOT NULL payload
+ domain_event_outbox_status_not_null        | n       | NOT NULL status
+ pk_outbox                                  | p       | PRIMARY KEY (id)
+(17 rows)
+
+=== constraint type counts ===
+ contype | count 
+---------+-------
+ c       |     7
+ n       |     9
+ p       |     1
+(3 rows)
+
+=== indexes (pg_indexes) ===
+        indexname         |                                                                           indexdef                                                                            
+--------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------
+ idx_outbox_claim         | CREATE INDEX idx_outbox_claim ON audit.domain_event_outbox USING btree (available_at, id) WHERE (status = 'PENDING'::text)
+ idx_outbox_claimed_stuck | CREATE INDEX idx_outbox_claimed_stuck ON audit.domain_event_outbox USING btree (claimed_at) WHERE (status = 'CLAIMED'::text)
+ idx_outbox_org_type      | CREATE INDEX idx_outbox_org_type ON audit.domain_event_outbox USING btree (organization_id, event_type, occurred_at DESC) WHERE (organization_id IS NOT NULL)
+ idx_outbox_status        | CREATE INDEX idx_outbox_status ON audit.domain_event_outbox USING btree (status, occurred_at DESC)
+ pk_outbox                | CREATE UNIQUE INDEX pk_outbox ON audit.domain_event_outbox USING btree (id)
+(5 rows)
+

@@ -1,0 +1,22 @@
+SET
+BEGIN
+                  id                  |       event_type       | status  |      claimed_by      
+--------------------------------------+------------------------+---------+----------------------
+ 01a02d86-2cc2-7305-b5c6-c63b746509f8 | concurrency.test.event | CLAIMED | concurrency_worker_A
+ 01a02d86-2cc7-76c4-82ab-ab78bcef4ab6 | concurrency.test.event | CLAIMED | concurrency_worker_A
+ 01a02d86-2cc7-7beb-8139-39ac8437c21c | concurrency.test.event | CLAIMED | concurrency_worker_A
+ 01a02d86-2cc7-7c35-a4dc-dcb5a24a5492 | concurrency.test.event | CLAIMED | concurrency_worker_A
+ 01a02d86-2cc8-722e-9964-647f0fece9b0 | concurrency.test.event | CLAIMED | concurrency_worker_A
+ 01a02d86-2cc8-7363-a26f-6fada4833fe6 | concurrency.test.event | CLAIMED | concurrency_worker_A
+ 01a02d86-2cc8-7560-a979-795b4c207a10 | concurrency.test.event | CLAIMED | concurrency_worker_A
+ 01a02d86-2cc8-75e4-8720-20a67c453347 | concurrency.test.event | CLAIMED | concurrency_worker_A
+ 01a02d86-2cc8-765d-aecf-cff26b6a14ea | concurrency.test.event | CLAIMED | concurrency_worker_A
+ 01a02d86-2cc8-77aa-a383-8350f267fafd | concurrency.test.event | CLAIMED | concurrency_worker_A
+(10 rows)
+
+ holding_locks_while_sleeping 
+------------------------------
+ 
+(1 row)
+
+COMMIT
