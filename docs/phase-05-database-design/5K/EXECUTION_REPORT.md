@@ -532,3 +532,66 @@ blocking dependencies (DEP-6F-01, 02, 09, 14, 15, 16) and
 DEP-6B-01; both documents' own dependency-status rows are updated
 separately (freeze-eligibility verdicts are not changed here — that
 review is independent of this database pass).
+
+---
+
+## Phase 5L.1 — post-reconciliation correction (2026-08-24)
+
+```
+Migrations 088_5F8..091_5F11: 4 new forward-only migrations, all
+                               live-validated, PASS
+Baseline: SQL head 087_5B1, Alembic head 087_5B1, single head, before
+          this sub-pass began
+New SQL head: 091_5F11
+New Alembic head: 091_5F11, single linear chain
+Fresh-DB 001->091: PASS, exit code 0
+Existing-DB 087_5B1->091_5F11: PASS, exit code 0
+
+Blocker #1 (fn_kb_reindex_fail active-generation forgery): FIXED,
+  live adversarial A-E all PASS (valid generation succeeds; current,
+  older, future, and cross-tenant generations all rejected; zero rows
+  removed on any rejected attempt)
+  SELF-FOUND regression during testing: table-wide UNIQUE(kb,generation)
+  on kb_reindex_jobs blocked retrying a failed generation -- fixed in
+  the same migration (partial unique index excluding FAILED rows)
+  before being reported complete
+Blocker #2 (fn_kb_reindex_complete false-positive completeness): FIXED,
+  live test PASS -- a build missing 2 of 3 expected chunks for one
+  manifested document version correctly rejected cutover; completing
+  the missing chunks then allowed cutover to succeed
+Blocker #3/#4 (rollback vs reindex-cleanup coherence): FIXED via a
+  per-version-scoped cleanup predicate (Option D, source-grounded).
+  Mandatory 17-step end-to-end lifecycle test: ALL STEPS PASS, including
+  the critical proof point (step 14) -- after publish V1, publish V2,
+  full reindex, and old-generation cleanup, rolling back to V1 still
+  retrieves its original 2 chunks (never touched by cleanup, by design)
+Blocker #5 (Document<->DocumentVersion KB-drift): FIXED, column-privilege
+  lockdown live-tested -- app_api and app_worker both denied moving a
+  document between KBs or changing its organization_id; ordinary
+  title/status/metadata mutation still works; KB-id agreement between
+  documents and document_versions verified to hold
+Item #6 (QP-09 multilingual query consistency): FIXED (query-contract +
+  supporting index). Live-proven: the corrected two-branch query finds
+  a "returns" (unstemmed, simple-config) match the OLD single-branch
+  english-only query pattern genuinely misses (0 rows) -- a real,
+  decisive counter-example, not just tsvector inspection
+Item #7 (break-glass actor attribution): reviewed, no trusted DB-level
+  actor-identity context exists anywhere in this schema (only
+  current_tenant_id()/is_platform_admin() GUCs) -- recorded as a
+  disclosed application-layer trust dependency, not fabricated; no
+  schema change made; non-platform-admin denial re-confirmed live
+SECURITY DEFINER re-audit: PASS -- repo-wide scan for ANY SECURITY
+  DEFINER function missing an explicit search_path returns 0 rows
+  (all 58 functions); PUBLIC EXECUTE audit clean on all 11 functions
+  touched this sub-pass
+Cleanup: throwaway database dropped, app_api/app_worker temporary
+  passwords reset to NULL -- local instance restored to its prior state
+
+Phase 5L.1 LIVE VERIFIED
+```
+
+See `docs/phase-05-database-design/5L-Global-Database-Reconciliation/
+5L-Global-Database-Reconciliation.md`'s Phase 5L.1 addendum for full
+detail and `5L-Global-Database-Reconciliation/execution_logs/` (files
+26-33, prefix `20260823T212453Z`) for raw captured evidence. 6F's
+dependency register and freeze-gate status are updated separately.

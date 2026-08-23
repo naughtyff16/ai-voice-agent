@@ -1,0 +1,58 @@
+INSERT 0 2
+INSERT 0 2
+ fn_docver_mark_ready 
+----------------------
+ 
+(1 row)
+
+ fn_docver_publish 
+-------------------
+ 
+(1 row)
+
+ fn_docver_mark_ready 
+----------------------
+ 
+(1 row)
+
+ fn_docver_publish 
+-------------------
+ 
+(1 row)
+
+INSERT 0 3
+INSERT 0 2
+=== manifest snapshot: expect Doc Two version=3 chunks, Doc Three version=2 chunks ===
+         document_version_id          | expected_chunk_count 
+--------------------------------------+----------------------
+ 10000000-0000-7000-a000-0000000000fa |                    3
+ 10000000-0000-7000-a000-0000000000fb |                    2
+(2 rows)
+
+=== PARTIAL BUILD: Doc Three fully rebuilt (2/2); Doc Two only 1 of 3 ===
+INSERT 0 1
+INSERT 0 2
+=== attempt complete with the PARTIAL build -> expect ERROR (Doc Two missing 2 of 3 chunks) ===
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/d993f6c7-9691-4a46-82ab-150cd506e349/scratchpad/test_reindex_completeness2.sql:40: ERROR:  fn_kb_reindex_complete: 1 of 2 manifested document version(s) are missing or incomplete in generation 2 — refusing to cut over to a partial build.
+CONTEXT:  PL/pgSQL function fn_kb_reindex_complete(uuid,uuid,integer) line 46 at RAISE
+ERROR:  syntax error at or near "\"
+LINE 2: \set org '10000000-0000-7000-a000-0000000000a1'
+        ^
+=== verify KB still REINDEXING, index_version unchanged (partial build did not cut over) ===
+ index_version |   status   
+---------------+------------
+             1 | REINDEXING
+(1 row)
+
+=== finish the missing chunks for Doc Two, then complete succeeds ===
+INSERT 0 2
+ fn_kb_reindex_complete 
+------------------------
+ 
+(1 row)
+
+ index_version | status 
+---------------+--------
+             2 | ACTIVE
+(1 row)
+

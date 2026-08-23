@@ -412,3 +412,235 @@ with real execution evidence.
 
 **GLOBAL DATABASE RECONCILIATION COMPLETE — READY TO RETURN TO PHASE 6F
 FREEZE REVIEW**
+
+---
+
+# Phase 5L.1 — Post-Reconciliation Correction (2026-08-24)
+
+An independent review of migrations `078_5F1`-`087_5B1` found five
+defects/gaps in the cross-feature interactions between the six new
+Knowledge/RAG lifecycle mechanisms (publish, rollback, mark-failed, GDPR
+erase, and — especially — the new reindex-generation machinery), plus
+one multilingual query-consistency gap. This addendum documents the
+fixes: four new migrations (`088_5F8`-`091_5F11`), all live-validated,
+including one defect self-found and fixed *during* this sub-pass's own
+adversarial testing (see item 1 below).
+
+Baseline for this sub-pass: SQL/Alembic head `087_5B1` -> new head
+`091_5F11`. Both upgrade paths (fresh-DB 001-091, existing-DB
+087-091) pass with real execution evidence
+(`execution_logs/20260823T212453Z_26_...txt`).
+
+## 1. Reindex-fail active-generation forgery (Blocker)
+
+**Root cause**: `fn_kb_reindex_fail()` (083_5F6.sql) deleted
+`WHERE index_generation = p_failed_generation` without proving
+`p_failed_generation` was actually the pending build generation. A
+caller passing the current serving generation could delete it.
+
+**Fix** (`088_5F8.sql`): a new `knowledge.kb_reindex_jobs` table is the
+authoritative record of which generation is pending for a KB.
+`fn_kb_reindex_fail()` now requires `p_failed_generation = index_version + 1`
+and a matching `BUILDING` job row, both checked under the same
+`FOR UPDATE` row lock used for the KB status check.
+
+**Self-found regression, fixed in the same migration**: initial testing
+of the "retry after failure" path hit a table-wide
+`UNIQUE(knowledge_base_id, generation)` constraint — a failed attempt at
+generation N permanently blocked any future attempt at generation N,
+since `fn_kb_reindex_begin()` always recomputes N = `index_version + 1`
+(unchanged by a failed attempt). Fixed with a partial unique index
+(`uq_krj_kb_generation_active`) excluding `FAILED` rows, before this
+migration was reported as validated.
+
+**Live adversarial evidence** (`execution_logs/..._28_reindex_fail_adversarial_tests.txt`):
+- A (valid pending generation) -> succeeds, only pending-generation rows removed, job marked `FAILED`, KB reverts to `ACTIVE`.
+- B (current serving generation) -> rejected, zero rows removed.
+- C (older/never-existed generation, `0`) -> rejected.
+- D (future, `pending+1`) -> rejected.
+- E (cross-tenant org) -> rejected (`not found or not owned by tenant`).
+- KB state and pending-generation row count independently confirmed unchanged after every rejected attempt.
+- A second reindex attempt at the same generation number, after the first failed, now succeeds (proves the self-found regression is closed).
+
+## 2. Reindex-complete false-positive completeness (Blocker)
+
+**Root cause**: `fn_kb_reindex_complete()` (083_5F6.sql) only checked
+"at least one chunk row exists" for the new generation — a rebuild that
+produced 1 chunk out of 100 required documents would pass.
+
+**Fix** (`088_5F8.sql`): a new `knowledge.kb_reindex_job_manifest` table,
+populated once by `fn_kb_reindex_begin()`, snapshots every currently
+`READY`, non-deleted document's current version and its already-durable
+`document_versions.chunk_count` at begin-time. `fn_kb_reindex_complete()`
+now requires, for every manifest entry whose document is still not
+deleted and whose version is still `READY` at completion time (entries
+made irrelevant by a concurrent delete/GDPR-erase/republish are
+correctly excluded, matching the task's own guidance), that the new
+generation has exactly `expected_chunk_count` chunks for that
+version — not merely at least one. A document ingested after the
+snapshot is out of this job's scope by design (picked up by the next
+reindex).
+
+**Live evidence** (`execution_logs/..._29_reindex_completeness_proof.txt`):
+manifest for a 2-document KB correctly recorded expected counts of 3 and
+2; a build that fully rebuilt one document but only 1-of-3 chunks for
+the other was rejected with "1 of 2 manifested document version(s) are
+missing or incomplete", KB remained `REINDEXING` at the old
+`index_version`; supplying the missing chunks then allowed
+`fn_kb_reindex_complete()` to succeed and cut over.
+
+## 3-4. Rollback vs. reindex-cleanup coherence (Blocker)
+
+**Root cause**: `fn_kb_reindex_cleanup_old_generations()` (083_5F6.sql)
+deleted every chunk row with `index_generation < index_version`
+unconditionally. A `SUPERSEDED` (rollback-eligible) document version's
+chunks are normally never rebuilt into a newer generation (reindex only
+rebuilds currently-published content, per the new manifest) — so its
+sole surviving copy could be deleted by cleanup, after which
+`fn_docver_rollback()` would succeed at the SQL layer but reactivate a
+version with zero searchable content.
+
+**Options considered and rejected** (documented in `089_5F9.sql`'s
+header): (A) rebuild every rollback-eligible historical version on
+every reindex — correctness-preserving but unboundedly expensive and
+ungrounded in any frozen requirement; (B) make rollback an async,
+worker-driven rebuild-then-cutover operation mirroring reindex — adds an
+entire second async lifecycle for what 4E models as Prompt Management's
+synchronous pointer-swap, with no DDD basis for gating Knowledge
+rollback behind an external re-embedding step.
+
+**Chosen — Option D** (`089_5F9.sql`): cleanup deletes an old-generation
+chunk row for a given `document_version_id` only if a strictly newer
+generation copy already exists for that same version (a true,
+redundant duplicate), or the version has since become
+`GDPR_ERASED`/`FAILED` (nothing left to protect). A `SUPERSEDED`
+version's sole chunk copy is therefore preserved for as long as it
+remains rollback-eligible, regardless of how many reindexes have run
+since — a disclosed, deliberate storage/retention trade-off in favor of
+the correctness guarantee, not a new unbounded-growth problem beyond
+what `document_versions`' own indefinite history retention already
+implies.
+
+**Unified retrieval contract** (documented, not DB-enforced — restated
+in the 5F/6F amendments): a chunk is eligible for retrieval when
+`document_version_id = documents.current_version_id AND index_generation
+<= knowledge_bases.index_version`. This single predicate hides
+not-yet-cut-over new-generation rows during a rebuild (their generation
+number exceeds `index_version` until cutover) and correctly finds a
+rollback-reactivated version regardless of how far behind its generation
+number is (it can never exceed the current `index_version`, since it was
+created at or before it).
+
+**Live evidence — the mandatory 17-step end-to-end lifecycle test**
+(`execution_logs/..._27_e2e_lifecycle_integration_test.txt`), every
+step PASS, including the critical proof point: after publish V1 ->
+publish V2 -> begin reindex -> build generation 2 -> verify V2's old
+generation still serves mid-build (invariant 3) -> atomic cutover ->
+cleanup (V2's old-gen duplicate removed, V1's `SUPERSEDED` chunks
+untouched/protected) -> rollback to V1 -> V1 retrieves its original 2
+chunks successfully -> GDPR-delete -> zero chunks remain -> publish and
+rollback on the deleted document both rejected.
+
+## 5. Document<->DocumentVersion knowledge_base_id drift (Blocker)
+
+**Root cause**: `document_versions.knowledge_base_id` (082_5F5.sql) is
+server-derived and immutable, on the assumption
+`documents.knowledge_base_id` itself never changes after a version
+exists. But `078_5F1.sql` had re-granted `app_api`/`app_worker`
+column-level `UPDATE` on every `documents` column except
+`current_version_id` — including `knowledge_base_id`, `organization_id`,
+`source_type`, `created_by`, `created_at`. Nothing stopped an ordinary
+`UPDATE` from moving a document between KBs (or tenants) after its
+versions existed, silently invalidating 082's guarantee, the KB-wide
+dedup scope, reindex ownership, and retrieval scoping.
+
+**Checked against 4E before fixing**: the Document aggregate's command
+list (`UploadDocument, StartIngestion, MarkChunked, MarkEmbedded,
+MarkIndexed, MarkFailed, ReprocessDocument, ArchiveDocument,
+DeleteDocument`) has no move/transfer command — moving a document
+between KBs is not a supported capability, so locking the column is a
+correctness fix, not a capability removal.
+
+**Fix** (`090_5F10.sql`): `documents` `UPDATE` narrowed to exactly
+`title, original_filename, status, metadata, deleted_at, updated_at`.
+`knowledge_base_id`, `organization_id`, `source_type`, `created_by`,
+`created_at` (identity/ownership/audit-origin) are now locked, alongside
+`current_version_id` (already locked since `078_5F1.sql`).
+
+**Live evidence** (`execution_logs/..._30_kb_drift_lockdown.txt`):
+`app_api` and `app_worker` both denied a direct `UPDATE` moving a
+document's `knowledge_base_id`; `app_api` also denied mutating
+`organization_id`; ordinary `title`/`status` mutation still succeeds;
+`documents.knowledge_base_id` and `document_versions.knowledge_base_id`
+independently confirmed to still agree.
+
+## 6. Multilingual query consistency — QP-09 (Major)
+
+**Root cause**: `084_5F7.sql` made tsvector storage language-aware
+(`english` for `en`, `simple` for `ta`/`te`/`hi`), but the documented
+retrieval query pattern still ran a single
+`plainto_tsquery('english', ...)` unconditionally — inconsistent with
+`simple`-indexed content (English stemming applied to a query term that
+must match an unstemmed stored token).
+
+**Fix**: a documented query-contract correction (no DDL can enforce a
+query shape) — the query builder runs the same raw user input text
+through both regconfigs already established by storage
+(`plainto_tsquery('english', text)` for the `en` branch,
+`plainto_tsquery('simple', text)` for the `ta`/`te`/`hi` branch),
+OR-combined by `content_language`. No per-query language detection
+(AI-derived or otherwise) is used or needed — deterministic, closed over
+the same 4-language allow-list storage already uses. `091_5F11.sql`
+adds the supporting index (`knowledge_base_id, content_language`).
+
+**Live decisive evidence** (`execution_logs/..._31_qp09_multilingual_query_consistency.txt`):
+a chunk stored under `simple` (content_language='ta') containing the
+literal unstemmed token `returns` — the corrected two-branch query finds
+it (1 row); the same query using only the old single-branch
+`english`-only pattern returns 0 rows (English-side stemming turns the
+query term into `return`, which cannot match the stored literal
+`returns`) — a genuine, decisive counter-example proving the old pattern
+was broken, not merely a theoretical concern. English stemmed-match,
+Tamil/Telugu/Hindi exact-token match, and code-mixed English-word match
+were also independently verified correct.
+
+## 7. Break-glass actor attribution (Security review, no DB change)
+
+Reviewed whether `fn_break_glass_grant()`/`fn_break_glass_release()`'s
+`p_admin_user_id`/`p_released_by` parameters can be validated
+server-side against a trusted authenticated identity. Confirmed: this
+schema has no session-GUC-based "current authenticated user id" function
+anywhere (only `organization.current_tenant_id()` and
+`organization.is_platform_admin()` exist) — no other function in the
+entire schema (including `crm.lift_suppression()`'s `p_lifted_by_ref`)
+validates actor identity this way either; it is the established,
+existing trust model, not a gap unique to break-glass. No fake identity
+source was invented. This is recorded as a disclosed application-layer
+dependency: the API layer must bind these parameters to the actually
+authenticated platform-admin principal (e.g. from verified JWT claims)
+before calling these functions. Non-platform-admin denial (both at the
+function's `is_platform_admin()` check and at the RLS-guarded `SELECT`)
+remains verified from the Phase 5L pass and was not affected by this
+sub-pass.
+
+## Phase 5L.1 — Security re-audit
+
+Repo-wide live scan: zero `SECURITY DEFINER` functions with a
+missing/unsafe `search_path` (all 58, across the entire schema, not
+just this sub-pass's functions). `PUBLIC` `EXECUTE` audit clean on all
+11 functions touched this sub-pass (`fn_docver_publish`,
+`fn_docver_rollback`, `fn_docver_mark_failed`, `fn_docver_gdpr_erase`,
+`fn_document_gdpr_delete`, `fn_kb_reindex_begin/complete/fail/
+cleanup_old_generations`, `fn_break_glass_grant`, `fn_break_glass_release`)
+— see `execution_logs/..._32_security_definer_reaudit.txt`.
+
+## Phase 5L.1 — Final status
+
+All five independent-review defects are fixed and live-validated,
+including one additional defect self-found during this sub-pass's own
+adversarial testing and closed before being reported. The mandatory
+17-step end-to-end lifecycle test passes in full, with the critical
+rollback-after-reindex-and-cleanup proof point (step 14) confirmed live.
+Both required upgrade paths pass. Security re-audit clean.
+
+**PHASE 5L.1 COMPLETE — PHASE 6F APPROVED/FROZEN CANDIDATE**

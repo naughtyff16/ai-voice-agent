@@ -16,9 +16,21 @@
 | Supersedes | Revision 1 of this document (2026-08-24, first draft) — corrected against executed migration reality per independent review |
 | Governs | 6G onward may reference this document's resource ownership boundary but do not extend it. |
 | Date | 2026-08-24 (correction pass) |
-| **Status of this revision** | **PHASE 6F — REVISION REQUIRED.** Six genuine BLOCKING dependencies exist against the frozen physical schema (§39). This document is **not** freeze-eligible in this revision. See §43. |
+| **Status of this revision** | **PHASE 6F — APPROVED / FROZEN CANDIDATE** (updated 2026-08-24, post-Phase-5L.1). All six of this document's BLOCKING dependencies (§39) are now `RESOLVED` against the executed schema — Phase 5L (migrations `078_5F1`-`087_5B1`) implemented the six lifecycle mechanisms, and an independent review found five cross-feature defects among them, corrected and live-validated by Phase 5L.1 (migrations `088_5F8`-`091_5F11`), including a mandatory 17-step end-to-end lifecycle test proving a document remains retrievable after publish -> publish -> reindex -> cleanup -> rollback. See `docs/phase-05-database-design/5L-Global-Database-Reconciliation/5L-Global-Database-Reconciliation.md` for full evidence. §43's freeze gate is re-run against this evidence below. |
 
 ---
+
+### 1.1a Phase 5L.1 Post-Database-Reconciliation Correction (2026-08-24)
+
+This is a **targeted correction**, not a regeneration — most of this document's content (request/response shapes, non-blocked endpoints, security model, error taxonomy) is unchanged. Only the following are updated by this pass, everywhere they occur in this document:
+
+- `DEP-6F-01`, `DEP-6F-02`, `DEP-6F-09`, `DEP-6F-14`, `DEP-6F-15`, `DEP-6F-16` (and `DEP-6F-03`, vocabulary) move from **BLOCKING** to **RESOLVED** (§39).
+- The three previously **CONTRACT-DEFINED, EXECUTION BLOCKED** endpoints — `POST .../reindex`, `POST .../documents/{id}/reprocess`, `DELETE .../documents/{id}` — move to **IMPLEMENTATION-READY** (§8-§16, §33.1, §42).
+- `POST .../reindex` now describes the **real** generation-based reindex lifecycle (begin/build/complete/fail/cleanup, `083_5F6.sql`/`088_5F8.sql`/`089_5F9.sql`) — the withdrawn fake metadata-only behavior (§22, prior pass) is **not** restored.
+- §12.4's "there is no rollback endpoint" claim is corrected — `knowledge.fn_docver_rollback()` (`079_5F2.sql`) now exists and is proven to remain correct even after a full reindex+cleanup cycle (`089_5F9.sql`'s coherence fix).
+- The hybrid-search keyword leg (§20/QP-09) is corrected from a single unconditional `english`-config query to a two-branch query matching the storage-side language allow-list (`en`/`ta`/`te`/`hi`) established in `084_5F7.sql` — the old pattern was live-proven to miss unstemmed `simple`-stored content.
+- Endpoint readiness counts (§33.1, §42) are recomputed: **22/22 IMPLEMENTATION-READY** (was 18/21; +1 new endpoint, `POST .../rollback`, §12.4).
+- Not changed by this pass: 6A/6C/6D/6E (no contradiction found), request/response schemas, auth/permission model, rate-limit tiers, error taxonomy, the embedding-model single-value constraint, or any endpoint not named above.
 
 ### 1.1 What Changed in This Correction Pass
 
@@ -217,7 +229,7 @@ Both the public REST retrieval endpoint and the Voice runtime's mid-call tool in
 | `/api/v1/knowledge-bases/{kb_id}` | GET | Get one KB (full config) | `knowledge:read` | Tier A | 200 / 404 | 404 for cross-tenant (never 403, 6A §7.4) |
 | `/api/v1/knowledge-bases/{kb_id}` | PATCH | Update `name`, `description`, `chunking_strategy`, `retrieval_config` | `knowledge:write` | Tier A | 200 / 404 / 409 / 412 / 422 | **IMPLEMENTATION-READY.** `If-Match` required (ETag on `updated_at`, 6A §17.2). **`embedding_model_ref` and `embedding_dimensions` are not in the allow-listed field set — any attempt to set them is `422 VALIDATION_ERROR` with `details.reason="EMBEDDING_MODEL_IMMUTABLE"`**, defended additionally by the DB trigger `prevent_kb_model_mutation()` (INV-01/INV-09, belt-and-braces). `chunking_strategy` changes apply only to **future** ingestions — this KB row-level `UPDATE` itself is unaffected by any BLOCKING dependency; only downstream *reindexing of already-ingested content* is blocked (§22). |
 | `/api/v1/knowledge-bases/{kb_id}/archive` | POST | `ACTIVE → ARCHIVED` (terminal for retrieval — archived KBs excluded from search, §23) | `knowledge:write` | Tier B | 202 / 404 / 409 | **IMPLEMENTATION-READY.** Plain `UPDATE knowledge_bases SET status` — the `UPDATE` grant on `knowledge_bases` is not revoked (`035_5F.sql`). Idempotency-Key required. `409 STATE_CONFLICT` if already `ARCHIVED`. Documents inside remain readable via management APIs (§23.5) but the KB drops out of retrieval. |
-| `/api/v1/knowledge-bases/{kb_id}/reindex` | POST | **CONTRACT-DEFINED, EXECUTION BLOCKED.** See §22 — this is not a functioning "reindex" and must not be presented as one; retained only as a forward-looking contract | `knowledge:write` | Tier B | — | Not part of the V1 implementable surface. `DEP-6F-02`, BLOCKING. See §22 for the full, corrected treatment — the prior revision's "narrow reindex" characterization is withdrawn (§22.2). |
+| `/api/v1/knowledge-bases/{kb_id}/reindex` | POST | **IMPLEMENTATION-READY (Phase 5L.1).** Begins a real, generation-based full rebuild — see §22. `DB: SELECT knowledge.fn_kb_reindex_begin($kb_id, $org_id)`, worker rebuilds chunks tagged with the returned generation, then `SELECT knowledge.fn_kb_reindex_complete($kb_id, $org_id, $generation)` (or `fn_kb_reindex_fail(...)` on error) | `knowledge:write` | Tier B | — | `DEP-6F-02`, **RESOLVED** — see §22 for the full corrected treatment. |
 
 `PUT`/full-replace is not offered for `knowledge_bases` — 6A §7.3 reserves `PUT` for genuine full-replacement resources; a KB's immutable fields (`embedding_model_ref`) make a full-replace semantic meaningless here.
 
@@ -250,8 +262,8 @@ There is no "update embedding model" endpoint, and none is added: per DDR-4E-003
 | `/api/v1/knowledge-bases/{kb_id}/documents` | POST | Register/upload a document (all source types, §11) | `knowledge:write` | Tier A (register) / Tier B (FAQ synchronous write) | 201 / 202 | **IMPLEMENTATION-READY** (§11.4 — but see the corrected duplicate-content scope, §5 F-7) |
 | `/api/v1/knowledge-bases/{kb_id}/documents` | GET | List documents (cursor, filter `status`, `source_type`) | `knowledge:read` | Tier A | 200 | **IMPLEMENTATION-READY** |
 | `/api/v1/knowledge-bases/{kb_id}/documents/{document_id}` | GET | Get one document (summary + current version pointer) | `knowledge:read` | Tier A | 200 / 404 | **IMPLEMENTATION-READY** |
-| `/api/v1/knowledge-bases/{kb_id}/documents/{document_id}/reprocess` | POST | Retry ingestion from `FAILED` (showcase, §15) | `knowledge:write` | Tier B | — | **CONTRACT-DEFINED, EXECUTION BLOCKED** — `DEP-6F-09` (§15) |
-| `/api/v1/knowledge-bases/{kb_id}/documents/{document_id}` | DELETE | Soft-delete + content erasure (§23) | `knowledge:delete` | Tier B | — | **CONTRACT-DEFINED, EXECUTION BLOCKED** for the version-erasure step — `DEP-6F-15` (§23) |
+| `/api/v1/knowledge-bases/{kb_id}/documents/{document_id}/reprocess` | POST | Retry ingestion from `FAILED` (§15) | `knowledge:write` | Tier B | — | **IMPLEMENTATION-READY (Phase 5L.1)** — `DB: SELECT knowledge.fn_docver_mark_failed($version_id, $org_id, $reason)` then a new `PENDING` version. `DEP-6F-09`, **RESOLVED** (§15) |
+| `/api/v1/knowledge-bases/{kb_id}/documents/{document_id}` | DELETE | Soft-delete + content erasure (§23) | `knowledge:delete` | Tier B | — | **IMPLEMENTATION-READY (Phase 5L.1)** — `DB: SELECT knowledge.fn_document_gdpr_delete($document_id, $org_id)`. `DEP-6F-15`, **RESOLVED** (§23) |
 | `/api/v1/knowledge-bases/{kb_id}/documents/{document_id}/archive` | POST | `READY → ARCHIVED` (excluded from retrieval, row/content retained) | `knowledge:write` | Tier A | 200 / 404 / 409 | **IMPLEMENTATION-READY** — plain `UPDATE documents SET status`, `UPDATE` grant not revoked (`036_5F.sql`) |
 
 A document's full extracted text/content is **never** returned by any of these endpoints (6A §10.4/§15/§27 — large content belongs in object storage or in bounded chunk-level retrieval results, never a management-API JSON payload).
@@ -380,18 +392,22 @@ Client then `PUT`s bytes directly to S3 (never through the API — 6A §29's abs
 | Async side effects | None — this is a pure metadata cutover; no re-embedding, no S3 work |
 | Concurrency | See §28 races 7/8/9. **Race 9 is a genuine, disclosed integrity gap, not merely an accepted narrow race:** the executed `fn_docver_publish()` (`034_5F.sql`) checks `version_id`/`document_id`/`organization_id`/`status='READY'` only — it has **no precondition on `documents.status`**, so a publish that commits after a concurrent delete's tombstone step can re-set `current_version_id`/`status='READY'` on an already-`DELETED` document. `DEP-6F-16`, BLOCKING for closing this race (does not block ordinary, non-racing publish). |
 | PII/security | None |
-| **Readiness** | **IMPLEMENTATION-READY for the core, non-racing operation** — `fn_docver_publish()` exists, is granted, and functions exactly as specified for a normal publish. The `DEP-6F-16` race is a disclosed integrity gap on top of working functionality, not an execution blocker for the endpoint itself. |
+| **Readiness** | **IMPLEMENTATION-READY.** `fn_docver_publish()` exists, is granted, and functions as specified. `DEP-6F-16` (the publish/delete race) is **RESOLVED** — the function now requires `documents.status <> 'DELETED'`, and `documents.current_version_id` is column-privilege-locked against direct bypass (migration `078_5F1.sql`, live-validated). |
 
 ### 12.3 Auto-Publish vs. Explicit Publish (ADR-6F-07)
 
 | Scenario | Behavior |
 |---|---|
 | First-ever successful ingestion of a Document (`current_version_id IS NULL`) | The ingestion worker calls `fn_docver_mark_ready()` **then immediately** `fn_docver_publish()` in the same pipeline run — **auto-published**. There is nothing at risk to protect, and gating the very first version behind a manual step would delay searchability with no safety benefit (contradicts FR-RAG-005's "bounded latency" spirit — a document should become queryable as soon as it is ready). |
-| A later version succeeds while a current version already exists (i.e., a `reprocess`-after-`FAILED` recovery, §15) | The worker calls `fn_docver_mark_ready()` **only** — it does **not** auto-publish. The tenant must call `POST .../publish` explicitly. Rationale: a document that already has working, searchable content should never be silently swapped out by a background retry the tenant didn't confirm. **This entire scenario is currently unreachable in practice**, because the reprocess action that would produce this "later version" is itself execution-blocked (`DEP-6F-09`, §15) — this row documents the intended contract for when that dependency is resolved, not a currently-exercisable path. |
+| A later version succeeds while a current version already exists (i.e., a `reprocess`-after-`FAILED` recovery, §15) | The worker calls `fn_docver_mark_ready()` **only** — it does **not** auto-publish. The tenant must call `POST .../publish` explicitly. Rationale: a document that already has working, searchable content should never be silently swapped out by a background retry the tenant didn't confirm. Reprocess (§15) is now implementation-ready (Phase 5L.1, `DEP-6F-09` resolved), so this row is a normal, exercisable path. |
 
-### 12.4 Rollback — What Is and Is Not Supported
+### 12.4 Rollback — What Is and Is Not Supported (IMPLEMENTATION-READY, Phase 5L.1)
 
-`GET .../versions` gives full, honest history (audit/traceability satisfied). **There is no rollback endpoint** — re-activating a `SUPERSEDED` version has no supporting `fn_docver_publish()` path (its precondition requires `status = 'READY'`, which a `SUPERSEDED` row never regains) and no other 5F function exists for it. This is `DEP-6F-01`, formally recorded in §39 and analyzed in §40-A. FR-RAG-004's "rollback" is satisfied only in the forward sense — uploading a corrected version and publishing it — not as historical restoration.
+`GET .../versions` gives full, honest history (audit/traceability satisfied). `DEP-6F-01` is **RESOLVED**: `POST /api/v1/knowledge-bases/{kb_id}/documents/{document_id}/versions/{version_id}/rollback` → `DB: SELECT knowledge.fn_docver_rollback($document_id, $target_version_id, $org_id)` (migration `079_5F2.sql`). Re-activates a `SUPERSEDED` version — the target must currently be `SUPERSEDED` (a version that was previously published, then superseded; a never-published `PENDING`/`FAILED` version cannot be "rolled back" to); the current version is set to `SUPERSEDED`, the target to `READY`, `documents.current_version_id` updated — the same `documents.status <> 'DELETED'` guard as publish. No content is mutated and no version row is deleted — this is a pointer swap, mirroring Prompt Management's existing `rollback(environment, target_version)` pattern (4E), applied here to Documents (Interpretation A of FR-RAG-004 — document-level historical rollback, grounded in DDD evidence: Knowledge/RAG has no `KnowledgeBaseVersion` aggregate to apply a KB-snapshot interpretation to instead).
+
+**Remains correct after a reindex**, by construction: `fn_kb_reindex_cleanup_old_generations()` (§22.2 step 5) never deletes the sole surviving chunk copy of a still-`SUPERSEDED` version, so a rollback target's content is always retrievable even after the KB has since been fully reindexed and cleaned up — live-proven end-to-end (`5L-Global-Database-Reconciliation.md` Phase 5L.1 items 3-4, the mandatory 17-step lifecycle test).
+
+Success: `200 OK` with the updated document/version state. Errors: `404` (document/version not found), `409` (target not `SUPERSEDED`, or document `DELETED`). Permission: `knowledge:write`. Audit: `DOCUMENT_VERSION_ROLLED_BACK` (5J §14.3, Phase 5L amendment).
 
 ---
 
@@ -437,7 +453,7 @@ No stage runs inside a database transaction held open across the S3/parser/embed
 
 ---
 
-## 15. Reprocess / Retry Semantics (Showcase 4: Reprocess Document) — CONTRACT-DEFINED, EXECUTION BLOCKED
+## 15. Reprocess / Retry Semantics (Showcase 4: Reprocess Document) — IMPLEMENTATION-READY (Phase 5L.1)
 
 **This endpoint's contract is fully specified below for forward-compatibility and for the future Phase 5 amendment to implement against. It is not part of 6F's V1 implementable surface — see the Readiness row.**
 
@@ -463,7 +479,7 @@ No stage runs inside a database transaction held open across the S3/parser/embed
 | Audit | `action_kind = DOCUMENT_REPROCESS_REQUESTED` — proposed (Category C, `DEP-6F-03`) |
 | Domain event | `document.uploaded`-shaped re-run — 4E names `IngestionJobRetried` (§11 catalogue is Workflow-only in that section; the Knowledge-specific equivalent is inferred from the `RetryIngestion` command in §4.3's command list, not separately catalogued as a domain event in §11.1 — this document does not fabricate an event name beyond what 4E's command catalogue implies) |
 | Concurrency | Two concurrent `reprocess` calls on the same document — the second sees the first's new `ingestion_jobs` row is no longer the "most recent `FAILED`" once the first commits, so it naturally fails the precondition check (`409`), no explicit lock needed beyond ordinary `READ COMMITTED` visibility of the first commit. Moot until `DEP-6F-09` is resolved, since neither call can complete its `INSERT` today. |
-| **Readiness** | **CONTRACT-DEFINED, EXECUTION BLOCKED.** `DEP-6F-09`, BLOCKING. No `SECURITY DEFINER` path exists to move a failed `document_versions` row out of `PENDING`, so the required `INSERT` for the retry version cannot legally succeed against the executed schema. This is not an edge case — it is the **normal-path** consequence of the very first ingestion failure for any document, so reprocess cannot be exercised at all in the current physical schema, not merely under contention. |
+| **Readiness** | **IMPLEMENTATION-READY (Phase 5L.1).** `DEP-6F-09` **RESOLVED** — `knowledge.fn_docver_mark_failed()` (migration `080_5F3.sql`) provides the `SECURITY DEFINER` path to move a `PENDING` `document_versions` row to `FAILED` (idempotent, rejects any other source state), unblocking the retry-version `INSERT`. Live-validated. |
 
 ### 15.2 Why This Is the Only (Intended) Retry Surface
 
@@ -626,36 +642,35 @@ No response anywhere in 6F exposes: raw embedding vectors, internal pgvector ope
 
 ---
 
-## 22. Reindex / Index-Version Semantics (ADR-6F-08) — CONTRACT-DEFINED, EXECUTION BLOCKED (corrected this pass)
+## 22. Reindex / Index-Version Semantics (ADR-6F-08) — IMPLEMENTATION-READY (Phase 5L.1, real generation-based reindex)
 
-**Correction notice:** the prior revision of this document defined a "narrow reindex" — incrementing `index_version` and cycling `status: ACTIVE → REINDEXING → ACTIVE` while re-chunking/re-embedding nothing — and presented it as the implemented behavior of `POST .../reindex`. An independent review correctly identified that this is **not reindexing** in any sense 4E's `TriggerReindex` command or FR-RAG-003/004's retrieval-quality intent describe: incrementing a bookkeeping counter while rebuilding no index is a no-op wearing a reindex's name. **That characterization is withdrawn.** This section now treats `POST .../reindex` as a **contract-defined, execution-blocked** endpoint — not part of 6F's V1 implementable surface — and explains precisely what is and is not physically possible, without redefining "reindex" to mean something it does not.
+**Correction notice (superseded by Phase 5L.1):** the prior revision of this document defined a "narrow reindex" (bookkeeping-only, rebuilding nothing) and presented it as implemented; that characterization was withdrawn in the prior correction pass. **The withdrawn behavior is NOT restored here.** Phase 5L (`083_5F6.sql`) and Phase 5L.1 (`088_5F8.sql`, `089_5F9.sql`) instead implemented a real, derived chunk/index-generation mechanism satisfying 4E's `TriggerReindex` requirements (a)-(c) below in full, live-validated including a genuine two-session concurrency race and a partial-build rejection test.
 
-### 22.1 What `index_version` Actually Represents
+### 22.1 What `index_version` and `index_generation` Represent
 
-`knowledge_bases.index_version INTEGER` is a single, KB-level bookkeeping counter, confirmed present exactly as such in the executed `035_5F.sql` — there is no per-chunk or per-partition "generation" column anywhere in `document_chunks` (`038_5F.sql`), and no dual-index-generation representation exists in the physical schema (§5 F-2, full analysis §40-E).
+`knowledge_bases.index_version INTEGER` (`035_5F.sql`) is the KB's current-serving generation pointer — it now advances exactly once, atomically, at the end of a successful reindex (`fn_kb_reindex_complete()`). `document_chunks.index_generation INTEGER` (added by `083_5F6.sql`) tags which build pass a chunk row belongs to. `document_chunks` remains `INSERT`/`DELETE`-only (no `UPDATE`) — a reindex never mutates an existing chunk row; it inserts a fresh set under a new generation number and, once proven complete, atomically advances `index_version` to make it current.
 
-### 22.2 What a Real Reindex Would Require, and Why None of It Is Physically Available
+### 22.2 The Real Reindex Lifecycle
 
-4E's `TriggerReindex`/`REINDEXING` semantics require, at minimum: (a) re-chunking and re-embedding every `READY` document in the KB under the KB's current `chunking_strategy`, (b) the *old* chunks remaining queryable throughout, and (c) an atomic cutover to the *new* chunks once rebuilt, with `index_version` advancing to mark the cutover. None of (a)–(c) has a supported execution path in the executed schema:
+Satisfies 4E's `TriggerReindex`/`REINDEXING` requirements: (a) re-chunk/re-embed every currently-`READY` document under the KB's current `chunking_strategy`, (b) the *old* generation remains queryable throughout, (c) atomic cutover once the new generation is proven complete.
 
-- **(a) is blocked by `DEP-6F-14`/`uq_dv_content_hash`'s scope in the case of a same-document re-ingest**, and has no supported "re-chunk in place" function at all — `document_chunks` is `INSERT`/`DELETE`-only (`038_5F.sql` line 43, `REVOKE UPDATE`), and the one field that would need to change consistently with a new chunk set, `document_versions.chunk_count`, is set exactly once by `fn_docver_mark_ready()` and never revisited by any executed function.
-- **(b) and (c) require a dual-generation representation** (old chunks queryable while new chunks build, then an atomic swap) that no column, index, or function in `034_5F.sql`–`044_5F.sql` provides.
-- There is no `fn_docver_reindex()` or equivalently named function anywhere in the executed migration set.
+1. `POST .../reindex` → `DB: SELECT knowledge.fn_kb_reindex_begin($kb_id, $org_id)` — requires KB `status='ACTIVE'` (advisory-lock-serialized against a concurrent begin), sets `status='REINDEXING'`, snapshots a build manifest (every currently-`READY` document version + its expected chunk count, `knowledge.kb_reindex_job_manifest`), returns the new generation number.
+2. Worker re-chunks/re-embeds each manifested document version, inserting `document_chunks` rows tagged with the new generation. **Old-generation chunks are untouched and continue to serve retrieval** — satisfying (b) — because the retrieval predicate (§20) only accepts `index_generation <= knowledge_bases.index_version`, and the new generation's number exceeds `index_version` until cutover.
+3. `DB: SELECT knowledge.fn_kb_reindex_complete($kb_id, $org_id, $generation)` — **proves** completeness against the manifest (every still-relevant entry has exactly its expected chunk count in the new generation, not merely "at least one row") before atomically advancing `index_version` and setting `status='ACTIVE'`. A partial/incomplete build is rejected, not silently accepted (live-tested — `5L-Global-Database-Reconciliation.md` Phase 5L.1 item 2).
+4. On worker failure: `DB: SELECT knowledge.fn_kb_reindex_fail($kb_id, $org_id, $generation)` — requires the generation to exactly match the pending build (rejects any other value, including the current serving generation — closing a live-found forgery gap, Phase 5L.1 item 1), deletes the partial generation's rows, reverts `status='ACTIVE'` with `index_version` unchanged (old generation stays current).
+5. `DB: SELECT knowledge.fn_kb_reindex_cleanup_old_generations($kb_id, $org_id)` — callable any time after a successful cutover (not inline in step 3, to keep cutover fast); deletes an old-generation chunk row only once a newer copy of that *same* document version exists, or the version is `GDPR_ERASED`/`FAILED` — **never** the sole surviving copy of a still-rollback-eligible (`SUPERSEDED`) version (Phase 5L.1 item 3-4; this is what keeps §12.4's rollback guarantee true even after a reindex).
 
-**Conclusion: a full KB reindex is not implementable against the frozen physical schema, full stop — not "narrowly implementable," not "implementable if redefined."** This is `DEP-6F-02`, **BLOCKING**.
+`fn_docver_reindex()` (a per-document-version function) does not exist and is not needed — reindex is a KB-wide operation over the manifest above, not a per-version one.
 
-### 22.3 What This Document Does *Not* Offer as a Substitute
+### 22.3 Request/Response Shape
 
-The prior revision's "bump `index_version`, cycle `status`, rebuild nothing" behavior is **removed from this document as an implementable endpoint.** It is not offered as a lesser form of reindexing, because it is not a form of reindexing at all — it is a metadata write with no relationship to index quality or content freshness, and presenting it under the `reindex` name would mislead a caller into believing retrieval quality had changed when it had not. If a future Phase 5 amendment adds the missing lifecycle function(s) and dual-generation representation, `POST .../reindex` can be implemented against this same contract (§22 heading, request/response shape) without a URL or method change.
+`POST /api/v1/knowledge-bases/{kb_id}/reindex` → `202 Accepted`, `{"generation": <int>, "status": "REINDEXING"}`. Progress/completion is observed via `GET /knowledge-bases/{kb_id}` (`index_version`, `status`) — no separate job-status endpoint is added by this pass (the `knowledge.kb_reindex_jobs` table backing it is an internal implementation detail, not a new public resource in this revision).
 
-**What a tenant *can* legitimately do today to change future retrieval behavior:**
-
-- `PATCH /knowledge-bases/{kb_id}` (§8.2, §9) to change `chunking_strategy`/`retrieval_config` — takes effect for **documents ingested from this point forward only**; already-`READY` documents keep the chunk layout/embeddings they were ingested with, indefinitely, until individually reprocessed (§15 — itself execution-blocked, `DEP-6F-09`) or deleted (§23 — itself execution-blocked for full erasure, `DEP-6F-15`) and re-uploaded as a new document.
-- This is a **real, useful, implementation-ready capability** (§9), but it is a KB **configuration** change, not a reindex, and this document does not call it one.
+**What a tenant could already do before this pass, unaffected:** `PATCH /knowledge-bases/{kb_id}` (§8.2, §9) to change `chunking_strategy`/`retrieval_config` for **future** ingestions only — this remains a KB configuration change, distinct from `POST .../reindex`'s full-KB rebuild of already-`READY` content.
 
 ### 22.4 Reindex While Already Reindexing / `409` Semantics
 
-Not applicable in this revision — `POST .../reindex` is not offered as an implementable endpoint (§22.3), so there is no `REINDEXING` state a tenant-facing action can enter or race against. `knowledge_bases.status = 'REINDEXING'` remains a valid CHECK-constraint value (`035_5F.sql`) for a future implementation to use, but no 6F endpoint sets it today.
+`fn_kb_reindex_begin()` requires KB `status='ACTIVE'` and is advisory-lock-serialized per KB — a second concurrent `begin` call blocks on the row/advisory lock, then (once the first commits) sees `status='REINDEXING'` and is rejected. `POST .../reindex` on an already-`REINDEXING` KB returns `409 Conflict`. Live-tested with two genuinely concurrent database sessions (`5L-Global-Database-Reconciliation.md` Phase 5L.1 item 1).
 
 ### 22.5 `DEGRADED` Status
 
@@ -681,23 +696,23 @@ Not applicable in this revision — `POST .../reindex` is not offered as an impl
 
 `POST .../documents/{document_id}/archive` — `documents.status → 'ARCHIVED'`, a plain `UPDATE` (no `REVOKE UPDATE` on `documents`, unlike `document_versions`). Per the `ArchivedDocumentNotQueryable` policy (4E §10), archived documents are excluded from retrieval (§23.5) but the row, its versions, and its chunks are **not** removed — this is fully reversible in principle, though no `unarchive` command exists in 4E's catalogue, so 6F does not offer one (a genuine, disclosed gap, non-blocking — the tenant's only path back is delete + re-upload).
 
-### 23.4 Document Delete — Also the GDPR Erasure Path (F-4, §5) — CONTRACT-DEFINED, EXECUTION BLOCKED
+### 23.4 Document Delete — Also the GDPR Erasure Path (F-4, §5) — IMPLEMENTATION-READY (Phase 5L.1)
 
 `DELETE /api/v1/knowledge-bases/{kb_id}/documents/{document_id}` (§10.1) is designed as a single action implementing the design document's QP-06/ADR-5F-011 flow:
 
 1. `DELETE FROM document_chunks WHERE document_id = ... AND organization_id = ...` — chunks physically removed, immediately excluding the document from retrieval. **IMPLEMENTATION-READY** — `038_5F.sql` grants `app_api`/`app_worker` `DELETE` on `document_chunks` unconditionally.
-2. GDPR-erase every version's content references (`storage_ref='ERASED'`, `content_hash='ERASED'`, `status='GDPR_ERASED'`). **EXECUTION BLOCKED.** No executed migration (`034_5F.sql`–`044_5F.sql`) defines a `fn_docver_gdpr_erase()` or equivalently named `SECURITY DEFINER` function, and `036_5F.sql` line 82 unconditionally revokes `UPDATE`/`DELETE` on `document_versions` from `app_api`/`app_worker` — there is no legal path today to write `storage_ref='ERASED'`/`content_hash='ERASED'`/`status='GDPR_ERASED'` on an existing row, immutability-trigger compliance exception or not, because the trigger's exception only matters once a caller has UPDATE privilege to invoke, and no role granted that privilege exists. `DEP-6F-15`, **BLOCKING**.
-3. `UPDATE documents SET status='DELETED', current_version_id=NULL, original_filename=NULL, deleted_at=NOW()` — the row survives as an audit tombstone (6A §7.6's soft-delete pattern, `documents` explicitly named there). **IMPLEMENTATION-READY in isolation** — `036_5F.sql` grants `UPDATE` on `documents` — but see the ordering note below.
+2. GDPR-erase every version's content references (`storage_ref='ERASED'`, `content_hash='ERASED'`, `status='GDPR_ERASED'`). **IMPLEMENTATION-READY (Phase 5L.1).** `knowledge.fn_docver_gdpr_erase()` (migration `081_5F4.sql`, `SECURITY DEFINER`) provides this legal path — idempotent, deletes the version's chunks, then writes `storage_ref='ERASED'`/`content_hash='ERASED'`/`status='GDPR_ERASED'` under the existing `prevent_docver_immutable_field_mutation()` trigger's carve-out (`034_5F.sql`). `DEP-6F-15`, **RESOLVED**.
+3. `UPDATE documents SET status='DELETED', current_version_id=NULL, original_filename=NULL, deleted_at=NOW()` — the row survives as an audit tombstone (6A §7.6's soft-delete pattern, `documents` explicitly named there). **IMPLEMENTATION-READY.**
 4. S3 object deletion — a **separate**, best-effort application-layer `ObjectStorePort.delete()` call, outside the DB transaction, eventually consistent (6A §35 — never hold a transaction across an external call). **IMPLEMENTATION-READY** (no DB dependency).
 
-**Because step 2 cannot legally execute, this document does not offer a version of `DELETE` that silently skips it.** Skipping step 2 while still performing steps 1/3/4 would leave `document_versions.storage_ref`/`content_hash` pointing at now-orphaned-but-unerased content references — a materially different (and materially weaker) compliance posture than the one this document's title, `documents.metadata`'s `pii:potential` classification, and NFR-COMPLY-001 require. **The whole `DELETE` action is therefore held as execution-blocked, not partially implemented.**
+Steps 1-3 are now orchestrated atomically in one transaction by `knowledge.fn_document_gdpr_delete()` (migration `081_5F4.sql`): it loops every non-`GDPR_ERASED` version of the document calling `fn_docver_gdpr_erase()` (step 1+2 per version), then tombstones the document row (step 3). Step 4 (S3 deletion) remains external/post-commit, per 6A §35.
 
 | Field | Value |
 |---|---|
-| Success status | `202 Accepted` (intended — not currently reachable end-to-end) |
+| Success status | `202 Accepted` |
 | Errors | `404` |
-| Idempotency | Deleting an already-`DELETED` document is intended to be a no-op `202` |
-| **Readiness** | **CONTRACT-DEFINED, EXECUTION BLOCKED.** `DEP-6F-15`, BLOCKING. Steps 1, 3, and 4 are individually implementation-ready; step 2 has no legal execution path, and this document does not ship a partial/degraded delete that omits it. |
+| Idempotency | Deleting an already-`DELETED` document is a no-op `202` (`fn_document_gdpr_delete()`'s per-version erase is itself idempotent) |
+| **Readiness** | **IMPLEMENTATION-READY (Phase 5L.1).** `DEP-6F-15` **RESOLVED** — `knowledge.fn_document_gdpr_delete()` (migration `081_5F4.sql`, using `fn_docver_gdpr_erase()` per-version) provides step 2's legal execution path and orchestrates all four steps atomically. Live-validated. |
 | Audit | Reuses existing `action_kind = DOCUMENT_DELETED` (Category A, exact match) |
 | Concurrency | See §28 race 9 (publish-version vs. delete) |
 
@@ -968,32 +983,33 @@ Every error 6F returns reuses an existing 6A §24.2 family — none is invented:
 | 3 | GET | `/api/v1/knowledge-bases/{kb_id}` | `knowledge:read` | — | A | 200 | **IMPLEMENTATION-READY** |
 | 4 | PATCH | `/api/v1/knowledge-bases/{kb_id}` | `knowledge:write` | — (If-Match) | A | 200 | **IMPLEMENTATION-READY** |
 | 5 | POST | `/api/v1/knowledge-bases/{kb_id}/archive` | `knowledge:write` | Required | B | 202 | **IMPLEMENTATION-READY** |
-| 6 | POST | `/api/v1/knowledge-bases/{kb_id}/reindex` | `knowledge:write` | Required | B | — | **CONTRACT-DEFINED, EXECUTION BLOCKED** — `DEP-6F-02` (§22) |
+| 6 | POST | `/api/v1/knowledge-bases/{kb_id}/reindex` | `knowledge:write` | Required | B | 202 | **IMPLEMENTATION-READY** — `DEP-6F-02` RESOLVED (§22) |
 | 7 | POST | `/api/v1/knowledge-bases/{kb_id}/documents/upload-url` | `knowledge:write` | Required | A | 201 | **IMPLEMENTATION-READY** |
 | 8 | POST | `/api/v1/knowledge-bases/{kb_id}/documents/{document_id}/complete` | `knowledge:write` | — | A (enqueue) | 202 | **IMPLEMENTATION-READY** (dedup caveat, `DEP-6F-14`, disclosed §11.4 — does not block execution) |
 | 9 | POST | `/api/v1/knowledge-bases/{kb_id}/documents` (URL/WEBSITE) | `knowledge:write` | Required | A (enqueue) | 202 | **IMPLEMENTATION-READY** (same dedup caveat) |
 | 10 | POST | `/api/v1/knowledge-bases/{kb_id}/documents` (FAQ) | `knowledge:write` | Required | B | 201 | **IMPLEMENTATION-READY** (same dedup caveat) |
 | 11 | GET | `/api/v1/knowledge-bases/{kb_id}/documents` | `knowledge:read` | — | A | 200 | **IMPLEMENTATION-READY** |
 | 12 | GET | `/api/v1/knowledge-bases/{kb_id}/documents/{document_id}` | `knowledge:read` | — | A | 200 | **IMPLEMENTATION-READY** |
-| 13 | POST | `/api/v1/knowledge-bases/{kb_id}/documents/{document_id}/reprocess` | `knowledge:write` | Required | B | — | **CONTRACT-DEFINED, EXECUTION BLOCKED** — `DEP-6F-09` (§15) |
+| 13 | POST | `/api/v1/knowledge-bases/{kb_id}/documents/{document_id}/reprocess` | `knowledge:write` | Required | B | 202 | **IMPLEMENTATION-READY** — `DEP-6F-09` RESOLVED (§15) |
 | 14 | POST | `/api/v1/knowledge-bases/{kb_id}/documents/{document_id}/archive` | `knowledge:write` | Required | A | 200 | **IMPLEMENTATION-READY** |
-| 15 | DELETE | `/api/v1/knowledge-bases/{kb_id}/documents/{document_id}` | `knowledge:delete` | — | B | — | **CONTRACT-DEFINED, EXECUTION BLOCKED** — `DEP-6F-15` (§23.4) |
+| 15 | DELETE | `/api/v1/knowledge-bases/{kb_id}/documents/{document_id}` | `knowledge:delete` | — | B | 202 | **IMPLEMENTATION-READY** — `DEP-6F-15` RESOLVED (§23.4) |
 | 16 | GET | `/api/v1/knowledge-bases/{kb_id}/documents/{document_id}/versions` | `knowledge:read` | — | A | 200 | **IMPLEMENTATION-READY** |
 | 17 | GET | `/api/v1/knowledge-bases/{kb_id}/documents/{document_id}/versions/{version_id}` | `knowledge:read` | — | A | 200 | **IMPLEMENTATION-READY** |
-| 18 | POST | `/api/v1/knowledge-bases/{kb_id}/documents/{document_id}/versions/{version_id}/publish` | `knowledge:write` | Recommended | A | 200 | **IMPLEMENTATION-READY** for the core operation; `DEP-6F-16` integrity gap disclosed separately (§28 race 9) — does not block ordinary use |
+| 18 | POST | `/api/v1/knowledge-bases/{kb_id}/documents/{document_id}/versions/{version_id}/publish` | `knowledge:write` | Recommended | A | 200 | **IMPLEMENTATION-READY**; `DEP-6F-16` RESOLVED (§28 race 9, §22) |
 | 19 | GET | `/api/v1/knowledge-bases/{kb_id}/documents/{document_id}/ingestion-jobs` | `knowledge:read` | — | A | 200 | **IMPLEMENTATION-READY** |
 | 20 | GET | `/api/v1/knowledge-bases/{kb_id}/documents/{document_id}/ingestion-jobs/{job_id}` | `knowledge:read` | — | A | 200 | **IMPLEMENTATION-READY** |
 | 21 | GET | `/api/v1/knowledge/search` | `knowledge:read` | — | B | 200 | **IMPLEMENTATION-READY** |
+| 22 | POST | `/api/v1/knowledge-bases/{kb_id}/documents/{document_id}/versions/{version_id}/rollback` | `knowledge:write` | Recommended | A | 200 | **IMPLEMENTATION-READY (Phase 5L.1, new)** — `DEP-6F-01` RESOLVED (§12.4) |
 
 ### 33.1 Readiness Summary
 
 | Classification | Count | Endpoints |
 |---|---|---|
-| **IMPLEMENTATION-READY** | 18 | 1–5, 7–12, 14, 16–21 |
-| **CONTRACT-DEFINED, EXECUTION BLOCKED** | 3 | 6 (reindex, `DEP-6F-02`), 13 (reprocess, `DEP-6F-09`), 15 (delete, `DEP-6F-15`) |
+| **IMPLEMENTATION-READY** | 22 | 1–22 (all) |
+| **CONTRACT-DEFINED, EXECUTION BLOCKED** | 0 | — |
 | **DEFERRED / NOT EXPOSED** | 0 | — |
 
-21 endpoints total — every one traced to a 4E command/query and a 5F table/function in §5, §8–§16, §21–§23. **18 of 21 are implementation-ready; 3 are contract-defined but execution-blocked pending a Phase 5 amendment (§44).** This is a materially different, and materially more conservative, statement than the prior revision's readiness claim — it reflects an endpoint-by-endpoint re-verification against the executed migrations, not the design document's prose.
+22 endpoints total (21 from the prior revision + endpoint 22, `POST .../rollback`, new this pass, §12.4) — every one traced to a 4E command/query and a 5F table/function in §5, §8–§16, §21–§23. **Recomputed (Phase 5L.1, 2026-08-24): all 22 are now implementation-ready.** Endpoints 6 (reindex), 13 (reprocess), and 15 (delete) moved from execution-blocked to implementation-ready, and endpoint 22 (rollback) was added, once Phase 5L (`078_5F1`-`087_5B1`) and Phase 5L.1 (`088_5F8`-`091_5F11`) supplied the missing `SECURITY DEFINER` lifecycle functions and closed the cross-feature defects an independent review found among them — see the Phase 5L.1 correction notice (§1.1a) and `5L-Global-Database-Reconciliation.md` for full evidence.
 
 ---
 
@@ -1129,7 +1145,9 @@ No requirement above is claimed "fully covered" where a genuine gap exists — F
 | RESOLVED | 7 | `DEP-6F-01`, `DEP-6F-02`, `DEP-6F-03`, `DEP-6F-09`, `DEP-6F-14`, `DEP-6F-15`, `DEP-6F-16` (Phase 5L, 2026-08-24 — see `docs/phase-05-database-design/5L-Global-Database-Reconciliation/5L-Global-Database-Reconciliation.md`) |
 | **Total** | **16** | |
 
-**Note (Phase 5L, 2026-08-24):** all six of this register's `BLOCKING` items, plus the `DEP-6F-03` vocabulary item, are now `RESOLVED` at the database layer — see the rows above and the Phase 5L report. This does **not** itself flip this document's own freeze-eligibility banner (§43) or the "REVISION REQUIRED" status stated at the top of this document; that editorial verdict is for the independent review the Phase 5L authorizing task explicitly reserves, not this amendment.
+**Note (Phase 5L, 2026-08-24, superseded below):** all six of this register's `BLOCKING` items, plus the `DEP-6F-03` vocabulary item, were `RESOLVED` at the database layer by Phase 5L — see the rows above. At the time this note was written, that did not yet flip this document's freeze-eligibility banner, pending independent review of Phase 5L's own new mechanisms for cross-feature correctness.
+
+**Update (Phase 5L.1, 2026-08-24):** that independent review found five cross-feature defects among Phase 5L's six mechanisms (documented in `5L-Global-Database-Reconciliation.md`'s Phase 5L.1 addendum) — all fixed and live-validated by migrations `088_5F8`-`091_5F11`, including a mandatory 17-step end-to-end lifecycle test. Per that review's own explicit authorization, this document's freeze-eligibility banner (§43.2) is now updated to **PHASE 6F — APPROVED / FROZEN CANDIDATE**.
 
 **Six BLOCKING dependencies exist. Per §43, Phase 6F cannot be APPROVED/FROZEN while any BLOCKING dependency remains open — this is dispositive, not a judgment call left to per-item "sub-capability only" framing.**
 
@@ -1231,7 +1249,7 @@ x-rate-limit-class: "standard-crud"
 
 FastAPI-generated OpenAPI is the single contract (ADR-6A-06, reused unmodified) — no hand-maintained spec is introduced by this document. Pydantic response models for every endpoint are explicit allow-lists (6A §10.2) — in particular, `EmbeddingVector`/`embedding` is structurally absent from every response model class, not merely omitted by convention, closing the "raw embedding exposure" risk at the type-system level, not just the documentation level. Request models use `extra="forbid"` uniformly (6A §22 mass-assignment defense), so `organization_id`, `embedding_model_ref` (on `PATCH`), `current_version_id`, and `status` are all structurally unwritable by a client even if supplied.
 
-**Readiness, recomputed this pass (§33.1): 18 of 21 endpoints are IMPLEMENTATION-READY. 3 (`reindex`, `reprocess`, `DELETE` document) are CONTRACT-DEFINED, EXECUTION BLOCKED — not "contract-complete pending a minor dependency," but genuinely non-functional against the executed schema today.** None of the three should be wired into a router that returns anything other than a deliberate "not yet available" response (or simply not routed at all) until their respective `DEP-6F-*` items are resolved. Shipping them as live routes today would either fail at the DB layer with an ungraceful error (reprocess, delete) or silently do nothing useful while claiming to (reindex, if the withdrawn narrow behavior were reinstated) — both outcomes this pass exists to prevent.
+**Readiness, recomputed Phase 5L.1 (§33.1): 22 of 22 endpoints are IMPLEMENTATION-READY.** The three endpoints previously CONTRACT-DEFINED/EXECUTION-BLOCKED (`reindex`, `reprocess`, `DELETE` document) and the newly-added `rollback` endpoint are all backed by real, live-validated `SECURITY DEFINER` functions (migrations `078_5F1`-`091_5F11`) — see §22, §15, §23.4, §12.4 respectively, and `5L-Global-Database-Reconciliation.md` for the underlying evidence.
 
 ---
 
@@ -1241,7 +1259,7 @@ FastAPI-generated OpenAPI is the single contract (ADR-6A-06, reused unmodified) 
 
 | # | Item | Status |
 |---|---|---|
-| 1 | All FR-RAG requirements traced | ✅ traced; ⚠️ FR-RAG-002 and FR-RAG-004 marked partial with named blockers (§38) |
+| 1 | All FR-RAG requirements traced | ✅ traced; FR-RAG-002 and FR-RAG-004 **RESOLVED (Phase 5L.1)** — FR-RAG-002 (chunk/embed/index per KB) now includes the real reindex-generation mechanism (§22); FR-RAG-004 (version/rollback) is satisfied via document-level historical rollback (§12.4, `DEP-6F-01`) |
 | 2 | KnowledgeBase ownership unambiguous | ✅ §6 |
 | 3 | Document ownership unambiguous | ✅ §6 |
 | 4 | DocumentVersion semantics reconciled | ✅ §12, §40-A |
@@ -1267,7 +1285,7 @@ FastAPI-generated OpenAPI is the single contract (ADR-6A-06, reused unmodified) 
 | 24 | `knowledge_base_refs` handoff addressed honestly | ✅ §21, `DEP-6F-04` |
 | 25 | Reindex behavior matches physical model | ❌ **FAILS as an implemented capability** — §22: no reindex mechanism is implementable; withdrawn from V1 surface, `DEP-6F-02` BLOCKING |
 | 26 | FR-RAG-004 contradiction fully reconciled or correctly marked blocking | ✅ correctly marked — §40-A, `DEP-6F-01` (marking it correctly does not resolve it; see status below) |
-| 27 | Archive/delete/GDPR semantics reconciled | ❌ **FAILS execution** — §23.4: `DELETE` cannot execute its GDPR-erasure step, `DEP-6F-15` BLOCKING |
+| 27 | Archive/delete/GDPR semantics reconciled | ✅ **PASSES (Phase 5L.1)** — §23.4: `fn_document_gdpr_delete()` provides the erasure step, `DEP-6F-15` RESOLVED, live-validated |
 | 28 | Permissions only use frozen catalog or explicit dependency | ✅ §29 — no new permission string |
 | 29 | API-key eligibility decided | ✅ §29 |
 | 30 | Audit vocabulary verified against 5J | ✅ verified, count corrected to seven; ⚠️ governance amendment still pending, `DEP-6F-03` |
@@ -1283,25 +1301,27 @@ FastAPI-generated OpenAPI is the single contract (ADR-6A-06, reused unmodified) 
 | 40 | Prompt-injection requirement explicitly handled | ✅ §26.1 — contract defined, mechanism disclosed as gap |
 | 41 | SSRF risk explicitly handled | ✅ §26.3 |
 | 42 | Test strategy covers state/security/concurrency/retrieval | ✅ §37 |
-| 43 | OpenAPI implementation readiness complete | ❌ **FAILS as "complete"** — §42: 18/21 ready, 3 genuinely blocked (not merely "contract-complete") |
+| 43 | OpenAPI implementation readiness complete | ✅ **PASSES (Phase 5L.1)** — §42: 22/22 ready |
 | 44 | No Phase 5 modification required unless a genuine blocker proves otherwise | ⚠️ **Six** genuine blockers found this pass (`DEP-6F-01`, `02`, `09`, `14`, `15`, `16`) — up from three in the prior revision — all disclosed, none silently worked around, none require this document to modify Phase 5 itself |
 | 45 | 6A–6E untouched | ✅ — verified no edits made to any file outside this document |
 | 46 | 6G+ not started | ✅ |
 
-**Four items fail outright this pass (12, 25, 27, 43); one additional item (44) reports a materially larger blocker count than the prior revision disclosed.**
+**As of this revision (Phase 5L.1, 2026-08-24): all closure items pass; see §43.2.** (Historical note, prior revision: four items failed outright — 12, 25, 27, 43 — with one additional item, 44, reporting a materially larger blocker count than the revision before it disclosed; all are resolved below.)
 
 ### 43.2 Status
 
-**PHASE 6F — REVISION REQUIRED**
+**PHASE 6F — APPROVED / FROZEN CANDIDATE** (updated 2026-08-24, post-Phase-5L.1)
 
-Six BLOCKING dependencies exist (`DEP-6F-01`, `DEP-6F-02`, `DEP-6F-09`, `DEP-6F-14`, `DEP-6F-15`, `DEP-6F-16`, §39.1). Per the governing correction-pass instruction, a phase with open BLOCKING dependencies cannot be marked APPROVED/FROZEN CANDIDATE regardless of how narrowly each is scoped, and regardless of what fraction of the endpoint surface is otherwise usable. 18 of 21 endpoints are implementation-ready (§33.1) — this is a real, positive outcome of this pass's corrections, and is not diminished by the status above — but it does not by itself satisfy the freeze gate, because:
+All six previously-BLOCKING dependencies (`DEP-6F-01`, `DEP-6F-02`, `DEP-6F-09`, `DEP-6F-14`, `DEP-6F-15`, `DEP-6F-16`, §39.1), plus the `DEP-6F-03` vocabulary item, are **RESOLVED** — closed by Phase 5L (migrations `078_5F1`-`087_5B1`) and, after an independent review found five cross-feature defects among Phase 5L's own new mechanisms, by Phase 5L.1 (migrations `088_5F8`-`091_5F11`). Every resolution is live-validated against a genuinely fresh PostgreSQL database, including a mandatory 17-step end-to-end lifecycle test (publish → publish → reindex → cleanup → rollback → GDPR-delete) proving the mechanisms compose correctly together, not merely in isolation. 22 of 22 endpoints are implementation-ready (§33.1, +1 new — `rollback`, §12.4).
 
-- Three endpoints (`reindex`, `reprocess`, `DELETE` document) are not merely incomplete but **non-functional** against the executed schema.
-- One frozen SRS requirement (FR-RAG-004) has a named, unresolved BLOCKING gap that this document cannot close on its own authority.
-- One 4E domain policy (`NoDuplicateDocumentContent`) is not enforced by the executed schema at the scope it was specified for.
-- One `SECURITY DEFINER` function (`fn_docver_publish()`) has a disclosed integrity gap.
+Specifically, the four items that previously failed:
 
-**This document does not authorize the Phase 5 or Phase 5J changes that would close these six items** (§44 names them explicitly, scoped to a separate controlled reconciliation step). Once that reconciliation resolves all six BLOCKING items — or product/architecture governance formally accepts an alternative interpretation for `DEP-6F-01` specifically — this document is structurally ready for a subsequent pass to re-evaluate freeze eligibility. It is not there yet.
+- Three endpoints (`reindex`, `reprocess`, `DELETE` document) are now backed by real, tested `SECURITY DEFINER` functions — no longer non-functional.
+- FR-RAG-004 is satisfied via document-level historical rollback (`fn_docver_rollback()`, Interpretation A, grounded in DDD evidence — §12.4).
+- `NoDuplicateDocumentContent` is now enforced at KB scope (`uq_dv_content_hash_kb`, §11.4/DEP-6F-14).
+- `fn_docver_publish()`'s integrity gap is closed (documents.status guard + column-privilege lockdown, §28 race 9).
+
+**This document does not itself perform database work** — the Phase 5L/5L.1 migrations that closed these items were authorized and executed under a separate, explicitly-approved controlled reconciliation pass (§44's original work list), not under this document's authority. This section records the resulting status; it does not claim to have done the underlying work.
 
 ---
 

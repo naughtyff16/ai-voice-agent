@@ -1,0 +1,32 @@
+-- =================================================================
+-- Migration 091 (Phase 5F.11): supporting index for language-consistent
+--   hybrid keyword retrieval
+-- down_revision: 090_5F10
+-- Transaction: yes
+-- Source: Phase 5L.1 post-reconciliation correction, item #6 (QP-09)
+--
+-- Migration 084_5F7.sql made tsvector *storage* language-aware
+-- (english config for content_language='en', simple for ta/te/hi) but
+-- the documented retrieval query pattern still ran a single
+-- plainto_tsquery('english', ...) unconditionally — inconsistent with
+-- 'simple'-indexed content (e.g. a plural/stemmed English word inside a
+-- Tamil-English code-mixed chunk, stored unstemmed under 'simple', will
+-- not match an English-stemmed query term).
+--
+-- No new schema object can enforce a query *shape* — this is a
+-- documented contract fix (see the 5F/6F amendments), reusing the
+-- existing closed language allow-list (en/ta/te/hi -> english/simple)
+-- that already governs storage: the query builder runs the SAME raw
+-- user input text through BOTH regconfigs it already knows about
+-- (plainto_tsquery('english', text) and plainto_tsquery('simple', text))
+-- and matches each against the chunks whose content_language calls for
+-- that config — no per-query language guessing, AI-derived or
+-- otherwise, is required or permitted; the two-branch OR is deterministic
+-- and closed over the same four-language allow-list migration 084
+-- already established.
+--
+-- This migration adds only the supporting index for that OR-branch
+-- query shape (content_language is the discriminant on each branch).
+-- =================================================================
+
+CREATE INDEX idx_dc_kb_language ON knowledge.document_chunks (knowledge_base_id, content_language);

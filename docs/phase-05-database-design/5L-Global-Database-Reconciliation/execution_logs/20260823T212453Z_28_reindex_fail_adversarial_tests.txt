@@ -1,0 +1,57 @@
+=== pre-state ===
+ index_version | status 
+---------------+--------
+             2 | ACTIVE
+(1 row)
+
+=== begin a reindex to have a pending generation to attack ===
+ pending_generation 
+--------------------
+                  3
+(1 row)
+
+=== TEST B: pass CURRENT (serving) generation instead of pending -> expect ERROR, no rows removed ===
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/d993f6c7-9691-4a46-82ab-150cd506e349/scratchpad/test_reindex_fail_adversarial2.sql:15: ERROR:  fn_kb_reindex_fail: p_failed_generation 2 does not match the pending build generation 3 for kb 10000000-0000-7000-a000-0000000000d1 — refusing (this would risk deleting a serving or historical generation).
+CONTEXT:  PL/pgSQL function fn_kb_reindex_fail(uuid,uuid,integer) line 23 at RAISE
+=== TEST C: pass an OLDER generation (0) -> expect ERROR ===
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/d993f6c7-9691-4a46-82ab-150cd506e349/scratchpad/test_reindex_fail_adversarial2.sql:18: ERROR:  fn_kb_reindex_fail: p_failed_generation 0 does not match the pending build generation 3 for kb 10000000-0000-7000-a000-0000000000d1 — refusing (this would risk deleting a serving or historical generation).
+CONTEXT:  PL/pgSQL function fn_kb_reindex_fail(uuid,uuid,integer) line 23 at RAISE
+=== TEST D: pass a FUTURE generation (pending+1) -> expect ERROR ===
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/d993f6c7-9691-4a46-82ab-150cd506e349/scratchpad/test_reindex_fail_adversarial2.sql:21: ERROR:  fn_kb_reindex_fail: p_failed_generation 4 does not match the pending build generation 3 for kb 10000000-0000-7000-a000-0000000000d1 — refusing (this would risk deleting a serving or historical generation).
+CONTEXT:  PL/pgSQL function fn_kb_reindex_fail(uuid,uuid,integer) line 23 at RAISE
+=== TEST E: cross-tenant org (Org B calling fail on Org As KB) -> expect ERROR ===
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/d993f6c7-9691-4a46-82ab-150cd506e349/scratchpad/test_reindex_fail_adversarial2.sql:24: ERROR:  fn_kb_reindex_fail: knowledge base not found or not owned by tenant. kb_id: 10000000-0000-7000-a000-0000000000d1
+CONTEXT:  PL/pgSQL function fn_kb_reindex_fail(uuid,uuid,integer) line 13 at RAISE
+=== verify KB is STILL REINDEXING (none of the rejected calls above changed state) ===
+ index_version |   status   
+---------------+------------
+             2 | REINDEXING
+(1 row)
+
+ chunks_at_pending_generation 
+------------------------------
+                            0
+(1 row)
+
+=== TEST A: valid failed generation (the actual pending one) -> succeeds ===
+INSERT 0 1
+ fn_kb_reindex_fail 
+--------------------
+ 
+(1 row)
+
+ index_version | status 
+---------------+--------
+             2 | ACTIVE
+(1 row)
+
+ chunks_remaining_at_failed_generation 
+---------------------------------------
+                                     0
+(1 row)
+
+ status 
+--------
+ FAILED
+(1 row)
+

@@ -98,6 +98,37 @@ regeneration corrects that. See "Reconciliation" below for details.
 | 085 | 5D.1 | `085_5D1.sql` | `084_5F7` | transactional | 2318 | `c73e3df9a6226ede035fc6108a9a73b0a6d9813b6694f9259b90b8493ee8eaa4` |
 | 086 | 5H.1 | `086_5H1.sql` | `085_5D1` | transactional | 2599 | `0625f87e6e9e5aa0ca3754fea6682ba1b2c4cb09c2e69775bee0d5ff244ee24f` |
 | 087 | 5B.1 | `087_5B1.sql` | `086_5H1` | transactional | 7239 | `1411854cc576c592a1a54f07a554784f4f0b73b3940f2cc44c28e89682c501c3` |
+| 088 | 5F.8 | `088_5F8.sql` | `087_5B1` | transactional | 12943 | `5b3695fb85e43163bb6ff7a9e30672f5f5cfeca04e889bbb49d93eb9be5d397f` |
+| 089 | 5F.9 | `089_5F9.sql` | `088_5F8` | transactional | 6281 | `3f6cedf6a521262c45983a4c8d847a20898ebdb8978243cd8dd6e7c9c62fe7e9` |
+| 090 | 5F.10 | `090_5F10.sql` | `089_5F9` | transactional | 2235 | `672b11f64ba840e7a64f1f2d38d8c27f03bb3b8e4ae49a412c5dd7d9af16e79a` |
+| 091 | 5F.11 | `091_5F11.sql` | `090_5F10` | transactional | 1782 | `eec489d44a6e7775c8d997e1dba009e4c4a3bbab1955ecc2397adf54a9dabf9a` |
+
+---
+
+## Phase 5L.1 amendment (2026-08-24) — post-reconciliation correction
+
+Rows 088-091 are **new forward migrations**, added after and on top of
+the validated 87-row Phase 5L baseline. No row 001-087 was edited. An
+independent review of the Phase 5L migrations found five defects/gaps
+requiring correction before Phase 6F could be reconsidered for freeze —
+see `docs/phase-05-database-design/5L-Global-Database-Reconciliation/
+5L-Global-Database-Reconciliation.md`'s Phase 5L.1 addendum for full
+detail. All four rows were live-executed (fresh-DB 001->091 and a
+separate database pinned at 087_5B1 upgraded forward to 091_5F11, both
+exit code 0, single Alembic head `091_5F11`).
+
+Note: while authoring migration 088, live adversarial testing surfaced
+and closed a second defect within the same migration before it was
+considered complete — a table-wide `UNIQUE(knowledge_base_id, generation)`
+constraint on the new `kb_reindex_jobs` table would have permanently
+blocked retrying a reindex at the same generation number after one
+failed attempt. Fixed in the same migration (not a separate row) with a
+partial unique index excluding `FAILED` rows, since 088 had not yet been
+reported as complete/validated at the time the defect was found.
+
+**Reconciled totals after this amendment:** 91/91 `migrations/*.sql`
+files, 91/91 `alembic/versions/*.py` files, single linear Alembic chain,
+single head `091_5F11`.
 
 ---
 

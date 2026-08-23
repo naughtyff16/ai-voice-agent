@@ -1,0 +1,25 @@
+$ createdb voice_agent_recon_validate2
+$ DATABASE_URL=...voice_agent_recon_validate2 python -m alembic upgrade head
+INFO  [alembic.runtime.migration] Running upgrade  -> 001_5B ... -> 091_5F11
+(full 001..091 chain applied cleanly, exit code 0)
+$ python -m alembic heads
+091_5F11 (head)
+
+--- Existing-DB path (separate throwaway database) ---
+$ createdb voice_agent_recon_baseline087
+$ DATABASE_URL=...voice_agent_recon_baseline087 python -m alembic upgrade 087_5B1
+(pinned at 087_5B1, matching the Phase 5L head)
+$ python -m alembic upgrade head
+INFO  [alembic.runtime.migration] Running upgrade 087_5B1 -> 088_5F8, Phase 5F.8 — wraps controlled correction migration 088_5F8.sql.
+INFO  [alembic.runtime.migration] Running upgrade 088_5F8 -> 089_5F9, Phase 5F.9 — wraps controlled correction migration 089_5F9.sql.
+INFO  [alembic.runtime.migration] Running upgrade 089_5F9 -> 090_5F10, Phase 5F.10 — wraps controlled correction migration 090_5F10.sql.
+INFO  [alembic.runtime.migration] Running upgrade 090_5F10 -> 091_5F11, Phase 5F.11 — wraps controlled correction migration 091_5F11.sql.
+(exit code 0)
+$ python -m alembic heads
+091_5F11 (head)
+
+voice_agent_recon_baseline087 dropped immediately after (existing-DB path
+confirmation only; all further Phase 5L.1 testing runs against
+voice_agent_recon_validate2).
+
+Single head confirmed both ways: 091_5F11.

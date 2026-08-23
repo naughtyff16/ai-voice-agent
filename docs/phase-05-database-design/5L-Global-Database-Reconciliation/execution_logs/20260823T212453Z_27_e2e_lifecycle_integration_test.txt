@@ -1,0 +1,145 @@
+=== STEP 1: KB exists ===
+                  id                  |      name      | index_version | status 
+--------------------------------------+----------------+---------------+--------
+ 10000000-0000-7000-a000-0000000000d1 | Integration KB |             1 | ACTIVE
+(1 row)
+
+=== STEP 2: create Document ===
+INSERT 0 1
+=== STEP 3: create/publish V1 ===
+INSERT 0 1
+ fn_docver_mark_ready 
+----------------------
+ 
+(1 row)
+
+ fn_docver_publish 
+-------------------
+ 
+(1 row)
+
+INSERT 0 2
+=== STEP 4: retrieval returns V1 (expect 2 rows, both V1 content) ===
+    content    |         document_version_id          
+---------------+--------------------------------------
+ V1 chunk zero | 10000000-0000-7000-a000-0000000000f1
+ V1 chunk one  | 10000000-0000-7000-a000-0000000000f1
+(2 rows)
+
+=== STEP 5: create/publish V2 ===
+INSERT 0 1
+ fn_docver_mark_ready 
+----------------------
+ 
+(1 row)
+
+ fn_docver_publish 
+-------------------
+ 
+(1 row)
+
+INSERT 0 2
+=== STEP 6: retrieval returns only V2 now (V1 no longer current) ===
+    content    |         document_version_id          
+---------------+--------------------------------------
+ V2 chunk zero | 10000000-0000-7000-a000-0000000000f2
+ V2 chunk one  | 10000000-0000-7000-a000-0000000000f2
+(2 rows)
+
+   status   
+------------
+ SUPERSEDED
+(1 row)
+
+=== STEP 7: begin reindex (expect generation 2, manifest has exactly V2 with expected_chunk_count=2) ===
+ new_generation 
+----------------
+              2
+(1 row)
+
+         document_version_id          | expected_chunk_count 
+--------------------------------------+----------------------
+ 10000000-0000-7000-a000-0000000000f2 |                    2
+(1 row)
+
+=== STEP 8: build new-generation chunks for V2 ===
+INSERT 0 2
+=== STEP 9: mid-build retrieval still returns OLD-generation V2 chunks only (2 rows, "(rebuilt)" NOT yet visible) ===
+    content    | index_generation 
+---------------+------------------
+ V2 chunk zero |                1
+ V2 chunk one  |                1
+(2 rows)
+
+=== STEP 10: complete reindex (atomic cutover) ===
+ fn_kb_reindex_complete 
+------------------------
+ 
+(1 row)
+
+ index_version | status 
+---------------+--------
+             2 | ACTIVE
+(1 row)
+
+=== STEP 11: post-cutover retrieval still returns correct V2 content (may include transient duplicates pre-cleanup) ===
+         content         | index_generation 
+-------------------------+------------------
+ V2 chunk zero           |                1
+ V2 chunk one            |                1
+ V2 chunk zero (rebuilt) |                2
+ V2 chunk one (rebuilt)  |                2
+(4 rows)
+
+=== STEP 12: cleanup old generations (expect: V2 old-gen duplicates removed, V1 (SUPERSEDED) chunks PROTECTED/untouched) ===
+ deleted_count 
+---------------
+             2
+(1 row)
+
+         document_version_id          | index_generation | count 
+--------------------------------------+------------------+-------
+ 10000000-0000-7000-a000-0000000000f1 |                1 |     2
+ 10000000-0000-7000-a000-0000000000f2 |                2 |     2
+(2 rows)
+
+=== STEP 13: rollback to V1 ===
+ fn_docver_rollback 
+--------------------
+ 
+(1 row)
+
+          current_version_id          | status 
+--------------------------------------+--------
+ 10000000-0000-7000-a000-0000000000f1 | READY
+(1 row)
+
+=== STEP 14 (CRITICAL): V1 retrieves successfully post-reindex-and-cleanup (expect 2 rows) ===
+    content    | index_generation 
+---------------+------------------
+ V1 chunk zero |                1
+ V1 chunk one  |                1
+(2 rows)
+
+=== STEP 15: GDPR-delete document ===
+ fn_document_gdpr_delete 
+-------------------------
+ 
+(1 row)
+
+ status  | current_version_id | deleted 
+---------+--------------------+---------
+ DELETED |                    | t
+(1 row)
+
+=== STEP 16: zero chunks remain for this document (expect 0) ===
+ count 
+-------
+     0
+(1 row)
+
+=== STEP 17: publish and rollback after delete both rejected ===
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/d993f6c7-9691-4a46-82ab-150cd506e349/scratchpad/test_e2e_integration.sql:149: NOTICE:  PASS (publish): fn_docver_publish: version does not belong to document, tenant, or is not READY. document_id: 10000000-0000-7000-a000-0000000000e1, version_id: 10000000-0000-7000-a000-0000000000f2
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/d993f6c7-9691-4a46-82ab-150cd506e349/scratchpad/test_e2e_integration.sql:149: NOTICE:  PASS (rollback): fn_docver_rollback: target version does not belong to document/tenant or is not SUPERSEDED (only a previously-published version may be rolled back to). document_id: 10000000-0000-7000-a000-0000000000e1, version_id: 10000000-0000-7000-a000-0000000000f1
+DO
+=== END-TO-END INTEGRATION TEST COMPLETE ===

@@ -1,0 +1,38 @@
+=== FINAL @ 091_5F11 ===
+-- table count (excl extension) --
+ count 
+-------
+   202
+(1 row)
+
+-- function count (excl extension) --
+ count 
+-------
+    83
+(1 row)
+
+-- SECURITY DEFINER count --
+ count 
+-------
+    58
+(1 row)
+
+-- index count --
+ count 
+-------
+   851
+(1 row)
+
+-- RLS-enabled table count --
+ count 
+-------
+    94
+(1 row)
+
+-- new tables from 088-091 --
+        tablename        
+-------------------------
+ kb_reindex_jobs
+ kb_reindex_job_manifest
+(2 rows)
+

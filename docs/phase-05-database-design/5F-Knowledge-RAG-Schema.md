@@ -1427,3 +1427,53 @@ applicable — real concurrency races). See
 evidence. `docs/phase-06-api-design/6F-Knowledge-RAG-APIs.md`'s own
 dependency-register rows are updated separately; its freeze-eligibility
 verdict is not changed by this amendment.
+
+## Controlled Amendment — Phase 5L.1 (2026-08-24)
+
+An independent review of the Phase 5L migrations above found five
+defects in the cross-feature interactions between them (all inside the
+reindex-generation machinery, and between it and rollback), plus one
+multilingual query-consistency gap. Four further migrations
+(`088_5F8.sql`-`091_5F11.sql`) correct them:
+
+- **`fn_kb_reindex_fail()`** now requires its `p_failed_generation`
+  argument to equal the KB's pending build generation (`index_version + 1`)
+  and a matching `BUILDING` row in the new `knowledge.kb_reindex_jobs`
+  table — closing a path where a wrong generation number could delete
+  the currently-serving or a historical generation (`088_5F8.sql`).
+- **`fn_kb_reindex_complete()`** now proves completeness via a new
+  `knowledge.kb_reindex_job_manifest` snapshot (taken at
+  `fn_kb_reindex_begin()` time) of every then-searchable document
+  version and its expected chunk count — requiring an exact match per
+  version, not merely "at least one chunk exists" (`088_5F8.sql`).
+- **`fn_kb_reindex_cleanup_old_generations()`** no longer deletes an
+  old-generation chunk row unless a newer copy of that *same*
+  `document_version_id` already exists, or the version is
+  `GDPR_ERASED`/`FAILED` — preventing cleanup from destroying the sole
+  surviving chunk copy of a still-`SUPERSEDED` (rollback-eligible)
+  version, which previously could make `fn_docver_rollback()` succeed at
+  the SQL layer while leaving the reactivated version unsearchable
+  (`089_5F9.sql`). The corrected, unified retrieval predicate is
+  `document_version_id = documents.current_version_id AND
+  index_generation <= knowledge_bases.index_version`.
+- **`knowledge.documents`**'s app-writable columns are narrowed to
+  `title, original_filename, status, metadata, deleted_at, updated_at`
+  — `knowledge_base_id`, `organization_id`, `source_type`, `created_by`,
+  and `created_at` are now locked (4E's Document aggregate has no
+  move/transfer command), closing a path where
+  `document_versions.knowledge_base_id`'s "cannot drift from its
+  parent" guarantee (082_5F5.sql) could be silently invalidated by
+  moving the parent document itself (`090_5F10.sql`).
+- **Hybrid keyword retrieval** now runs the query text through both
+  `english` and `simple` `regconfig`s (matching the storage-side
+  language allow-list from `084_5F7.sql`), OR-combined by
+  `content_language` — not a single unconditional `english`-config
+  query, which a live counter-example proved genuinely misses unstemmed
+  `simple`-stored content (`091_5F11.sql`, supporting index only).
+
+All six are live-validated, including a mandatory 17-step end-to-end
+lifecycle test proving a document remains retrievable after
+publish -> publish -> reindex -> cleanup -> rollback. See
+`docs/phase-05-database-design/5L-Global-Database-Reconciliation/
+5L-Global-Database-Reconciliation.md`'s Phase 5L.1 addendum for full
+detail and evidence.

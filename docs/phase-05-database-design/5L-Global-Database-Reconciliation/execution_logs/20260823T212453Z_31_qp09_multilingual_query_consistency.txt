@@ -1,0 +1,69 @@
+INSERT 0 1
+INSERT 0 1
+ fn_docver_mark_ready 
+----------------------
+ 
+(1 row)
+
+ fn_docver_publish 
+-------------------
+ 
+(1 row)
+
+INSERT 0 5
+=== QP-09 TEST 1: English query "refund" must match the English chunk via STEMMED english config (plural "refunds" -> stem "refund") ===
+ chunk_index | content_language 
+-------------+------------------
+          20 | en
+          24 | ta
+(2 rows)
+
+=== QP-09 TEST 2: Tamil query token (exact, simple config) must match the Tamil chunk, NOT the unrelated Telugu/Hindi ones ===
+ chunk_index | content_language 
+-------------+------------------
+          21 | ta
+(1 row)
+
+=== QP-09 TEST 3: Telugu query token must match only the Telugu chunk ===
+ chunk_index | content_language 
+-------------+------------------
+          22 | te
+(1 row)
+
+=== QP-09 TEST 4: Hindi query token must match only the Hindi chunk ===
+ chunk_index | content_language 
+-------------+------------------
+          23 | hi
+(1 row)
+
+=== QP-09 TEST 5 (the specific bug this fix closes): English word "process" inside the Tamil-English code-mixed chunk (stored under simple config, UNSTEMMED) must still match a query for "process" ===
+ chunk_index | content_language 
+-------------+------------------
+          20 | en
+          24 | ta
+(2 rows)
+
+=== QP-09 TEST 6 (proves the OLD single-branch english-only query pattern was broken for this case): the same query using ONLY plainto_tsquery(english, ...) unconditionally MISSES the Tamil/Telugu/Hindi chunks entirely ===
+ chunk_index | content_language 
+-------------+------------------
+          21 | ta
+(1 row)
+
+INSERT 0 1
+=== QP-09 TEST 6 (corrected, decisive case): query plural "returns" — CORRECTED two-branch query finds the simple-stored chunk ===
+ chunk_index | content_language 
+-------------+------------------
+          25 | ta
+(1 row)
+
+=== QP-09 TEST 7 (proves the OLD single-branch approach was genuinely broken): the SAME query using ONLY the english-config branch (the pre-fix pattern) MISSES chunk 25 entirely -- english-side stemming turns the query "returns" into "return", which does not match the simple-stored literal unstemmed token "returns" ===
+ chunk_index | content_language 
+-------------+------------------
+(0 rows)
+
+=== confirms the raw tsvector for chunk 25 really does hold the literal unstemmed token, not "return" ===
+                                   tsvector_content                                   
+--------------------------------------------------------------------------------------
+ 'accepted':3 'are':2 'days':6 'returns':1 'thirty':5 'within':4 'நாட்கள்':8 'முப்பது':7
+(1 row)
+
