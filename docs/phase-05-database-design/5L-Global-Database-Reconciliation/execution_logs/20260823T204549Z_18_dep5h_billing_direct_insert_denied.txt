@@ -1,0 +1,4 @@
+SET
+SET
+--- T1 (as app_worker): direct INSERT on billing_adjustments must be denied ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/d993f6c7-9691-4a46-82ab-150cd506e349/scratchpad/test_5h_billing.sql:5: ERROR:  permission denied for table billing_adjustments

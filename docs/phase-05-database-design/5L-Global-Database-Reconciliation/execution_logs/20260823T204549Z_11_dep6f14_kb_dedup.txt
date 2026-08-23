@@ -1,0 +1,25 @@
+INSERT 0 1
+--- T1: same content_hash as an existing non-FAILED/GDPR_ERASED version in the SAME KB, different document -> must be rejected ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/d993f6c7-9691-4a46-82ab-150cd506e349/scratchpad/test_6f14_dedup.sql:16: NOTICE:  TEST PASSED: KB-wide dedup correctly rejected duplicate content hash across documents: duplicate key value violates unique constraint "uq_dv_content_hash_kb"
+DO
+--- T2: verify knowledge_base_id was server-derived correctly on all existing versions (spot check) ---
+                  id                  |          knowledge_base_id           |             parent_kb_id             | matches 
+--------------------------------------+--------------------------------------+--------------------------------------+---------
+ 00000000-0000-7000-a000-0000000000f5 | 00000000-0000-7000-a000-0000000000d1 | 00000000-0000-7000-a000-0000000000d1 | t
+(1 row)
+
+--- T3: SAME content_hash but in a DIFFERENT KB -> must be allowed (KB Two, hash matching KB Ones a*64) ---
+INSERT 0 1
+                             note                             
+--------------------------------------------------------------
+ T3 PASSED: cross-KB identical content hash correctly allowed
+(1 row)
+
+--- T4: client cannot spoof knowledge_base_id — trigger always derives it server-side ---
+INSERT 0 1
+INSERT 0 1
+          knowledge_base_id           | derived_correctly_ignored_spoofed_d2_value 
+--------------------------------------+--------------------------------------------
+ 00000000-0000-7000-a000-0000000000d1 | t
+(1 row)
+

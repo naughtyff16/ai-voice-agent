@@ -1,0 +1,16 @@
+   nspname    |                proname                | prosecdef |                    proconfig                     |                                            proacl                                            
+--------------+---------------------------------------+-----------+--------------------------------------------------+----------------------------------------------------------------------------------------------
+ billing      | fn_create_billing_adjustment          | t         | {"search_path=billing, public, pg_catalog"}      | {postgres=X/postgres,app_worker=X/postgres,app_platform_admin=X/postgres}
+ knowledge    | fn_document_gdpr_delete               | t         | {"search_path=knowledge, pg_catalog"}            | {postgres=X/postgres,app_api=X/postgres,app_worker=X/postgres,app_platform_admin=X/postgres}
+ knowledge    | fn_docver_gdpr_erase                  | t         | {"search_path=knowledge, pg_catalog"}            | {postgres=X/postgres,app_api=X/postgres,app_worker=X/postgres,app_platform_admin=X/postgres}
+ knowledge    | fn_docver_mark_failed                 | t         | {"search_path=knowledge, pg_catalog"}            | {postgres=X/postgres,app_api=X/postgres,app_worker=X/postgres,app_platform_admin=X/postgres}
+ knowledge    | fn_docver_publish                     | t         | {"search_path=knowledge, organization, pg_temp"} | {postgres=X/postgres,app_api=X/postgres,app_worker=X/postgres,app_platform_admin=X/postgres}
+ knowledge    | fn_docver_rollback                    | t         | {"search_path=knowledge, organization, pg_temp"} | {postgres=X/postgres,app_api=X/postgres,app_worker=X/postgres,app_platform_admin=X/postgres}
+ knowledge    | fn_kb_reindex_begin                   | t         | {"search_path=knowledge, pg_catalog"}            | {postgres=X/postgres,app_api=X/postgres,app_worker=X/postgres,app_platform_admin=X/postgres}
+ knowledge    | fn_kb_reindex_cleanup_old_generations | t         | {"search_path=knowledge, pg_catalog"}            | {postgres=X/postgres,app_worker=X/postgres,app_platform_admin=X/postgres}
+ knowledge    | fn_kb_reindex_complete                | t         | {"search_path=knowledge, pg_catalog"}            | {postgres=X/postgres,app_worker=X/postgres,app_platform_admin=X/postgres}
+ knowledge    | fn_kb_reindex_fail                    | t         | {"search_path=knowledge, pg_catalog"}            | {postgres=X/postgres,app_worker=X/postgres,app_platform_admin=X/postgres}
+ organization | fn_break_glass_grant                  | t         | {"search_path=organization, public, pg_catalog"} | {postgres=X/postgres,app_api=X/postgres,app_platform_admin=X/postgres}
+ organization | fn_break_glass_release                | t         | {"search_path=organization, pg_catalog"}         | {postgres=X/postgres,app_api=X/postgres,app_platform_admin=X/postgres}
+(12 rows)
+

@@ -1,0 +1,17 @@
+SET
+SET
+--- T1: first ACTIVE suppression insert succeeds ---
+INSERT 0 1
+--- T2: exact duplicate (same org/phone/scope/channel) while first is still ACTIVE -> rejected ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/d993f6c7-9691-4a46-82ab-150cd506e349/scratchpad/test_5d_suppression.sql:20: NOTICE:  TEST PASSED: duplicate ACTIVE suppression correctly rejected: duplicate key value violates unique constraint "uq_sup_active"
+DO
+--- T3: different scope (PLATFORM, organization_id NULL), same phone/channel -> allowed (independent legal suppression) ---
+INSERT 0 1
+                         note                         
+------------------------------------------------------
+ T3 PASSED: cross-scope suppression correctly allowed
+(1 row)
+
+--- T4: second PLATFORM-scope suppression, same phone/channel, organization_id also NULL -> must be rejected (NULLS NOT DISTINCT proof) ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/d993f6c7-9691-4a46-82ab-150cd506e349/scratchpad/test_5d_suppression.sql:38: NOTICE:  TEST PASSED: duplicate PLATFORM-scope suppression (both organization_id NULL) correctly rejected -- NULLS NOT DISTINCT confirmed: duplicate key value violates unique constraint "uq_sup_active"
+DO

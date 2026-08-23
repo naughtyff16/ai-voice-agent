@@ -1,0 +1,41 @@
+=== as app_api, WITH platform admin GUC set ===
+SET
+--- T3: legitimate grant succeeds, TTL bound enforced ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/d993f6c7-9691-4a46-82ab-150cd506e349/scratchpad/test_5b1_breakglass2.sql:18: NOTICE:  TEST PASSED: out-of-bound TTL correctly rejected: fn_break_glass_grant: p_ttl_seconds 999999 out of the conservative technical bound [60, 86400] seconds. The exact operational TTL policy is owned by 6B/product, not asserted here.
+DO
+                  id                  |           organization_id            |            admin_user_id             | status | ttl_ok 
+--------------------------------------+--------------------------------------+--------------------------------------+--------+--------
+ 01a0306b-4cad-7102-934f-4fe4d6acd325 | 00000000-0000-7000-a000-0000000000a1 | 00000000-0000-7000-a000-0000000000aa | ACTIVE | t
+(1 row)
+
+--- T4: immutable fields cannot be changed by any direct UPDATE, even as the function-privileged path is unavailable to raw SQL ---
+--- T5: release succeeds once, idempotent on second call, immutable-after-release ---
+ fn_break_glass_release 
+------------------------
+ 
+(1 row)
+
+  status  | released 
+----------+----------
+ RELEASED | t
+(1 row)
+
+ fn_break_glass_release 
+------------------------
+ 
+(1 row)
+
+                    note                    
+--------------------------------------------
+ T5 idempotent second release did not error
+(1 row)
+
+--- T6: releasing an unknown grant id fails ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/d993f6c7-9691-4a46-82ab-150cd506e349/scratchpad/test_5b1_breakglass2.sql:49: NOTICE:  TEST PASSED: releasing unknown grant correctly rejected: fn_break_glass_release: grant 01a0306b-4cb7-7aa2-81bb-bb376b755b28 not found.
+DO
+--- T7: RLS-guarded SELECT — platform-admin session sees the row ---
+ visible_to_platform_admin 
+---------------------------
+                         1
+(1 row)
+

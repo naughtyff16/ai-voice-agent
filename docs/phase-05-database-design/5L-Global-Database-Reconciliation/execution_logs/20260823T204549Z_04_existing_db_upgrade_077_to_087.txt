@@ -1,0 +1,12 @@
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade 077_5J1 -> 078_5F1, Phase 5F.1 — wraps controlled amendment migration 078_5F1.sql.
+INFO  [alembic.runtime.migration] Running upgrade 078_5F1 -> 079_5F2, Phase 5F.2 — wraps controlled amendment migration 079_5F2.sql.
+INFO  [alembic.runtime.migration] Running upgrade 079_5F2 -> 080_5F3, Phase 5F.3 — wraps controlled amendment migration 080_5F3.sql.
+INFO  [alembic.runtime.migration] Running upgrade 080_5F3 -> 081_5F4, Phase 5F.4 — wraps controlled amendment migration 081_5F4.sql.
+INFO  [alembic.runtime.migration] Running upgrade 081_5F4 -> 082_5F5, Phase 5F.5 — wraps controlled amendment migration 082_5F5.sql.
+INFO  [alembic.runtime.migration] Running upgrade 082_5F5 -> 083_5F6, Phase 5F.6 — wraps controlled amendment migration 083_5F6.sql.
+INFO  [alembic.runtime.migration] Running upgrade 083_5F6 -> 084_5F7, Phase 5F.7 — wraps controlled amendment migration 084_5F7.sql.
+INFO  [alembic.runtime.migration] Running upgrade 084_5F7 -> 085_5D1, Phase 5D.1 — wraps controlled amendment migration 085_5D1.sql.
+INFO  [alembic.runtime.migration] Running upgrade 085_5D1 -> 086_5H1, Phase 5H.1 — wraps controlled amendment migration 086_5H1.sql.
+INFO  [alembic.runtime.migration] Running upgrade 086_5H1 -> 087_5B1, Phase 5B.1 — wraps controlled amendment migration 087_5B1.sql.

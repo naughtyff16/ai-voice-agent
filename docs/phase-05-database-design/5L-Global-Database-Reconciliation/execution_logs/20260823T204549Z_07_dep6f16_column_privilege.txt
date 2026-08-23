@@ -1,0 +1,11 @@
+SET
+SET
+--- T3: app_api direct UPDATE of current_version_id must be denied ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/d993f6c7-9691-4a46-82ab-150cd506e349/scratchpad/test_6f16_privilege.sql:5: ERROR:  permission denied for table documents
+--- T4: app_api CAN still update other columns (status), unaffected by the narrowing ---
+UPDATE 1
+                              note                              
+----------------------------------------------------------------
+ T4 status update succeeded (unaffected columns still writable)
+(1 row)
+

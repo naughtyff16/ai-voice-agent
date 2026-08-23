@@ -1,0 +1,69 @@
+=== schema count ===
+ count 
+-------
+    16
+(1 row)
+
+=== table count ===
+ count 
+-------
+   199
+(1 row)
+
+=== function count ===
+ count 
+-------
+   237
+(1 row)
+
+=== trigger count ===
+ count 
+-------
+   108
+(1 row)
+
+=== index count ===
+ count 
+-------
+   834
+(1 row)
+
+=== rls enabled table count ===
+ count 
+-------
+    92
+(1 row)
+
+=== policy count ===
+ count 
+-------
+   104
+(1 row)
+
+=== security definer function count ===
+ count 
+-------
+    58
+(1 row)
+
+=== extensions installed ===
+      extname       | extnamespace 
+--------------------+--------------
+ plpgsql            | pg_catalog
+ pgcrypto           | public
+ pg_stat_statements | public
+ vector             | public
+(4 rows)
+
+=== function count EXCLUDING extension-owned ===
+ count 
+-------
+    83
+(1 row)
+
+=== table count EXCLUDING extension-owned ===
+ count 
+-------
+   177
+(1 row)
+

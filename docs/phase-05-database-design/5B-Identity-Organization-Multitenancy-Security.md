@@ -2847,3 +2847,59 @@ PHASE 5C READY
 **No issues prevent Phase 5C from beginning.**
 
 The `voice`, `crm`, `campaign`, `knowledge`, `workflow`, `billing`, `integrations`, `webhooks`, `plugins`, `analytics`, and `audit` schemas may all be designed independently once Phase 5C begins, following the standards and patterns established in Phase 5A and the concrete constructs (functions, roles, conventions) delivered in Phase 5B.
+
+---
+
+## Controlled Amendment — Phase 5L (2026-08-24)
+
+Migration `087_5B1.sql` adds `organization.break_glass_grants`, closing
+DEP-6B-01 (durable break-glass grant-lifecycle persistence, 6B §36.3).
+Columns mirror the interim Redis grant record's own field shape:
+`organization_id`, `admin_user_id`, `justification`, `session_id`,
+`issued_at`/`expires_at`, and an `ACTIVE`/`RELEASED` status (`EXPIRED`
+is computed at read time from `expires_at`, mirroring
+`crm.contact_suppressions`' established pattern, not a written state).
+Only `organization.fn_break_glass_grant()` / `fn_break_glass_release()`
+(both `SECURITY DEFINER`, both requiring `organization.is_platform_admin()`)
+may write to this table; RLS restricts even `SELECT` to platform-admin
+sessions. Redis remains the fast-path cache; this table is now the
+durable source of truth.
+
+DEP-6B-08 (durable forced-revocation delivery) is resolved **without a
+new table** — `audit.domain_event_outbox` (migration `077_5J1.sql`)
+already provides crash-safe, retryable, observable delivery. The
+password-reset-confirm transaction should, in the same transaction as
+the password change and session revocation, insert an outbox event:
+
+```
+event_type    = 'identity.forced_revocation_required'
+aggregate_type = 'session'
+aggregate_id  = <the session's id>
+payload       = {
+  "user_id":            <uuid>,
+  "session_ids":        [<uuid>, ...],
+  "access_token_jti":   [<text>, ...],
+  "reason":              "PASSWORD_RESET"
+}
+```
+
+Only JTIs (opaque revocation identifiers, `identity.sessions.access_token_jti`)
+are carried in the payload — never the raw bearer access/refresh token or
+`refresh_token_hash`. The existing outbox worker (Redis Streams publish,
+retry with backoff, terminal `FAILED` state on exhaustion) delivers this
+to the Redis denylist writer; no new infrastructure is introduced.
+
+DEP-6B-02's four missing `action_kind` values
+(`SESSION_REVOKED`, `TOKEN_REFRESH_REUSE_DETECTED`, an admin-forced-logout
+value, a forced-revocation-denylist-write value) are added to
+`5J-Analytics-Audit-Schema.md` §14.3's governed vocabulary list — a
+documentation-only amendment, since `action_kind` has no schema-level
+enum constraint.
+
+DEP-6B-03 (MFA recovery) is explicitly **not** addressed here — no
+frozen V1 requirement was found for it in this pass either; ADR-6B-10's
+deferral stands.
+
+See `docs/phase-05-database-design/5L-Global-Database-Reconciliation/
+5L-Global-Database-Reconciliation.md` for the full classification report
+and live validation evidence.

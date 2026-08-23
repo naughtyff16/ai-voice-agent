@@ -1,0 +1,21 @@
+--- T1: soft-delete Doc Four, then attempt to publish a READY version onto it -> must raise ---
+UPDATE 1
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/d993f6c7-9691-4a46-82ab-150cd506e349/scratchpad/test_6f16.sql:20: NOTICE:  TEST PASSED: publish onto DELETED document correctly rejected: fn_docver_publish: document 00000000-0000-7000-a000-0000000000e4 is DELETED and cannot be published to (DEP-6F-16 guard).
+DO
+--- T2: sanity — publish on a non-deleted, READY-eligible document still works ---
+UPDATE 1
+ fn_docver_mark_ready 
+----------------------
+ 
+(1 row)
+
+ fn_docver_publish 
+-------------------
+ 
+(1 row)
+
+ status |          current_version_id          
+--------+--------------------------------------
+ READY  | 00000000-0000-7000-a000-0000000000f3
+(1 row)
+

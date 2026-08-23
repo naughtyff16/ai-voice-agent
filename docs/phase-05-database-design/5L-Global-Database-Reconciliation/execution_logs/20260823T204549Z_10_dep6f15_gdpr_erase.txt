@@ -1,0 +1,59 @@
+--- pre-state: Doc Three v1 (f4) is READY, has 1 chunk ---
+ status | storage_ref  |                           content_hash                           
+--------+--------------+------------------------------------------------------------------
+ READY  | s3://doc3/v1 | dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+(1 row)
+
+ chunk_count 
+-------------
+           1
+(1 row)
+
+--- T1: fn_docver_gdpr_erase erases content + deletes chunks ---
+ fn_docver_gdpr_erase 
+----------------------
+ 
+(1 row)
+
+   status    | storage_ref |                           content_hash                           
+-------------+-------------+------------------------------------------------------------------
+ GDPR_ERASED | ERASED      | ERASED                                                          
+(1 row)
+
+ chunk_count_after_erase 
+-------------------------
+                       0
+(1 row)
+
+--- T2: re-calling erase on already-GDPR_ERASED version is idempotent no-op ---
+ fn_docver_gdpr_erase 
+----------------------
+ 
+(1 row)
+
+   status    
+-------------
+ GDPR_ERASED
+(1 row)
+
+--- T3: full-document GDPR delete on Doc Two (e2/f3, currently READY/current) ---
+ status |          current_version_id          
+--------+--------------------------------------
+ READY  | 00000000-0000-7000-a000-0000000000f3
+(1 row)
+
+ fn_document_gdpr_delete 
+-------------------------
+ 
+(1 row)
+
+ status  | current_version_id | original_filename | is_deleted 
+---------+--------------------+-------------------+------------
+ DELETED |                    |                   | t
+(1 row)
+
+                  id                  |   status    | storage_ref |                           content_hash                           
+--------------------------------------+-------------+-------------+------------------------------------------------------------------
+ 00000000-0000-7000-a000-0000000000f3 | GDPR_ERASED | ERASED      | ERASED                                                          
+(1 row)
+

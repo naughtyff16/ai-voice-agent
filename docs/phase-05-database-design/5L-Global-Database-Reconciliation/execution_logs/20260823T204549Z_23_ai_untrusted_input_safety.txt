@@ -1,0 +1,23 @@
+--- AI/untrusted-input safety: SQL-injection-shaped strings in a chunk stay inert data ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/d993f6c7-9691-4a46-82ab-150cd506e349/scratchpad/test_ai_untrusted.sql:3: ERROR:  duplicate key value violates unique constraint "pk_documents"
+DETAIL:  Key (id)=(00000000-0000-7000-a000-0000000000ff) already exists.
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/d993f6c7-9691-4a46-82ab-150cd506e349/scratchpad/test_ai_untrusted.sql:5: ERROR:  duplicate key value violates unique constraint "pk_document_versions"
+DETAIL:  Key (id)=(00000000-0000-7000-a000-0000000000fe) already exists.
+INSERT 0 1
+-- content stored verbatim as inert text; document table is untouched --
+                                                     content                                                     
+-----------------------------------------------------------------------------------------------------------------
+ Q: What is your refund policy? A: DROP TABLE knowledge.documents; -- admin' OR 1=1 -- <script>alert(1)</script>
+(1 row)
+
+ documents_table_still_intact 
+------------------------------
+                           10
+(1 row)
+
+-- tsvector trigger handles the malicious-looking string without error --
+                                      tsvector_content                                       
+---------------------------------------------------------------------------------------------
+ '1':13,14 'admin':11 'drop':8 'knowledge.documents':10 'polici':6 'q':1 'refund':5 'tabl':9
+(1 row)
+

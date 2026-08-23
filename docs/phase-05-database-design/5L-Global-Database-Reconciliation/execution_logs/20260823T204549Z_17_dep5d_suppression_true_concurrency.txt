@@ -1,0 +1,11 @@
+SUPPRESSION CONCURRENCY - SESSION A
+INSERT 0 1
+SUPPRESSION CONCURRENCY - SESSION B
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/d993f6c7-9691-4a46-82ab-150cd506e349/scratchpad/sup_conc_b.sql:3: ERROR:  duplicate key value violates unique constraint "uq_sup_active"
+DETAIL:  Key (organization_id, phone_e164, scope, channel)=(00000000-0000-7000-a000-0000000000a1, +919876500099, ORG, SMS) already exists.
+-- final state: exactly 1 ACTIVE row for the contended key --
+ status | count 
+--------+-------
+ ACTIVE |     1
+(1 row)
+

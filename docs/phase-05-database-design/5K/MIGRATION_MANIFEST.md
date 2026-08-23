@@ -88,6 +88,41 @@ regeneration corrects that. See "Reconciliation" below for details.
 | 075 | 5J | `075_5J.sql` | `074_5J` | transactional | 1862 | `678ab37141943d27cf6b8bc02c2bb5de8a6892637cb27f8e1655ed0b633860d6` |
 | 076 | 5K.1 | `076_5K1.sql` | `075_5J` | transactional | 15399 | `f787be772f5d78095eb69e16d29b5189ba7af72086e972df17d267c8e294429c` |
 | 077 | 5J.1 | `077_5J1.sql` | `076_5K1` | transactional | 15559 | `eac7022c4f96993d2e691947d8ebf2fa91ca3db2b9116beaf2c205dd5ee4a990` |
+| 078 | 5F.1 | `078_5F1.sql` | `077_5J1` | transactional | 4909 | `1c006237fcfa373616978a14858cc219f001a15b6f5f632a915e6f22d2e24185` |
+| 079 | 5F.2 | `079_5F2.sql` | `078_5F1` | transactional | 3646 | `637058bc4e99713b3bc2a9d5837fba4efeefd39cb39e3b4c5da02177d699b876` |
+| 080 | 5F.3 | `080_5F3.sql` | `079_5F2` | transactional | 2742 | `68e3291f3e94263808e40ce8aa003c34496b3c3dc9c7f7b403316f780b76b402` |
+| 081 | 5F.4 | `081_5F4.sql` | `080_5F3` | transactional | 4070 | `14f6f48fbe5154f40c9658a02be50c099c45ad99ef5cca068190258f1501351b` |
+| 082 | 5F.5 | `082_5F5.sql` | `081_5F4` | transactional | 5540 | `fe0f1023bc330ed7c8054318d3f5cd494a80206d4811d2db1e6ec67faf1adea5` |
+| 083 | 5F.6 | `083_5F6.sql` | `082_5F5` | transactional | 9072 | `4656897518c04401da8913713e57ce36c447a6b1d91e92065ef027b147e9ee39` |
+| 084 | 5F.7 | `084_5F7.sql` | `083_5F6` | transactional | 2903 | `c3fd06ab996f6f1dee2fb594c06a2bfd8f3b654b2c0b2b1d1ed0dc2920bfceda` |
+| 085 | 5D.1 | `085_5D1.sql` | `084_5F7` | transactional | 2318 | `c73e3df9a6226ede035fc6108a9a73b0a6d9813b6694f9259b90b8493ee8eaa4` |
+| 086 | 5H.1 | `086_5H1.sql` | `085_5D1` | transactional | 2599 | `0625f87e6e9e5aa0ca3754fea6682ba1b2c4cb09c2e69775bee0d5ff244ee24f` |
+| 087 | 5B.1 | `087_5B1.sql` | `086_5H1` | transactional | 7239 | `1411854cc576c592a1a54f07a554784f4f0b73b3940f2cc44c28e89682c501c3` |
+
+---
+
+## Phase 5L amendment (2026-08-24) — Global Database Reconciliation
+
+Rows 078-087 are **new forward migrations**, added after and on top of the
+validated 77-row baseline above (001-075 + 076_5K1 + 077_5J1). No row
+001-077 was edited, renumbered, or had its checksum changed to produce
+these rows. This is the controlled Phase 6F/6B database reconciliation
+pass — see `docs/phase-05-database-design/5L-Global-Database-Reconciliation/
+5L-Global-Database-Reconciliation.md` for the full classification report,
+rationale per migration, and live validation evidence (all ten rows were
+executed against a genuinely fresh local PostgreSQL 18 database plus a
+separate database pinned at `077_5J1` upgraded forward to `087_5B1`, both
+runs exit code 0, single Alembic head `087_5B1`; SHA-256/size above
+independently reconfirmed via `sha256sum`/`wc -c`).
+
+**Reconciled totals after this amendment:** 87/87 `migrations/*.sql`
+files, 87/87 `alembic/versions/*.py` files, single linear Alembic chain,
+single head `087_5B1`.
+
+**Consumers:** `docs/phase-06-api-design/6F-Knowledge-RAG-APIs.md` (DEP-6F-01,
+02, 09, 14, 15, 16 — all six of 6F's blocking dependencies) and
+`docs/phase-06-api-design/6B-Authentication-and-Authorization-API.md`
+(DEP-6B-01, durable break-glass persistence).
 
 ---
 

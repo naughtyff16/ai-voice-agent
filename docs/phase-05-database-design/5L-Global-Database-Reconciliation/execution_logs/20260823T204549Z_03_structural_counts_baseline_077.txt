@@ -1,0 +1,43 @@
+=== BASELINE @ 077_5J1 (pre-Phase-5L) ===
+-- table count (excl. extension-owned) --
+ count 
+-------
+   198
+(1 row)
+
+-- function count (excl. extension-owned) --
+ count 
+-------
+    70
+(1 row)
+
+-- security definer function count --
+ count 
+-------
+    47
+(1 row)
+
+-- trigger count --
+ count 
+-------
+   106
+(1 row)
+
+-- index count --
+ count 
+-------
+   826
+(1 row)
+
+-- RLS-enabled table count --
+ count 
+-------
+    91
+(1 row)
+
+-- policy count --
+ count 
+-------
+   103
+(1 row)
+

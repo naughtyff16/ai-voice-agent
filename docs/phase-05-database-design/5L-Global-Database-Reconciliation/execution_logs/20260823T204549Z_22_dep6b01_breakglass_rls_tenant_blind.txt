@@ -1,0 +1,8 @@
+SET
+ visible_to_non_admin 
+----------------------
+                    0
+(1 row)
+
+ERROR:  break_glass_grants 01a0306b-4cad-7102-934f-4fe4d6acd325 is already RELEASED (terminal state).
+CONTEXT:  PL/pgSQL function organization.prevent_bgg_immutable_field_mutation() line 12 at RAISE

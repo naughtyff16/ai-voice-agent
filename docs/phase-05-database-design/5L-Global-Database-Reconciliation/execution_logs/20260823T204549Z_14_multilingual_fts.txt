@@ -1,0 +1,47 @@
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+--- T1: tsvector_content is non-empty for every language (no silent corruption) ---
+ content_language |                                                   tsvector_content                                                    | non_empty 
+------------------+-----------------------------------------------------------------------------------------------------------------------+-----------
+ en               | 'allow':4 'day':8 'polici':3 'purchas':10 'refund':2 'return':5 'thirti':7 'within':6                                 | t
+ ta               | 'அனுமதிக்கிறது':10 'எங்கள்':1 'கொள்கை':5 'திரும்பப்':3,8 'நாட்களுக்குள்':7 'பணத்தைத்':2 'பெற':9 'பெறும்':4 'முப்பது':6             | t
+ te               | 'అనుమతిస్తుంది':7 'మా':1 'ముప్పై':4 'రిటర్న్‌లను':6 'రోజుల్లో':5 'వాపసు':2 'విధానం':3                                                 | t
+ hi               | 'अनुमति':12 'की':11 'के':5,8 'खरीद':4 'तीस':6 'दिनों':7 'देती':13 'नीति':3 'भीतर':9 'रिटर्न':10 'वापसी':2 'हमारी':1 'है':14 | t
+ ta               | 'bill':3 'kaakum':2 'number':4 'pannuvom':9 'process':8 'refund':1 'venum':5 'நாட்களுக்குள்':7 'மூன்று':6                 | t
+(5 rows)
+
+--- T2: English chunk uses the english config (stemmed: "returns" -> "return", "allows" -> "allow") ---
+ content_language | matches_stemmed_return 
+------------------+------------------------
+ en               | t
+(1 row)
+
+--- T3: Tamil/Telugu/Hindi/mixed chunks use simple config -- exact-token search finds them, tokens are preserved verbatim (not stemmed/stripped) ---
+ content_language | ta_token_found 
+------------------+----------------
+ ta               | t
+(1 row)
+
+ content_language | te_token_found 
+------------------+----------------
+ te               | t
+(1 row)
+
+ content_language | hi_token_found 
+------------------+----------------
+ hi               | t
+(1 row)
+
+ content_language | mixed_english_token_found | mixed_english_token2_found 
+------------------+---------------------------+----------------------------
+ ta               | t                         | t
+(1 row)
+
+--- T4: invalid content_language rejected by CHECK constraint ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/d993f6c7-9691-4a46-82ab-150cd506e349/scratchpad/test_multilingual.sql:58: NOTICE:  TEST PASSED: unsupported content_language correctly rejected: new row for relation "document_chunks_00000000" violates check constraint "chk_dc_content_language"
+DO

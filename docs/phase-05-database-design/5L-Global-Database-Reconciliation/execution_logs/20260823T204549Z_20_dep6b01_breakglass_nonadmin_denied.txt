@@ -1,0 +1,8 @@
+=== as app_api, NOT platform admin ===
+SET
+SET
+--- T1: fn_break_glass_grant denied to a non-platform-admin caller ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/d993f6c7-9691-4a46-82ab-150cd506e349/scratchpad/test_5b1_breakglass.sql:19: NOTICE:  TEST PASSED: non-platform-admin fn_break_glass_grant correctly denied: fn_break_glass_grant: caller is not authorized to grant break-glass access.
+DO
+--- T2: direct table INSERT/UPDATE on break_glass_grants denied (no app role has any DML grant) ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/d993f6c7-9691-4a46-82ab-150cd506e349/scratchpad/test_5b1_breakglass.sql:23: ERROR:  permission denied for table break_glass_grants

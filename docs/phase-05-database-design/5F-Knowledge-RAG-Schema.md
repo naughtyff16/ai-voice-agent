@@ -1360,3 +1360,70 @@ PHASE 5G READY
 ```
 
 All blockers resolved. INV-12 (document-version ownership) added and enforced in `fn_docver_publish()`. INV-02 (document version immutability) corrected to distinguish content/identity immutability from lifecycle state control. Both ADRs updated. Test matrix expanded with cross-document publication test and immutable field protection cases.
+
+---
+
+## Controlled Amendment — Phase 5L (2026-08-24)
+
+Six migrations (`078_5F1.sql` through `084_5F7.sql`) close all six of
+6F's blocking dependencies against this schema, reconciling the physical
+schema with both this document's own design intent and the 4E DDD
+invariants it derives from. Each item below was a genuine gap between
+the executed `034_5F.sql`-`044_5F.sql` and either this document's own
+prose or 4E's frozen invariants — not a reinterpretation of either.
+
+- **DEP-6F-16** (`078_5F1.sql`): `fn_docver_publish()` now requires
+  `documents.status <> 'DELETED'`, closing the publish/delete race
+  (§28 Race #9). Additionally, `documents.current_version_id` (INV-12)
+  — previously updatable by any `app_api`/`app_worker` `UPDATE` despite
+  its "set by `fn_docver_publish()` only" column comment — is now
+  column-privilege-locked; only the SECURITY DEFINER functions
+  (`fn_docver_publish`, `fn_docver_rollback`, `fn_document_gdpr_delete`)
+  can write it.
+- **DEP-6F-01** (`079_5F2.sql`): `fn_docver_rollback()` re-activates a
+  `SUPERSEDED` version (Interpretation A of FR-RAG-004 — document-level
+  historical rollback, grounded in 4E DDD evidence: Knowledge/RAG has no
+  `KnowledgeBaseVersion` aggregate, and Prompt Management's existing
+  `rollback(environment, target_version)` pointer-swap pattern is the
+  closest already-implemented analog, applied here to Documents instead
+  of inventing a new KB-snapshot entity).
+- **DEP-6F-09** (`080_5F3.sql`): `fn_docver_mark_failed()`, `PENDING`→
+  `FAILED` only, idempotent, rejecting all other source states.
+- **DEP-6F-15** (`081_5F4.sql`): `fn_docver_gdpr_erase()` (per-version,
+  idempotent, deletes chunks + erases `storage_ref`/`content_hash` under
+  the existing `prevent_docver_immutable_field_mutation()` carve-out) and
+  `fn_document_gdpr_delete()` (document-level orchestration, matching
+  §23.4's 4-step contract for steps 1-3; S3 deletion, step 4, remains
+  external/app-layer).
+- **DEP-6F-14** (`082_5F5.sql`): `document_versions.knowledge_base_id`
+  (server-derived via a `BEFORE INSERT` trigger — never trusts a
+  client-supplied value — backfilled, FK-enforced) and
+  `uq_dv_content_hash_kb (knowledge_base_id, content_hash)` replacing
+  the document-scoped `uq_dv_content_hash`, correctly implementing 4E's
+  `NoDuplicateDocumentContent` policy ("same hash in the same Knowledge
+  Base is rejected") instead of the executed-but-narrower document scope.
+- **DEP-6F-02** (`083_5F6.sql`): derived chunk/index generations —
+  `document_chunks.index_generation` plus `fn_kb_reindex_begin/complete/
+  fail/cleanup_old_generations()`. Reuses the existing `index_version`
+  column and `REINDEXING` status (both previously unused) rather than
+  adding a new KB column. Old-generation chunks remain queryable
+  throughout a rebuild, satisfying 4E invariant 3; atomic cutover; a
+  failed rebuild preserves the old generation and cleans up only its own
+  partial rows; a second concurrent `begin` is blocked (advisory + row
+  lock), live-tested with two genuinely concurrent sessions.
+- **Multilingual FTS** (`084_5F7.sql`, closing the §19 carry-forward):
+  `content_language` on `documents`/`document_chunks`
+  (`en`/`ta`/`te`/`hi`), `update_chunk_tsvector()` now selects `'english'`
+  for `en` and `'simple'` (tokenize + lowercase, no stemming — the safe
+  fallback for languages without a stock PostgreSQL dictionary) for
+  `ta`/`te`/`hi` and Tamil-English code-mixed content. Live-tested
+  across all five cases; no keyword loss or corruption in any of them.
+
+All six are live-validated against a genuinely fresh PostgreSQL database
+(functional correctness, idempotency, tenant isolation, and — where
+applicable — real concurrency races). See
+`docs/phase-05-database-design/5L-Global-Database-Reconciliation/
+5L-Global-Database-Reconciliation.md` for the full report and captured
+evidence. `docs/phase-06-api-design/6F-Knowledge-RAG-APIs.md`'s own
+dependency-register rows are updated separately; its freeze-eligibility
+verdict is not changed by this amendment.

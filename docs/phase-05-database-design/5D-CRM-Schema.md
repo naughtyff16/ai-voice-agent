@@ -2302,3 +2302,26 @@ PHASE 5E READY
 All three blocking issues resolved. Phase 4I §8.5 suppression lifecycle model is fully and consistently implemented. GDPR erasure phone placeholder satisfies the database CHECK constraint. Eight required suppression lifecycle questions answered in §16. ADR-5D-008 closes the suppression UPDATE model decision.
 
 **Phase 5E** designs the `campaign` schema — it depends on `crm.contacts`, `crm.contact_suppressions`, and `crm.consent_records` logical references established here.
+
+---
+
+## Controlled Amendment — Phase 5L (2026-08-24)
+
+Migration `085_5D1.sql` adds `uq_sup_active`, a partial unique index on
+`crm.contact_suppressions (organization_id, phone_e164, scope, channel)
+WHERE status = 'ACTIVE'`, using `NULLS NOT DISTINCT` so PLATFORM/
+REGULATORY-scope rows (`organization_id IS NULL`) are genuinely
+deduplicated too — a plain `UNIQUE` index would treat every `NULL` as
+distinct and silently fail to enforce anything for those two scopes.
+This is exactly the mechanism this document already named as a
+carry-forward item (§ "Idempotency" note); it is implemented now because
+suppression/opt-out/DNC state is compliance-sensitive and must fail safe
+at the DB level, not rely on an application `SELECT`-then-`INSERT`
+pattern. `scope` remains part of the key, so an `ORG`-scope and a
+`PLATFORM`-scope suppression for the same phone/channel remain
+independent, legally-valid rows. Live-validated: exact-duplicate
+rejection, a genuine concurrent-insert race (one process's INSERT
+succeeded, the other received a real `unique_violation`), lift-then-
+reinsert success, and cross-scope independence — see
+`docs/phase-05-database-design/5L-Global-Database-Reconciliation/
+5L-Global-Database-Reconciliation.md`.

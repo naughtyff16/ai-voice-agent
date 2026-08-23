@@ -1,0 +1,66 @@
+=== POST @ 087_5B1 (same DB, upgraded from 077) ===
+-- table count (excl. extension-owned) --
+ count 
+-------
+   199
+(1 row)
+
+-- function count (excl. extension-owned) --
+ count 
+-------
+    83
+(1 row)
+
+-- security definer function count --
+ count 
+-------
+    58
+(1 row)
+
+-- trigger count --
+ count 
+-------
+   108
+(1 row)
+
+-- index count --
+ count 
+-------
+   834
+(1 row)
+
+-- RLS-enabled table count --
+ count 
+-------
+    92
+(1 row)
+
+-- policy count --
+ count 
+-------
+   104
+(1 row)
+
+-- new tables list (should be exactly 1: break_glass_grants) --
+  schemaname  |     tablename      
+--------------+--------------------
+ organization | break_glass_grants
+(1 row)
+
+-- new functions list --
+   nspname    |                proname                
+--------------+---------------------------------------
+ billing      | fn_create_billing_adjustment
+ knowledge    | fn_document_gdpr_delete
+ knowledge    | fn_docver_gdpr_erase
+ knowledge    | fn_docver_mark_failed
+ knowledge    | fn_docver_rollback
+ knowledge    | fn_dv_derive_kb_id
+ knowledge    | fn_kb_reindex_begin
+ knowledge    | fn_kb_reindex_cleanup_old_generations
+ knowledge    | fn_kb_reindex_complete
+ knowledge    | fn_kb_reindex_fail
+ organization | fn_break_glass_grant
+ organization | fn_break_glass_release
+(12 rows)
+

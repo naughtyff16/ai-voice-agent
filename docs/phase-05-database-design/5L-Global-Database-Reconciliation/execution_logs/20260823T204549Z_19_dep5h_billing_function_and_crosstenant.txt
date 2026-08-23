@@ -1,0 +1,14 @@
+SET
+SET
+--- T2 (visibility, tenant context now set): the function-created adjustment is visible under RLS for Org A ---
+                  id                  |           organization_id            |  adjustment_type  | amount_amount | description  
+--------------------------------------+--------------------------------------+-------------------+---------------+--------------
+ 01a0306a-0a96-7a4b-a3df-df46d914a491 | 00000000-0000-7000-a000-0000000000a1 | MANUAL_CORRECTION |       50.0000 | via function
+(1 row)
+
+--- T3: cross-tenant invoice_id (real Org B invoice, adjustment attempted for Org A) must be rejected ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/d993f6c7-9691-4a46-82ab-150cd506e349/scratchpad/test_5h_billing3.sql:23: NOTICE:  TEST PASSED: cross-tenant invoice_id correctly rejected: fn_create_billing_adjustment: invoice 00000000-0000-7000-a000-0000000000ee does not belong to organization 00000000-0000-7000-a000-0000000000a1.
+DO
+--- T4: invalid adjustment_type rejected ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/d993f6c7-9691-4a46-82ab-150cd506e349/scratchpad/test_5h_billing3.sql:37: NOTICE:  TEST PASSED: invalid adjustment_type correctly rejected: fn_create_billing_adjustment: invalid adjustment_type NOT_A_REAL_TYPE.
+DO

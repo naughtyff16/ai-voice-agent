@@ -1,0 +1,13 @@
+--- T5: lift the ORG suppression, then reinsert an identical one -- must succeed (lifted rows fall outside the partial index) ---
+ lift_suppression 
+------------------
+ 
+(1 row)
+
+INSERT 0 1
+ status | count 
+--------+-------
+ ACTIVE |     1
+ LIFTED |     1
+(2 rows)
+

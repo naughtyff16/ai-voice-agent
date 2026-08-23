@@ -476,3 +476,59 @@ revision history) and `execution_logs/README.md`'s "Fifth batch" section for
 full raw evidence. This closes DEP-6C-16's backing-implementation gap for
 `docs/phase-06-api-design/6C-Core-Platform-APIs.md`; see that document for
 its own approval-condition update.
+
+---
+
+## Phase 5L — Global Database Reconciliation (2026-08-24)
+
+```
+Migrations 078_5F1..087_5B1: 10 new forward-only migrations, all
+                              live-validated, PASS
+Baseline reconfirmed: SQL head 077_5J1, Alembic head 077_5J1, single
+                       head, before this pass began
+New SQL head: 087_5B1 (10 files, 078_5F1..087_5B1)
+New Alembic head: 087_5B1, single linear chain
+Fresh-DB 001->087: PASS, exit code 0
+Existing-DB 077_5J1->087_5B1: PASS, exit code 0 (separate database,
+                               pinned at 077_5J1, upgraded forward)
+Structural delta (077 baseline -> 087, same methodology both times):
+  tables 198->199 (+1: organization.break_glass_grants)
+  functions (non-extension) 70->83 (+13)
+  SECURITY DEFINER functions 47->58 (+11)
+  triggers 106->108 (+2)
+  indexes 826->834 (+8, net of 1 dropped: uq_dv_content_hash)
+  RLS-enabled tables 91->92 (+1)
+  RLS policies 103->104 (+1)
+  all deltas individually reconciled against the intended DDL — see
+  5L-Global-Database-Reconciliation.md
+DEP-6F-16 (publish/delete race): PASS, live guard + column-privilege test
+DEP-6F-01 (rollback): PASS, live pointer-swap + invalid-source rejection
+DEP-6F-09 (mark failed): PASS, live PENDING->FAILED + idempotency + wrong-state rejection
+DEP-6F-15 (GDPR erase): PASS, live chunk deletion + content erasure + idempotency + full-document delete
+DEP-6F-14 (KB-wide dedup): PASS, live same-KB rejection + cross-KB allowance + anti-spoofing derive-trigger proof
+DEP-6F-02 (reindex generations): PASS, live begin/complete/fail/cleanup lifecycle + genuine two-session concurrency race (one session blocked, correctly rejected)
+Multilingual FTS: PASS, live English/Tamil/Telugu/Hindi/Tamil-English-code-mixed tokenization, no corruption/loss
+DEP-5D suppression uniqueness: PASS, live duplicate rejection (incl. NULLS NOT DISTINCT proof for PLATFORM scope) + genuine two-session concurrency race + lift/reinsert
+DEP-5H billing hardening: PASS, live direct-INSERT denial + function success + cross-tenant invoice rejection
+DEP-6B-01 break-glass: PASS, live non-admin denial (function + RLS-blind SELECT) + full grant/release lifecycle + immutable-terminal-state trigger proof
+AI/untrusted-input safety: PASS, SQL-injection-shaped chunk content stored as inert text, documents table unaffected
+Regression slice: PASS, app_readonly INSERT-on-audit_events still denied, cross-tenant RLS still isolates Org A/Org B
+SECURITY DEFINER audit (12 new functions): PASS, all prosecdef=true, all
+  have explicit search_path, no PUBLIC EXECUTE grant on any of them
+Cleanup: both throwaway databases dropped, all four app_* role passwords
+  reset to NULL — local instance restored to its pre-session state
+
+Phase 5L LIVE VERIFIED
+```
+
+See `docs/phase-05-database-design/5L-Global-Database-Reconciliation/
+5L-Global-Database-Reconciliation.md` for the full classification report
+(Category A/B/C/D per candidate finding) and
+`5L-Global-Database-Reconciliation/execution_logs/` for the raw captured
+command/query evidence (25 timestamped files, prefix `20260823T204549Z`).
+This closes six of `docs/phase-06-api-design/6F-Knowledge-RAG-APIs.md`'s
+blocking dependencies (DEP-6F-01, 02, 09, 14, 15, 16) and
+`docs/phase-06-api-design/6B-Authentication-and-Authorization-API.md`'s
+DEP-6B-01; both documents' own dependency-status rows are updated
+separately (freeze-eligibility verdicts are not changed here — that
+review is independent of this database pass).

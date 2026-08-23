@@ -1,0 +1,72 @@
+--- pre-state: KB One index_version=1, status=ACTIVE ---
+ index_version | status 
+---------------+--------
+             1 | ACTIVE
+(1 row)
+
+--- T1: begin reindex -> ACTIVE->REINDEXING, returns generation 2 ---
+ new_generation 
+----------------
+              2
+(1 row)
+
+ index_version |   status   
+---------------+------------
+             1 | REINDEXING
+(1 row)
+
+--- T2: begin reindex again while REINDEXING -> must fail (not ACTIVE) ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/d993f6c7-9691-4a46-82ab-150cd506e349/scratchpad/test_6f02_reindex.sql:23: NOTICE:  TEST PASSED: second reindex begin correctly rejected: fn_kb_reindex_begin: knowledge base 00000000-0000-7000-a000-0000000000d1 is REINDEXING — reindex may only begin from ACTIVE.
+DO
+--- T3: complete with no new-generation rows present -> must be rejected (empty build guard) ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/d993f6c7-9691-4a46-82ab-150cd506e349/scratchpad/test_6f02_reindex.sql:39: NOTICE:  TEST PASSED: empty-build cutover correctly rejected: fn_kb_reindex_complete: generation 2 of kb 00000000-0000-7000-a000-0000000000d1 has no chunk rows — refusing to cut over to an empty build.
+DO
+--- T4: insert generation-2 chunks (old generation-1 rows, if any, remain untouched/queryable) ---
+INSERT 0 1
+ index_generation | count 
+------------------+-------
+                2 |     1
+(1 row)
+
+--- T5: complete with correct generation -> atomic cutover ---
+ fn_kb_reindex_complete 
+------------------------
+ 
+(1 row)
+
+ index_version | status 
+---------------+--------
+             2 | ACTIVE
+(1 row)
+
+--- T6: stale/duplicate completion call (generation mismatch) -> rejected ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/d993f6c7-9691-4a46-82ab-150cd506e349/scratchpad/test_6f02_reindex.sql:60: NOTICE:  TEST PASSED: stale completion call correctly rejected: fn_kb_reindex_complete: knowledge base 00000000-0000-7000-a000-0000000000d1 is ACTIVE — cannot complete a reindex that is not in progress.
+DO
+--- T7: begin a second reindex, then fail it -> old generation (2) stays current, failed gen-3 rows deleted ---
+INSERT 0 1
+ fn_kb_reindex_fail 
+--------------------
+ 
+(1 row)
+
+ index_version | status 
+---------------+--------
+             2 | ACTIVE
+(1 row)
+
+ index_generation | count 
+------------------+-------
+                2 |     1
+(1 row)
+
+--- T8: cleanup_old_generations deletes rows strictly below current index_version ---
+ deleted_count 
+---------------
+             0
+(1 row)
+
+ index_generation | count 
+------------------+-------
+                2 |     1
+(1 row)
+

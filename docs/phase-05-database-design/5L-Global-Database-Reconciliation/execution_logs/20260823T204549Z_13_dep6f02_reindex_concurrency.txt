@@ -1,0 +1,32 @@
+SESSION A: begin reindex, hold transaction open for 4s before commit
+BEGIN
+ session_a_generation 
+----------------------
+                    3
+(1 row)
+
+ pg_sleep 
+----------
+ 
+(1 row)
+
+COMMIT
+SESSION A: committed
+SESSION B: attempt begin reindex while A holds the row/advisory lock -- should block then be rejected once A commits
+ pg_sleep 
+----------
+ 
+(1 row)
+
+             b_start              
+----------------------------------
+ 2026-08-24 02:24:30.512376+05:30
+(1 row)
+
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/d993f6c7-9691-4a46-82ab-150cd506e349/scratchpad/concurrency_b.sql:17: NOTICE:  TEST PASSED: session B correctly blocked until A committed, then rejected (KB was REINDEXING by then): fn_kb_reindex_begin: knowledge base 00000000-0000-7000-a000-0000000000d1 is REINDEXING — reindex may only begin from ACTIVE.
+DO
+              b_end               
+----------------------------------
+ 2026-08-24 02:24:30.537171+05:30
+(1 row)
+

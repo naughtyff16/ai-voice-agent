@@ -1,0 +1,16 @@
+--- Regression: app_readonly direct INSERT on audit.audit_events still denied (unchanged since 072_5J.sql) ---
+ERROR:  permission denied for table audit_events
+
+--- Regression: cross-tenant RLS still isolates Org A from Org B (knowledge_bases, contact_suppressions) ---
+SET
+SET
+ org_a_sees_kbs 
+----------------
+              2
+(1 row)
+
+ org_a_sees_org_b_suppressions 
+-------------------------------
+                             0
+(1 row)
+

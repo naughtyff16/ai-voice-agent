@@ -2383,3 +2383,19 @@ PHASE 5I READY
 
 Phase 5I covers: `integrations`, `webhooks`, `plugins` schemas.
 Phase 5J covers: `analytics`, `audit` schemas.
+
+---
+
+## Controlled Amendment — Phase 5L (2026-08-24)
+
+Migration `086_5H1.sql` implements this document's own §32 "Issues Found
+During Review" recommendation: `billing.fn_create_billing_adjustment()`
+(SECURITY DEFINER, validates the organization has a billing account, the
+adjustment type is one of the four governed values, and — if provided —
+that `invoice_id` belongs to the same organization) now mediates all
+`billing_adjustments` writes for `app_worker`; the previous direct
+`INSERT` grant is revoked. `app_platform_admin`'s existing full-CRUD
+grant is untouched. Live-validated: direct-INSERT denial, function-path
+success, cross-tenant `invoice_id` rejection, invalid `adjustment_type`
+rejection — see `docs/phase-05-database-design/5L-Global-Database-Reconciliation/
+5L-Global-Database-Reconciliation.md`.

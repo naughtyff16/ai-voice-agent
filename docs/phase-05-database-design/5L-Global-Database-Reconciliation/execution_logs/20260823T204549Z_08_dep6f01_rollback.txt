@@ -1,0 +1,33 @@
+--- T1: rollback Doc One from v2 (current) to v1 (SUPERSEDED) -> should succeed ---
+                  id                  | version_number |   status   
+--------------------------------------+----------------+------------
+ 00000000-0000-7000-a000-0000000000f1 |              1 | SUPERSEDED
+ 00000000-0000-7000-a000-0000000000f2 |              2 | READY
+(2 rows)
+
+ fn_docver_rollback 
+--------------------
+ 
+(1 row)
+
+-- after rollback: v1 should be READY (current), v2 should be SUPERSEDED --
+                  id                  | version_number |   status   
+--------------------------------------+----------------+------------
+ 00000000-0000-7000-a000-0000000000f1 |              1 | READY
+ 00000000-0000-7000-a000-0000000000f2 |              2 | SUPERSEDED
+(2 rows)
+
+          current_version_id          | status 
+--------------------------------------+--------
+ 00000000-0000-7000-a000-0000000000f1 | READY
+(1 row)
+
+--- T2: rollback onto a non-SUPERSEDED version (v2, now SUPERSEDED after T1... use a PENDING one instead) must fail ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/d993f6c7-9691-4a46-82ab-150cd506e349/scratchpad/test_6f01_rollback.sql:22: NOTICE:  TEST PASSED: rollback onto non-SUPERSEDED version correctly rejected: fn_docver_rollback: target version does not belong to document/tenant or is not SUPERSEDED (only a previously-published version may be rolled back to). document_id: 00000000-0000-7000-a000-0000000000e2, version_id: 00000000-0000-7000-a000-0000000000f3
+DO
+--- T3: version history is retained (both versions still present, not deleted) ---
+ version_row_count 
+-------------------
+                 2
+(1 row)
+

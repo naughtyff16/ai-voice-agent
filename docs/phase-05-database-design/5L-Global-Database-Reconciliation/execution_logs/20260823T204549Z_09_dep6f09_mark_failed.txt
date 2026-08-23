@@ -1,0 +1,27 @@
+INSERT 0 1
+INSERT 0 1
+--- T1: PENDING -> FAILED succeeds ---
+ fn_docver_mark_failed 
+-----------------------
+ 
+(1 row)
+
+ status 
+--------
+ FAILED
+(1 row)
+
+--- T2: re-calling on an already-FAILED version is an idempotent no-op (no error) ---
+ fn_docver_mark_failed 
+-----------------------
+ 
+(1 row)
+
+ status 
+--------
+ FAILED
+(1 row)
+
+--- T3: READY source state must be rejected (v2 of Doc One, currently SUPERSEDED after rollback test; use f4 which is READY) ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/d993f6c7-9691-4a46-82ab-150cd506e349/scratchpad/test_6f09_mark_failed.sql:29: NOTICE:  TEST PASSED: mark_failed on READY version correctly rejected: fn_docver_mark_failed: version 00000000-0000-7000-a000-0000000000f4 is READY — only a PENDING version may be marked FAILED.
+DO
