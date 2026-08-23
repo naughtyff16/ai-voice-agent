@@ -1477,3 +1477,38 @@ publish -> publish -> reindex -> cleanup -> rollback. See
 `docs/phase-05-database-design/5L-Global-Database-Reconciliation/
 5L-Global-Database-Reconciliation.md`'s Phase 5L.1 addendum for full
 detail and evidence.
+
+## Controlled Amendment — Phase 5L.2 (2026-08-24)
+
+Two further corrections, closing a final independent freeze review:
+
+- **Effective-generation retrieval.** The Phase 5L.1 retrieval predicate
+  (`index_generation <= knowledge_bases.index_version`) is satisfied by
+  *every* generation at or below current, not just one — between a
+  successful reindex cutover and the (separate, async)
+  `fn_kb_reindex_cleanup_old_generations()` call, a current version can
+  have chunks at both an old and a new generation simultaneously,
+  producing duplicate hits/citations. The corrected, final retrieval
+  rule additionally requires `NOT EXISTS (a strictly newer generation
+  `<= index_version` for that same document_version_id)` — i.e., exactly
+  the highest available generation per version. Documentation-only (no
+  DDL) — the existing `idx_dc_version_generation` index (`089_5F9.sql`)
+  already serves it via an index-only scan (confirmed via `EXPLAIN
+  ANALYZE`). Applied identically to QP-08 (vector) and QP-09
+  (multilingual keyword). Live-proven, including a pre-cleanup
+  no-duplicates test and a rollback-fallback test where a reactivated
+  version's chunks lived at a generation neither the oldest nor the
+  current one.
+- **Reindex manifest predicate** (`092_5F12.sql`): `fn_kb_reindex_begin()`/
+  `fn_kb_reindex_complete()`'s "is this document currently searchable"
+  check was `d.status <> 'DELETED'` — too broad, since it also matched
+  `ARCHIVED` documents, which `ArchivedDocumentNotQueryable` (4E §10)
+  excludes from retrieval. Tightened to `d.status = 'READY'`. Live-tested
+  across five scenarios: already-archived-before-begin (excluded),
+  archived/deleted/superseded *during* rebuild (excluded, does not block
+  completion), cross-tenant (excluded), and the one genuinely-still-
+  current document (correctly still required).
+
+See `docs/phase-05-database-design/5L-Global-Database-Reconciliation/
+5L-Global-Database-Reconciliation.md`'s Phase 5L.2 addendum for full
+detail and evidence.

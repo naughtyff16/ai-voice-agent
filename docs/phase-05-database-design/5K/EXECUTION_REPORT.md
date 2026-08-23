@@ -595,3 +595,60 @@ See `docs/phase-05-database-design/5L-Global-Database-Reconciliation/
 detail and `5L-Global-Database-Reconciliation/execution_logs/` (files
 26-33, prefix `20260823T212453Z`) for raw captured evidence. 6F's
 dependency register and freeze-gate status are updated separately.
+
+---
+
+## Phase 5L.2 — final freeze review correction (2026-08-24)
+
+```
+Migration 092_5F12: 1 new forward-only migration, live-validated, PASS
+Baseline: SQL head 091_5F11, Alembic head 091_5F11, single head, before
+          this sub-pass began
+New SQL head: 092_5F12
+New Alembic head: 092_5F12, single linear chain
+Fresh-DB 001->092: PASS, exit code 0
+Existing-DB 091_5F11->092_5F12: PASS, exit code 0
+
+Effective-generation retrieval (duplicate old+new generation hits after
+  cutover, before cleanup): FIXED via documented query-contract
+  correction (NOT EXISTS anti-join on the existing idx_dc_version_generation
+  index -- no new index needed, confirmed via EXPLAIN ANALYZE:
+  index-only scan, sub-ms). Live pre-cleanup test: 4 raw chunk rows
+  physically present (2 old-gen + 2 new-gen) for one document version;
+  both vector-style and FTS-style effective-generation queries correctly
+  return exactly 2 rows (new generation only) -- no duplicates. Applied
+  identically to QP-08 and QP-09.
+Rollback-fallback generation test: PASS -- after a document was
+  reindexed twice and cleaned up, its chunks lived at generation 2 (not
+  generation 1) while the KB's current generation was 3; rolling back to
+  it correctly resolved effective generation = 2 for both vector and FTS
+  queries, with correct citations
+Reindex manifest predicate (088_5F8.sql, d.status<>'DELETED' too broad,
+  wrongly included ARCHIVED): FIXED (092_5F12.sql, tightened to
+  d.status='READY')
+Archive/delete/supersede-during-reindex scenarios (A-E): PASS --
+  ARCHIVED-before-begin document correctly excluded from manifest;
+  READY-at-begin documents correctly included; documents
+  archived/deleted/superseded DURING rebuild correctly excluded from
+  blocking completion; cross-tenant document never enters the manifest;
+  the one genuinely-still-relevant manifest entry still correctly
+  blocked completion until its chunks were supplied (proves the fix
+  neither under- nor over-excludes)
+SECURITY DEFINER re-audit: PASS -- both modified functions retain
+  explicit search_path, no PUBLIC EXECUTE; repo-wide scan (all
+  functions) for missing search_path: 0 rows
+RLS / cross-tenant regression: PASS
+Privilege regression: PASS -- app_worker's EXECUTE grant on the fixed
+  functions unaffected
+Cleanup: throwaway database dropped, app_api/app_worker temporary
+  passwords reset to NULL
+
+Phase 5L.2 LIVE VERIFIED
+```
+
+See `docs/phase-05-database-design/5L-Global-Database-Reconciliation/
+5L-Global-Database-Reconciliation.md`'s Phase 5L.2 addendum for full
+detail and `5L-Global-Database-Reconciliation/execution_logs/` (files
+34-38, prefix `20260823T215109Z`) for raw captured evidence. 6F is
+updated to **PHASE 6F — APPROVED / FROZEN** (full consistency pass, not
+just "candidate") — see that document directly.

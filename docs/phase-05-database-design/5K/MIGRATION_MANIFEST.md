@@ -102,6 +102,32 @@ regeneration corrects that. See "Reconciliation" below for details.
 | 089 | 5F.9 | `089_5F9.sql` | `088_5F8` | transactional | 6281 | `3f6cedf6a521262c45983a4c8d847a20898ebdb8978243cd8dd6e7c9c62fe7e9` |
 | 090 | 5F.10 | `090_5F10.sql` | `089_5F9` | transactional | 2235 | `672b11f64ba840e7a64f1f2d38d8c27f03bb3b8e4ae49a412c5dd7d9af16e79a` |
 | 091 | 5F.11 | `091_5F11.sql` | `090_5F10` | transactional | 1782 | `eec489d44a6e7775c8d997e1dba009e4c4a3bbab1955ecc2397adf54a9dabf9a` |
+| 092 | 5F.12 | `092_5F12.sql` | `091_5F11` | transactional | 7071 | `3e93ea7841a526740ad7d891c6e17c3685d8df7a38130600a3ae628deb1e8c9d` |
+
+---
+
+## Phase 5L.2 amendment (2026-08-24) — final freeze review correction
+
+Row 092 is a **new forward migration**, added after and on top of the
+validated 91-row Phase 5L.1 baseline. No row 001-091 was edited. A final
+independent freeze review found the reindex manifest predicate
+(`fn_kb_reindex_begin`/`fn_kb_reindex_complete`, `088_5F8.sql`) too
+broad — `d.status <> 'DELETED'` wrongly included `ARCHIVED` documents,
+which 6F's retrieval policy excludes. Fixed by tightening both to
+`d.status = 'READY'`. Live-executed (fresh-DB 001->092 and existing-DB
+091->092, both exit code 0, single head `092_5F12`).
+
+The effective-generation retrieval fix (the other Phase 5L.2 finding —
+retrieval must select exactly one chunk generation per current document
+version, not every generation `<= index_version`) required **no schema
+change**: the existing `idx_dc_version_generation` index (`089_5F9.sql`)
+already serves the corrected query efficiently (confirmed via `EXPLAIN
+ANALYZE` — index-only scan, sub-millisecond). This is a documented
+query-contract correction only (5F/6F amendments).
+
+**Reconciled totals after this amendment:** 92/92 `migrations/*.sql`
+files, 92/92 `alembic/versions/*.py` files, single linear Alembic chain,
+single head `092_5F12`.
 
 ---
 

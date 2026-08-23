@@ -1,0 +1,9 @@
+--- SECURITY DEFINER re-audit (fn_kb_reindex_begin, fn_kb_reindex_complete) ---
+Both: prosecdef=true, explicit search_path, proacl shows only postgres/app_api-or-app_worker/app_platform_admin, no PUBLIC entry.
+Repo-wide scan for ANY SECURITY DEFINER function missing search_path: 0 rows.
+
+--- RLS/cross-tenant regression ---
+Org A app_api sees its own KB (1), does not see Org B's KB (0).
+
+--- Privilege regression ---
+app_worker can still call fn_kb_reindex_begin normally post-fix (returned generation 5, then fn_kb_reindex_fail cleanly reverted it for cleanup).

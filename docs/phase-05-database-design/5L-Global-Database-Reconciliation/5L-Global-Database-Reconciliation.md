@@ -644,3 +644,150 @@ rollback-after-reindex-and-cleanup proof point (step 14) confirmed live.
 Both required upgrade paths pass. Security re-audit clean.
 
 **PHASE 5L.1 COMPLETE — PHASE 6F APPROVED/FROZEN CANDIDATE**
+
+---
+
+# Phase 5L.2 — Final Knowledge/RAG Retrieval Coherence Pass (2026-08-24)
+
+A final independent freeze review found two remaining technical
+coherence issues on top of Phase 5L.1's fixes, plus stale contradictory
+text in the 6F document. One new migration (`092_5F12.sql`) and a
+documented query-contract correction (no DDL needed, verified via
+`EXPLAIN ANALYZE`) close the two technical issues; the 6F document
+itself received a full internal-consistency pass (not a regeneration).
+
+Baseline: SQL/Alembic head `091_5F11` -> new head `092_5F12`. Both
+upgrade paths pass with real execution evidence
+(`execution_logs/20260823T215109Z_*`).
+
+## 1. Effective-generation retrieval (Blocker)
+
+**Root cause**: the Phase 5L.1 retrieval predicate,
+`document_version_id = documents.current_version_id AND index_generation
+<= knowledge_bases.index_version`, is satisfied by *every* generation
+`<= index_version` for a version, not just one. Between a successful
+cutover (`index_version` advanced) and the next, separate
+`fn_kb_reindex_cleanup_old_generations()` call, a current version can
+have chunks at both the old and the new generation, both matching the
+predicate — duplicate hits, duplicate citations, distorted ranking.
+
+**Fix (query-contract only, no new table/column)**: retrieval must pick
+exactly one generation per current version — the highest one
+`<= index_version` that actually has chunks for that version. Implemented
+as a `NOT EXISTS` anti-join (mirroring the exact pattern
+`fn_kb_reindex_cleanup_old_generations()` already uses, migration
+`089_5F9.sql`, for full auditability/consistency):
+
+```sql
+... AND dc.document_version_id = d.current_version_id
+    AND dc.index_generation <= kb.index_version
+    AND NOT EXISTS (
+      SELECT 1 FROM knowledge.document_chunks newer
+      WHERE newer.document_version_id = dc.document_version_id
+        AND newer.index_generation > dc.index_generation
+        AND newer.index_generation <= kb.index_version
+    )
+```
+
+**Index decision**: no new index. `EXPLAIN (ANALYZE, BUFFERS)` on this
+exact shape shows the anti-join using the existing
+`idx_dc_version_generation` index (`089_5F9.sql`) via an **index-only
+scan**, total execution time 0.617ms
+(`execution_logs/..._37_explain_effective_generation_query.txt`). Adding
+a redundant index was considered and rejected — the existing one already
+covers `(document_version_id, index_generation)` exactly as needed.
+
+**Live evidence — mandatory pre-cleanup test** (`execution_logs/..._34_effective_generation_precleanup_test.txt`):
+after publish -> reindex -> build generation 2 -> complete (cutover)
+**without running cleanup**, 4 raw chunk rows are confirmed physically
+present (2 at generation 1, 2 at generation 2) for the one current
+version. Both a vector-style query (`ORDER BY embedding <=> ...`) and an
+FTS-style query (the QP-09 two-branch language pattern) against the
+corrected predicate return **exactly 2 rows, generation 2 only** — no
+duplicates, identical semantics on both legs. Running cleanup afterward
+leaves the result set semantically unchanged (still exactly those same 2
+rows).
+
+## 2. Applied identically to QP-08 and QP-09
+
+The same predicate (verbatim) was used for both the vector-style and
+FTS-style queries in the test above — there is no possibility of the two
+legs disagreeing on which generation to search, by construction (one
+documented predicate, not two independently-maintained ones). The
+QP-09 multilingual two-branch language strategy from Phase 5L.1
+(`english` for `en`, `simple` for `ta`/`te`/`hi`) is unchanged and
+composes with the new generation predicate as a simple `AND`.
+
+## 3. Rollback-fallback generation test (Blocker, proves compatibility with 089's cleanup model)
+
+**Live evidence** (`execution_logs/..._35_rollback_fallback_generation_test.txt`):
+a document was published (V1), reindexed once (V1's chunks rebuilt into
+generation 2), then a new version (V2) was published and *that* was
+reindexed again (generation 3) and cleaned up. At this point the KB's
+`index_version` is 3, but V1's only surviving chunks live at generation
+2 (never rebuilt a second time, and protected from cleanup by
+`089_5F9.sql`'s rule). Rolling back to V1: the effective-generation
+query correctly resolves to **generation 2** (not 1, not 3) for both
+vector and FTS legs, with correct citation fields
+(`document_version_id`, `chunk_index`) — a stronger proof than the
+task's literal example (which assumed a version only ever has
+generation-1 chunks), since it demonstrates the rule generalizes to
+"whatever generation is actually available," not merely "the oldest."
+
+## 4. Reindex manifest predicate correction (Major)
+
+**Root cause**: `088_5F8.sql`'s manifest population
+(`fn_kb_reindex_begin`) and completion-relevance check
+(`fn_kb_reindex_complete`) both used `d.status <> 'DELETED'` to decide
+which documents must be present/proven in a rebuild. That's broader than
+6F's actual retrieval-eligibility rule — `ArchivedDocumentNotQueryable`
+(4E §10, 6F §23.3/§23.5) excludes `ARCHIVED` documents from search, so
+only `status = 'READY'` is truly searchable. Under the old predicate, an
+`ARCHIVED` document was still *required* by the manifest, which would
+have wrongly rejected a worker that correctly skipped rebuilding
+non-searchable content.
+
+**Fix** (`092_5F12.sql`): both predicates tightened to `d.status =
+'READY'`. `dv.status = 'READY'` (already present, unaffected) continues
+to correctly exclude a version superseded/GDPR-erased during rebuild.
+
+**Live evidence — scenarios A-E** (`execution_logs/..._36_manifest_archive_delete_supersede_scenarios.txt`):
+- **A** (document already `ARCHIVED` before `begin`): confirmed absent from the manifest.
+- **B/C/D fixtures** (three documents `READY` at `begin`): confirmed present in the manifest.
+- **E** (cross-tenant document, different org/KB): confirmed absent.
+- Document **B** archived, **C** GDPR-deleted, and **D**'s version superseded by a republish — all *during* the rebuild, with no generation-N chunks ever built for any of them. `fn_kb_reindex_complete()` was queried directly and confirmed: of the 4 manifest entries, exactly 3 (the archived/deleted/superseded ones) were correctly excluded from "still relevant," leaving only the one genuinely-current document requiring completion — which the function correctly still blocked on until its chunks were supplied, then succeeded. This proves the fix neither under- nor over-excludes.
+
+## Phase 5L.2 — Security/regression re-audit
+
+Both modified functions (`fn_kb_reindex_begin`, `fn_kb_reindex_complete`)
+retain `prosecdef=true`, explicit `search_path`, and no `PUBLIC` EXECUTE
+grant. Repo-wide scan (all functions, post-092): zero missing
+`search_path`. RLS/cross-tenant isolation and `app_worker`'s EXECUTE
+privilege on both functions reconfirmed unregressed
+(`execution_logs/..._38_security_rls_privilege_regression.txt`).
+
+## Phase 5L.2 — 6F document consistency pass
+
+The 6F document received a full internal-consistency pass (not a
+regeneration): the effective-generation retrieval rule replaces every
+mention of the insufficient `index_generation <= index_version` rule as
+the *final* search predicate; the reindex manifest predicate correction
+is documented; stale "BLOCKING"/"no supporting function exists" wording
+still present after Phase 5L.1's own edits is corrected; §44's old
+"Controlled Reconciliation Required" work list is converted to a closure
+record; the top-of-document status banner is updated from "APPROVED /
+FROZEN CANDIDATE" to **"APPROVED / FROZEN"**. See 6F's own Phase 5L.2
+correction notice (§1.1b) for the itemized list of what changed.
+
+## Phase 5L.2 — Final status
+
+Both remaining technical coherence issues are fixed and live-validated,
+including the mandatory pre-cleanup no-duplicates test (both legs), the
+rollback-fallback generation test (a stronger case than literally
+specified), and all five archive/delete/supersede/cross-tenant manifest
+scenarios. No redundant index was added — the existing one was proven
+sufficient via `EXPLAIN ANALYZE`. Security/RLS/privilege regression
+checks clean. Both upgrade paths pass. 6F's document-level consistency
+pass is complete.
+
+**PHASE 5L.2 COMPLETE — PHASE 6F READY FOR FINAL INDEPENDENT FREEZE APPROVAL**

@@ -1,0 +1,74 @@
+=== publish V2 (2 chunks at current generation 2) ===
+INSERT 0 1
+ fn_docver_mark_ready 
+----------------------
+ 
+(1 row)
+
+ fn_docver_publish 
+-------------------
+ 
+(1 row)
+
+INSERT 0 2
+   status   
+------------
+ SUPERSEDED
+(1 row)
+
+=== reindex V2 to generation 3, cleanup ===
+INSERT 0 2
+ fn_kb_reindex_complete 
+------------------------
+ 
+(1 row)
+
+ deleted_count 
+---------------
+             2
+(1 row)
+
+ index_version | status 
+---------------+--------
+             3 | ACTIVE
+(1 row)
+
+=== V1 retains only its historical generation-1... wait, V1 chunks are gen2 (rebuilt during the FIRST reindex earlier). Check actual state ===
+         document_version_id          | index_generation | count 
+--------------------------------------+------------------+-------
+ 20000000-0000-7000-a000-0000000000f1 |                2 |     2
+ 20000000-0000-7000-a000-0000000000f2 |                3 |     2
+(2 rows)
+
+=== rollback to V1 ===
+ fn_docver_rollback 
+--------------------
+ 
+(1 row)
+
+          current_version_id          | status 
+--------------------------------------+--------
+ 20000000-0000-7000-a000-0000000000f1 | READY
+(1 row)
+
+=== CRITICAL: retrieval resolves effective generation = 2 for V1 (its only surviving generation, protected by cleanup rule) -- vector ===
+      content       | index_generation |       distance        
+--------------------+------------------+-----------------------
+ V1 gen2 chunk zero |                2 |                     0
+ V1 gen2 chunk one  |                2 | 2.587008842702687e-07
+(2 rows)
+
+=== CRITICAL: same effective-generation resolution -- FTS ===
+      content       | index_generation 
+--------------------+------------------
+ V1 gen2 chunk zero |                2
+ V1 gen2 chunk one  |                2
+(2 rows)
+
+=== citation fields (document_version_id, chunk_index) correct for V1s effective generation ===
+             document_id              |         document_version_id          | chunk_index | index_generation 
+--------------------------------------+--------------------------------------+-------------+------------------
+ 20000000-0000-7000-a000-0000000000e1 | 20000000-0000-7000-a000-0000000000f1 |           0 |                2
+ 20000000-0000-7000-a000-0000000000e1 | 20000000-0000-7000-a000-0000000000f1 |           1 |                2
+(2 rows)
+

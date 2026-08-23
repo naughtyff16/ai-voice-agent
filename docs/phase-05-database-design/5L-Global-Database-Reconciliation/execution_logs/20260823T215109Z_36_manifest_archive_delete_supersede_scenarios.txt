@@ -1,0 +1,145 @@
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+ fn_docver_mark_ready 
+----------------------
+ 
+(1 row)
+
+ fn_docver_publish 
+-------------------
+ 
+(1 row)
+
+UPDATE 1
+INSERT 0 1
+INSERT 0 1
+ fn_docver_mark_ready 
+----------------------
+ 
+(1 row)
+
+ fn_docver_publish 
+-------------------
+ 
+(1 row)
+
+INSERT 0 1
+INSERT 0 1
+ fn_docver_mark_ready 
+----------------------
+ 
+(1 row)
+
+ fn_docver_publish 
+-------------------
+ 
+(1 row)
+
+INSERT 0 1
+INSERT 0 1
+ fn_docver_mark_ready 
+----------------------
+ 
+(1 row)
+
+ fn_docver_publish 
+-------------------
+ 
+(1 row)
+
+INSERT 0 1
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/d993f6c7-9691-4a46-82ab-150cd506e349/scratchpad/test_manifest_scenarios.sql:44: NOTICE:  relation "document_chunks_20000000" already exists, skipping
+ create_kb_partition 
+---------------------
+ 
+(1 row)
+
+INSERT 0 1
+INSERT 0 1
+ fn_docver_mark_ready 
+----------------------
+ 
+(1 row)
+
+ fn_docver_publish 
+-------------------
+ 
+(1 row)
+
+          status          
+--------------------------
+ scenario fixtures loaded
+(1 row)
+
+=== BEGIN reindex (this is now generation 4 for KB, since we already used 1,2,3) ===
+ new_generation 
+----------------
+              4
+(1 row)
+
+=== SCENARIO A CHECK: manifest must NOT contain Doc Archived (was ARCHIVED before begin) ===
+ document_version_id 
+---------------------
+(0 rows)
+
+=== SCENARIO B/C/D CHECK: manifest DOES contain the three READY-at-begin documents ===
+         document_version_id          
+--------------------------------------
+ 20000000-0000-7000-a000-0000000000f4
+ 20000000-0000-7000-a000-0000000000f5
+ 20000000-0000-7000-a000-0000000000f6
+(3 rows)
+
+=== SCENARIO E CHECK: manifest must NOT contain the cross-tenant Org B document (different KB anyway, but confirming) ===
+ document_version_id 
+---------------------
+(0 rows)
+
+=== B: archive Doc-ToArchive DURING rebuild (no gen-N chunks built for it) ===
+UPDATE 1
+=== C: GDPR-delete Doc-ToDelete DURING rebuild (no gen-N chunks built for it) ===
+ fn_document_gdpr_delete 
+-------------------------
+ 
+(1 row)
+
+=== D: republish Doc-ToSupersede with a NEW version DURING rebuild (old manifested version now SUPERSEDED, no gen-N chunks built for the OLD version) ===
+INSERT 0 1
+ fn_docver_mark_ready 
+----------------------
+ 
+(1 row)
+
+ fn_docver_publish 
+-------------------
+ 
+(1 row)
+
+=== attempt complete WITHOUT rebuilding archived/deleted/superseded manifest entries -- must SUCCEED (they are correctly excluded, not blocking) ===
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/d993f6c7-9691-4a46-82ab-150cd506e349/scratchpad/test_manifest_scenarios.sql:92: ERROR:  fn_kb_reindex_complete: 1 of 4 manifested document version(s) are missing or incomplete in generation 4 — refusing to cut over to a partial build.
+CONTEXT:  PL/pgSQL function fn_kb_reindex_complete(uuid,uuid,integer) line 50 at RAISE
+INSERT 0 2
+ fn_kb_reindex_complete 
+------------------------
+ 
+(1 row)
+
+ index_version | status 
+---------------+--------
+             4 | ACTIVE
+(1 row)
+
+
+--- Diagnostic note ---
+The first fn_kb_reindex_complete() call correctly rejected with "1 of 4
+manifested document version(s) missing" -- this was NOT a defect. The
+targeted query above confirms: of the 4 manifest entries, f4 (ARCHIVED),
+f5 (DELETED/GDPR_ERASED), f6 (SUPERSEDED) were all correctly excluded by
+the fixed predicate (0 required, matching Scenarios B/C/D exactly as
+intended) -- the ONE flagged entry (f1, doc_status=READY,
+ver_status=READY) was a genuinely still-relevant, still-current document
+this test script had simply forgotten to build generation-4 chunks for.
+Supplying those 2 chunks let completion succeed immediately. This is
+precise evidence the fix neither under- nor over-excludes: exactly the
+one truly-required entry blocked completion, and only until satisfied.

@@ -1,0 +1,79 @@
+=== STEP 1: KB at generation 1 ===
+ index_version | status 
+---------------+--------
+             1 | ACTIVE
+(1 row)
+
+=== STEP 2: publish V1 (2 chunks, generation 1) ===
+INSERT 0 1
+INSERT 0 1
+ fn_docver_mark_ready 
+----------------------
+ 
+(1 row)
+
+ fn_docver_publish 
+-------------------
+ 
+(1 row)
+
+INSERT 0 2
+=== STEP 3: generation-1 retrieval (effective-generation query) -- expect 2 rows ===
+      content       | index_generation 
+--------------------+------------------
+ V1 gen1 chunk zero |                1
+ V1 gen1 chunk one  |                1
+(2 rows)
+
+=== STEP 4-5: begin reindex, build generation-2 chunks for V1 ===
+INSERT 0 2
+=== STEP 6: complete reindex (cutover to generation 2) ===
+ fn_kb_reindex_complete 
+------------------------
+ 
+(1 row)
+
+ index_version | status 
+---------------+--------
+             2 | ACTIVE
+(1 row)
+
+=== STEP 7: pre-cleanup raw state -- both generations physically present (4 raw rows) ===
+ index_generation | count 
+------------------+-------
+                1 |     2
+                2 |     2
+(2 rows)
+
+=== STEP 8 (CRITICAL): vector-style retrieval via effective-generation query -- expect EXACTLY 2 rows, all generation 2, NO duplicates ===
+      content       | index_generation |       distance        
+--------------------+------------------+-----------------------
+ V1 gen2 chunk zero |                2 |                     0
+ V1 gen2 chunk one  |                2 | 2.587008842702687e-07
+(2 rows)
+
+=== STEP 9 (CRITICAL): FTS-style retrieval via effective-generation query -- expect EXACTLY 2 rows, all generation 2, NO duplicates ===
+      content       | index_generation 
+--------------------+------------------
+ V1 gen2 chunk zero |                2
+ V1 gen2 chunk one  |                2
+(2 rows)
+
+=== STEP 10: run cleanup ===
+ deleted_count 
+---------------
+             2
+(1 row)
+
+ index_generation | count 
+------------------+-------
+                2 |     2
+(1 row)
+
+=== STEP 11: post-cleanup retrieval -- still exactly 2 rows, generation 2, same content ===
+      content       | index_generation 
+--------------------+------------------
+ V1 gen2 chunk zero |                2
+ V1 gen2 chunk one  |                2
+(2 rows)
+
