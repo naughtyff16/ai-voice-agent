@@ -103,6 +103,165 @@ regeneration corrects that. See "Reconciliation" below for details.
 | 090 | 5F.10 | `090_5F10.sql` | `089_5F9` | transactional | 2235 | `672b11f64ba840e7a64f1f2d38d8c27f03bb3b8e4ae49a412c5dd7d9af16e79a` |
 | 091 | 5F.11 | `091_5F11.sql` | `090_5F10` | transactional | 1782 | `eec489d44a6e7775c8d997e1dba009e4c4a3bbab1955ecc2397adf54a9dabf9a` |
 | 092 | 5F.12 | `092_5F12.sql` | `091_5F11` | transactional | 7071 | `3e93ea7841a526740ad7d891c6e17c3685d8df7a38130600a3ae628deb1e8c9d` |
+| 093 | 5D.2 | `093_5D2.sql` | `092_5F12` | transactional | 21461 | `60c67499d4ed3b688265ae253fef554571272c4cb871be7767a2009375e72513` |
+| 094 | 5D.3 | `094_5D3.sql` | `093_5D2` | transactional | 7502 | `4bb74bc7dc5ffe5700744411d3ea60d368c95eedadde6daba3a318f3d128d68b` |
+| 095 | 5D.4 | `095_5D4.sql` | `094_5D3` | transactional | 5484 | `694a01d3af46d1df48c94a4e099954e450029edb06460a6f7421dd5a2d766d1b` |
+| 096 | 5B.2 | `096_5B2.sql` | `095_5D4` | transactional | 2543 | `1d79ad3aa068eccb7d3181773bae61e4157ef37eb221e8777c7597c1a975bffc` |
+
+---
+
+## Phase 6G CRM Reconciliation (2026-08-28) — merge lineage, event idempotency, score CAS, permission amendment
+
+Four new **forward** migrations, added after and on top of the validated
+92-row Phase 5L.2 baseline. No row 001-092 was edited. All four were
+live-executed against a genuinely fresh, disposable local PostgreSQL 18
+database (`crm_6g_validate`) — full chain `001_5B -> ... -> 096_5B2`,
+exit code 0, single head `096_5B2` — and again against the same database
+without dropping it (an "existing DB" incremental-apply check), also exit
+code 0. Alembic itself (the Python package) was not available in the
+validating environment; the equivalent chain-integrity checks it would
+perform were instead run directly against `alembic/versions/*.py`: 96/96
+files, no duplicate revision ids, exactly one root (`001_5B`, `None`),
+exactly one head (`096_5B2`, confirmed as the only revision id that is
+nobody's `down_revision`), and a 1:1 filename correspondence between
+`migrations/*.sql` and `alembic/versions/*.py`.
+
+This reconciliation was triggered by an independent review of
+`docs/phase-06-api-design/6G-CRM-Leads-APIs.md`'s first pass, which found
+three genuine defects rather than accepting them as documented
+limitations:
+
+1. **Row 093 (`093_5D2.sql`, Phase 5D.2) — Contact merge-lineage support.**
+   6G's first pass represented a merged-away Contact via `deleted_at`
+   (the GDPR-erasure tombstone), conflating two semantically distinct
+   states. Adds `crm.contacts.merged_into_contact_id` / `merged_at`
+   (both-or-neither, self-referential FK, no-self-merge CHECK), two guard
+   triggers (`trg_contacts_merge_tenant_guard` rejects a cross-tenant
+   merge destination; `trg_contacts_merge_immutable` rejects any attempt
+   to re-point or clear an already-recorded merge lineage — together these
+   make a merge cycle structurally impossible, proven live in a two-hop
+   chain test), and `crm.fn_merge_contacts()` — the sole guarded write
+   path, `SECURITY DEFINER` for centralized invariant enforcement (not
+   privilege elevation — `app_api`/`app_worker` already hold every table
+   grant this function uses). Re-points only the mutable child aggregates
+   that already carry real `UPDATE` grants (`crm.deals`, `crm.tasks`,
+   `crm.notes`, `crm.appointments`); `crm.activities` and
+   `crm.lead_score_records` are deliberately left untouched and
+   unrepointed — both remain `REVOKE UPDATE, DELETE` for `app_api`/
+   `app_worker` exactly as `022_5D.sql`/`023_5D.sql` already set, and this
+   migration does **not** restore that privilege. Live-validated: valid
+   same-tenant merge (full field-merge, lead-status "further along"
+   ranking, tag/custom-field union with cap enforcement, all four mutable
+   children repointed, Activities/LeadScoreRecords correctly left in
+   place, marker Activity recorded on the survivor); self-merge rejected;
+   cross-tenant merge rejected (secondary not found under the caller's
+   tenant — a non-disclosing failure mode); already-merged Contact
+   rejected as either primary or secondary; GDPR-erased Contact rejected
+   as either primary or secondary; a genuine two-connection concurrent
+   duplicate-merge race (one connection succeeded, the other received a
+   real `MERGE_SECONDARY_ALREADY_MERGED` exception — not simulated
+   sequentially); a real multi-hop lineage chain (A merged into B, B
+   later merged into C) with A's lineage pointer correctly left
+   unrewritten; a direct-SQL bypass attempt against both new triggers,
+   both rejected; and — critically — GDPR erasure of an **already-merged**
+   Contact still succeeds unobstructed (the immutability trigger fires
+   only on `merged_into_contact_id`/`merged_at`, never on the erasure
+   field-set), confirming the two states remain genuinely independent.
+   A first draft of this function omitted `public` from its `SET
+   search_path`, which broke on live execution the same way
+   `analytics.fn_claim_projection_slot` (068_5J.sql) previously did —
+   `public.gen_uuid_v7()`'s own call to `public.gen_random_bytes()`
+   (pgcrypto) does not resolve under a narrowed search_path inherited
+   from the calling `SECURITY DEFINER` context. Fixed before this
+   migration was ever left in a broken state, following
+   `audit.fn_insert_audit_event`'s (072_5J.sql) already-established
+   pattern exactly: `public` included in `search_path`, and the new row's
+   id generated into a local variable and passed explicitly rather than
+   relied on as a column default.
+
+2. **Row 094 (`094_5D3.sql`, Phase 5D.3) — durable CRM event-consumer
+   idempotency.** 6G's first pass protected against duplicate
+   `call.ended`/`conversation.qualification_set`/
+   `conversation.summarization_completed` delivery with a race-prone
+   "`SELECT` for existing `call_ref`, then `INSERT`" application pattern.
+   Adds `crm.event_consumer_dedup` (true `PRIMARY KEY (consumer_name,
+   source_event_id)`, CRM-owned — not a reuse of
+   `analytics.analytics_event_dedup`, distinct from
+   `audit.domain_event_outbox`'s publisher-side queue) and
+   `crm.fn_claim_event()`, an atomic claim-or-detect-duplicate primitive
+   every CRM event subscriber calls once, in the same transaction as its
+   side effect. Live-validated: a genuine two-connection concurrent claim
+   race on the identical `(consumer_name, source_event_id)` (exactly one
+   `TRUE`, one `FALSE`, exactly one persisted row); a claim inside a
+   transaction that is then rolled back correctly leaves zero rows (the
+   claim and the side effect commit atomically, by construction of the
+   caller's transaction boundary); a retry after that rollback succeeds
+   cleanly.
+
+3. **Row 095 (`095_5D4.sql`, Phase 5D.4) — CAS-safe lead-score apply,
+   fixing an accepted-as-risk race.** 6G's first pass accepted that an
+   older, slow-to-arrive scoring computation could overwrite
+   `contacts.lead_score`/`lead_temperature` with a stale value after a
+   newer one had already applied. Adds `crm.fn_apply_lead_score()` —
+   **no new column** was needed or added: the fix is a `Contact`-row
+   lock (narrow, single-row, exactly the case the governing review
+   explicitly permitted) combined with a `(computed_at, id)` recency
+   check against the already-existing, still fully append-only
+   `crm.lead_score_records` history. Live-validated: applying a newer
+   computation first, then an older one, correctly leaves the newer
+   value in place and returns `FALSE` for the stale attempt while both
+   immutable history rows persist; a genuine two-connection concurrent
+   race for the *same* Contact with different `computed_at` values
+   correctly converges on the objectively newer value regardless of
+   which transaction's `INSERT` or lock acquisition happened to complete
+   first.
+
+4. **Row 096 (`096_5B2.sql`, Phase 5B.2) — permission catalog amendment.**
+   The only new permission this reconciliation adds:
+   `crm_field:manage` (`OWNER`/`ADMIN` only), closing DEP-6G-10 (CRM
+   custom-field-definition administration has tenant-wide schema impact
+   and was previously mapped onto the `MEMBER`-eligible `contact:write`
+   for lack of a dedicated scope). Every other 4C/5B terminology gap
+   reviewed in this same pass (`contact:qualify`, `contact:score_override`,
+   `contact:force_convert`, `crm:admin` for non-author note delete) was
+   found *not* to cross the bar for a new permission — each is either not
+   exposed at all, or already served by a conservative interim mapping —
+   see `6G-CRM-Leads-APIs.md` SS5/SS39 for the full classification. Purely
+   additive, `ON CONFLICT DO NOTHING`, following `007_5B.sql`'s own
+   idempotent seeding pattern exactly; `007_5B.sql` itself is untouched.
+
+**No broad privilege restoration occurred.** Explicitly re-verified live
+after all four migrations: `app_api`/`app_worker` still hold only
+`SELECT, INSERT` (never `UPDATE`/`DELETE`) on `crm.activities`,
+`crm.lead_score_records`, and `crm.consent_records`; `crm.contact_suppressions`
+still grants them only `SELECT, INSERT`; the `uq_sup_active` partial
+unique index (085) still rejects a duplicate active suppression with a
+real `unique_violation`; `crm.prevent_ai_note_body_mutation()` still
+rejects an `AI_SUMMARY` note body edit. All five new `SECURITY DEFINER`
+functions (`fn_merge_contacts`, `prevent_cross_tenant_merge`,
+`prevent_remerge`, `fn_claim_event`, `fn_apply_lead_score`) carry an
+explicit, non-empty `search_path` and `REVOKE ALL ... FROM PUBLIC` (PUBLIC
+`EXECUTE` denial confirmed indirectly: `app_readonly`, never explicitly
+granted `EXECUTE` on any of the three functions it should not be able to
+call, shows `has_function_privilege = false` for all three — if `PUBLIC`
+retained `EXECUTE`, an ungranted role would still show `true`); `EXECUTE`
+is granted only to the specific roles that need each function
+(`fn_merge_contacts`: `app_api`, `app_worker`, `app_platform_admin`;
+`fn_claim_event`/`fn_apply_lead_score`: `app_worker`,
+`app_platform_admin` only — these two are background-worker-only
+primitives, never called from the request-time REST API).
+
+**Reconciled totals after this amendment:** 96/96 `migrations/*.sql`
+files, 96/96 `alembic/versions/*.py` files, single linear chain, single
+head `096_5B2`.
+
+**Consumer:** `docs/phase-06-api-design/6G-CRM-Leads-APIs.md` (Revision 2)
+— DEP-6G-01 (BLOCKING) is now RESOLVED; DEP-6G-06 is RESOLVED via the
+`5J-Analytics-Audit-Schema.md` governance amendment recorded there
+(no SQL — `chk_ae_action_kind` remains length-only); DEP-6G-07 is
+RESOLVED (`organization.organizations.currency`, `003_5B.sql`, was
+already present and simply not located in the first pass); DEP-6G-10 is
+RESOLVED by row 096 above.
 
 ---
 

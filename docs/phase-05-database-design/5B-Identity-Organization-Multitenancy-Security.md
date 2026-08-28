@@ -2903,3 +2903,43 @@ deferral stands.
 See `docs/phase-05-database-design/5L-Global-Database-Reconciliation/
 5L-Global-Database-Reconciliation.md` for the full classification report
 and live validation evidence.
+
+---
+
+## Controlled Amendment — Phase 6G CRM Reconciliation (2026-08-28)
+
+Migration `096_5B2.sql` adds one new permission to the catalog in §17/§32:
+`crm_field:manage` (`'Manage CRM Custom Field Definitions'`, resource
+`crm_field`, action `manage`), granted to `OWNER` and `ADMIN` only.
+Purely additive — `007_5B.sql`'s existing rows are untouched, and the
+insert follows its exact `ON CONFLICT DO NOTHING` idempotent pattern.
+
+This closes `docs/phase-06-api-design/6G-CRM-Leads-APIs.md`'s DEP-6G-10:
+CRM custom-field-definition administration (create/update/archive a
+tenant-wide field definition affecting every future Contact/Company/Deal
+create or edit) had been mapped onto the existing `contact:write`
+permission for lack of a dedicated scope — but `contact:write` is
+`MEMBER`-eligible, and a schema-wide administrative action has a
+materially larger blast radius than an ordinary per-record edit. This is
+the *only* new permission this reconciliation pass adds. Every other 4C
+terminology gap reviewed in the same pass — `contact:qualify`,
+`contact:score_override`, `contact:force_convert`, and `crm:admin` (4C's
+name for the "delete another author's note" gate) — was found *not* to
+cross the bar for a new permission: `contact:force_convert` and
+`contact:score_override` gate capabilities 6G does not expose at all in
+this revision (deferred, not implemented); `contact:qualify` is
+adequately served by the existing `contact:write`, matching this
+document's own established pattern of consolidating fine-grained DDD
+policy language into a coarser, already-sufficient permission where no
+real least-privilege gap results; and `crm:admin`'s single exposed use
+(non-author human note deletion) is already conservatively restricted at
+the application layer to `OWNER`/`ADMIN` role membership, which is at
+least as strict as a dedicated permission would be. See
+`6G-CRM-Leads-APIs.md` §5/§39 for the full per-item classification this
+conclusion is drawn from.
+
+Live-validated (disposable local PostgreSQL 18 database, full chain
+`001_5B` → `096_5B2`): the new permission row inserts idempotently,
+attaches to `OWNER`/`ADMIN` only via `organization.role_permissions`, and
+a second application of the same migration is a no-op (`ON CONFLICT DO
+NOTHING` on both the permission and role-permission inserts).

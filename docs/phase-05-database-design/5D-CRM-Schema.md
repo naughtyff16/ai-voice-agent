@@ -2325,3 +2325,122 @@ succeeded, the other received a real `unique_violation`), lift-then-
 reinsert success, and cross-scope independence — see
 `docs/phase-05-database-design/5L-Global-Database-Reconciliation/
 5L-Global-Database-Reconciliation.md`.
+
+---
+
+## Controlled Amendment — Phase 6G CRM Reconciliation (2026-08-28)
+
+Three further forward migrations (`093_5D2.sql`, `094_5D3.sql`,
+`095_5D4.sql`) plus one permission-catalog amendment (`096_5B2.sql`, 5B's
+authority, not this document's) were added on top of `085_5D1`, triggered
+by an independent review of `6G-CRM-Leads-APIs.md`'s first pass. No table,
+column, constraint, index, function, or grant described earlier in this
+document was altered — every change below is additive. Full rationale,
+DDL, and live-validation evidence live in the migration files themselves
+and in `MIGRATION_MANIFEST.md`'s "Phase 6G CRM Reconciliation" entry; this
+section records the physical facts a reader of this schema document needs.
+
+### Contact Merge-Lineage (`093_5D2.sql`)
+
+`crm.contacts` gains two nullable columns:
+
+| Column | Type | Notes |
+|---|---|---|
+| `merged_into_contact_id` | UUID | Self-referential FK to `crm.contacts(id)`. NULL on every non-merged Contact. |
+| `merged_at` | TIMESTAMPTZ | Set together with `merged_into_contact_id`, never independently. |
+
+**This is deliberately not `deleted_at`.** `deleted_at` remains exclusively
+the GDPR-erasure tombstone (§5.1, ADR-5D-007) — a merged Contact's PII is
+*not* cleared, it is folded into the survivor. The two states are
+independent and can compose: a Contact can be merged-away and *later*
+still be the subject of a GDPR erasure request (live-validated — the new
+`trg_contacts_merge_immutable` trigger fires only on
+`merged_into_contact_id`/`merged_at` changes, never on the erasure
+field-set, so erasure of an already-merged Contact proceeds unobstructed).
+
+Constraints/triggers: `chk_contacts_merge_pair` (both-or-neither),
+`chk_contacts_no_self_merge`, `fk_contacts_merged_into`,
+`trg_contacts_merge_tenant_guard` (BEFORE INSERT/UPDATE — rejects a
+merge destination in a different organization; a CHECK constraint cannot
+see another row, so this is trigger-enforced), `trg_contacts_merge_immutable`
+(BEFORE UPDATE — rejects any attempt to re-point or clear an
+already-recorded merge; combined with `crm.fn_merge_contacts()`'s own
+refusal to accept an already-merged Contact as either primary or
+secondary, this makes a merge cycle structurally impossible — proven
+live with a two-hop lineage chain).
+
+`crm.fn_merge_contacts(p_primary_contact_id, p_secondary_contact_id, p_organization_id, p_merged_by_ref) RETURNS VOID`
+— `SECURITY DEFINER`, `GRANT EXECUTE TO app_api, app_worker, app_platform_admin`.
+The sole write path for MergeContacts (4C §6.2). Field-fills nulls on the
+primary from the secondary (primary wins conflicts); adopts the
+secondary's `lead_status` only if it ranks further along a documented
+interpretation of 4C §7.1's non-linear state diagram (`NEW`=0,
+`CONTACTED`/`NURTURING`/`DISQUALIFIED`=1 lateral, `QUALIFIED`=2,
+`CONVERTED`=3); unions `tags` (cap 20) and `custom_field_values` by
+`field_id`, primary wins ties (cap 50) — either cap being exceeded aborts
+the whole operation before any write. Re-points **only** the mutable
+child aggregates that already hold real `UPDATE` grants: `crm.deals`,
+`crm.tasks` (`subject_type='CONTACT'`), `crm.notes` (same), and
+`crm.appointments`. **`crm.activities` and `crm.lead_score_records` are
+never re-pointed** — both remain `REVOKE UPDATE, DELETE` for
+`app_api`/`app_worker` (`022_5D.sql`, `023_5D.sql`), and this migration
+does not touch that privilege. A marker `Activity`
+(`activity_type='STAGE_CHANGE'`, `payload->>'event' = 'contact_merged'`)
+is recorded on the survivor instead, since the secondary's own historical
+Activities/LeadScoreRecords cannot be moved. **Read-side consequence:**
+a Contact's authoritative call-history/score-history timeline, where it
+must include a lineage of merged-away predecessors, is an
+application-layer read across `(id, merged_into_contact_id chain)`, never
+a database rewrite — see `6G-CRM-Leads-APIs.md` §10/§14 for the exact
+query shape.
+
+### CRM Event-Consumer Idempotency (`094_5D3.sql`)
+
+New table `crm.event_consumer_dedup` — `PRIMARY KEY (consumer_name,
+source_event_id)`, standard tenant RLS (`ENABLE + FORCE`), `GRANT SELECT,
+INSERT, DELETE TO app_worker` only (no `app_api` grant — this table is
+never touched by the request-time REST API). CRM-owned, distinct from
+`analytics.analytics_event_dedup` and from `audit.domain_event_outbox`
+(the publisher-side durable queue, `077_5J1.sql`) — this is the
+consumer-side ledger CRM's own event subscribers (Voice→CRM, lead-scoring
+worker) use.
+
+`crm.fn_claim_event(p_consumer_name, p_source_event_id, p_organization_id, p_result_ref DEFAULT NULL) RETURNS BOOLEAN`
+— `SECURITY DEFINER`, `GRANT EXECUTE TO app_worker, app_platform_admin`
+only. `TRUE` = first claim, caller proceeds with its CRM side effect in
+the same transaction; `FALSE` = already claimed, no-op. Live-validated
+under a genuine concurrent two-connection race (exactly one `TRUE`, one
+`FALSE`) and under transaction rollback (a rolled-back claim leaves zero
+rows; retry then succeeds).
+
+### Lead-Score CAS-Safe Apply (`095_5D4.sql`)
+
+`crm.fn_apply_lead_score(p_contact_id, p_organization_id, p_score, p_previous_score, p_score_version, p_signals, p_computed_at, p_computed_by, p_computed_by_user_ref DEFAULT NULL) RETURNS BOOLEAN`
+— `SECURITY DEFINER`, `GRANT EXECUTE TO app_worker, app_platform_admin`
+only. **No new column.** Inserts the immutable `lead_score_records` row
+(append-only privilege unchanged), locks the Contact row (`FOR UPDATE`),
+then applies the denormalized `contacts.lead_score`/`lead_temperature`
+update only if the just-inserted row is still the newest by
+`(computed_at, id)` ordering — otherwise returns `FALSE` and leaves the
+denormalized fields untouched. Live-validated: an older, slow-to-arrive
+computation applied after a newer one correctly loses (both immutable
+history rows persist regardless); a genuine concurrent race for the same
+Contact converges on the objectively newer value regardless of commit
+order.
+
+### Search-Path Correction Note (defect found and fixed pre-freeze)
+
+An initial draft of `fn_merge_contacts()`/`fn_apply_lead_score()` set
+`SET search_path = crm, pg_catalog`, omitting `public`. Both functions'
+`INSERT`s rely on a target column's `DEFAULT public.gen_uuid_v7()` (or,
+after the fix, an explicit call to it), which itself calls
+`public.gen_random_bytes()` (pgcrypto, installed into `public`,
+`001_5B.sql`). Under the narrowed search_path, this failed live with
+`function gen_random_bytes(integer) does not exist` — the identical class
+of defect already documented for `analytics.fn_claim_projection_slot`
+(`068_5J.sql`, see `5K/execution_logs/README.md`'s "New finding" section).
+Fixed before either migration was left in a broken state, by adopting
+`audit.fn_insert_audit_event`'s (`072_5J.sql`) already-established
+pattern exactly: include `public` in `search_path`, and generate the new
+row's id into a local variable rather than relying solely on the column
+default.
