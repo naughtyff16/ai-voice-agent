@@ -35,6 +35,17 @@
 -- direct caller access. SELECT remains granted directly for read-side
 -- reconciliation/diagnostics.
 --
+-- REVISION NOTE (Final Admin-DML Hardening pass, 2026-08-29, sixth pass of
+-- this reconciliation overall): app_platform_admin's own direct
+-- INSERT/UPDATE/DELETE grant on campaign.campaign_contact_identities --
+-- untouched by every prior pass, which only ever restricted app_worker --
+-- is now also removed. This table's entire purpose is a PRIMARY-KEY-backed
+-- uniqueness claim; there is no legitimate reason for any role, including
+-- platform-admin, to write to it directly instead of through
+-- campaign.fn_enqueue_contact(), and doing so risks the identical
+-- orphan-identity hazard described above. app_platform_admin now holds
+-- SELECT only, identical in shape to app_worker/app_api/app_readonly.
+--
 -- =================================================================
 -- §A. SECURITY DEFINER search_path — empirically verified fix
 -- =================================================================
@@ -118,13 +129,22 @@ CREATE POLICY rls_cci_tenant ON campaign.campaign_contact_identities
   USING (organization_id = organization.current_tenant_id())
   WITH CHECK (organization_id = organization.current_tenant_id());
 
--- Blocker B (Final Blocker Remediation, 2026-08-28): no role holds direct
--- INSERT on this table. The ONLY legal write path is
+-- Blocker B (Final Blocker Remediation pass): no ORDINARY runtime role
+-- holds direct INSERT on this table. The ONLY legal write path is
 -- campaign.fn_enqueue_contact() below (SECURITY DEFINER, owned by
 -- app_migration, which does not need or use this GRANT to write). SELECT
 -- is granted directly for read-side reconciliation/diagnostics only.
-GRANT SELECT ON campaign.campaign_contact_identities TO app_worker, app_api, app_readonly;
-GRANT SELECT, INSERT, UPDATE, DELETE ON campaign.campaign_contact_identities TO app_platform_admin;
+--
+-- FINAL PRIVILEGE-HARDENING PASS (this pass, applying the identical
+-- reasoning already applied to voice.call_dispatch_keys in 099_5C1.sql):
+-- app_platform_admin's own direct INSERT/UPDATE/DELETE is also removed.
+-- This table's entire purpose is a PRIMARY-KEY-backed uniqueness claim
+-- (§ header comment above) -- there is no legitimate reason for ANY role,
+-- including platform-admin, to write to it directly rather than through
+-- campaign.fn_enqueue_contact(), and doing so risks creating exactly the
+-- orphan-identity hazard that function's own atomic claim-then-insert
+-- exists to prevent. app_platform_admin retains SELECT only.
+GRANT SELECT ON campaign.campaign_contact_identities TO app_worker, app_api, app_readonly, app_platform_admin;
 
 CREATE OR REPLACE FUNCTION campaign.fn_enqueue_contact(
   p_organization_id      UUID,

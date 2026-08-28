@@ -1,0 +1,202 @@
+==== CATALOG: current grants on voice.call_dispatch_keys ====
+      grantee       |                          privs                          
+--------------------+---------------------------------------------------------
+ app_api            | SELECT
+ app_platform_admin | SELECT
+ app_readonly       | SELECT
+ app_worker         | SELECT
+ postgres           | DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+(5 rows)
+
+==== CATALOG: current grants on campaign.campaign_contact_identities ====
+      grantee       |                          privs                          
+--------------------+---------------------------------------------------------
+ app_api            | SELECT
+ app_platform_admin | SELECT
+ app_readonly       | SELECT
+ app_worker         | SELECT
+ postgres           | DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+(5 rows)
+
+SET
+           call_session_id            |       session_started_at        | is_new | outcome 
+--------------------------------------+---------------------------------+--------+---------
+ 01a049c7-3dde-73d9-9bb2-b2c85d14ca7c | 2026-08-29 00:39:49.40241+05:30 | t      | CREATED
+(1 row)
+
+           call_session_id            |        session_started_at        | is_new | outcome 
+--------------------------------------+----------------------------------+--------+---------
+ 01a049c7-3dea-7d2a-a9d9-d9b6774b085c | 2026-08-29 00:39:49.418311+05:30 | t      | CREATED
+(1 row)
+
+RESET
+SET
+ claimed |           call_session_id            |                       provider_request_ref                       | attempt_count | reason 
+---------+--------------------------------------+------------------------------------------------------------------+---------------+--------
+ t       | 01a049c7-3dde-73d9-9bb2-b2c85d14ca7c | zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz1 |             1 | 
+(1 row)
+
+ began | reason 
+-------+--------
+ t     | 
+(1 row)
+
+ fn_record_dispatch_confirmed 
+------------------------------
+ t
+(1 row)
+
+ claimed |           call_session_id            |                       provider_request_ref                       | attempt_count | reason 
+---------+--------------------------------------+------------------------------------------------------------------+---------------+--------
+ t       | 01a049c7-3dea-7d2a-a9d9-d9b6774b085c | zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz2 |             1 | 
+(1 row)
+
+ began | reason 
+-------+--------
+ t     | 
+(1 row)
+
+ fn_record_dispatch_ambiguous 
+------------------------------
+ t
+(1 row)
+
+RESET
+==== TEST platform_admin_select_allowed ====
+SET
+ dispatch_state 
+----------------
+ CONFIRMED
+(1 row)
+
+RESET
+==== TEST platform_admin_insert_denied ====
+SET
+psql:C:/Users/Dell/pgval16d/02_admin_dml_tests.sql:42: ERROR:  permission denied for table call_dispatch_keys
+RESET
+==== TEST platform_admin_update_denied ====
+SET
+psql:C:/Users/Dell/pgval16d/02_admin_dml_tests.sql:47: ERROR:  permission denied for table call_dispatch_keys
+RESET
+==== TEST platform_admin_delete_denied ====
+SET
+psql:C:/Users/Dell/pgval16d/02_admin_dml_tests.sql:52: ERROR:  permission denied for table call_dispatch_keys
+RESET
+==== TEST platform_admin_provenance_forgery_denied ====
+SET
+psql:C:/Users/Dell/pgval16d/02_admin_dml_tests.sql:57: ERROR:  permission denied for table call_dispatch_keys
+RESET
+==== TEST confirmed_direct_reopen_denied ====
+SET
+psql:C:/Users/Dell/pgval16d/02_admin_dml_tests.sql:62: ERROR:  permission denied for table call_dispatch_keys
+RESET
+ dispatch_state 
+----------------
+ CONFIRMED
+(1 row)
+
+==== TEST campaign_identity_admin_insert_denied ====
+SET
+psql:C:/Users/Dell/pgval16d/02_admin_dml_tests.sql:69: ERROR:  permission denied for table campaign_contact_identities
+RESET
+==== TEST operator_function_allowed (AMBIGUOUS -> FAILED with evidence) ====
+SET
+ reconciled | reason 
+------------+--------
+ t          | 
+(1 row)
+
+RESET
+ dispatch_state | reconciliation_source | reconciled_by 
+----------------+-----------------------+---------------
+ FAILED         | OPERATOR              | operator-jane
+(1 row)
+
+==== TEST confirmed_operator_reopen_denied ====
+SET
+ reconciled |            reason             
+------------+-------------------------------
+ f          | NOT_RECONCILABLE_OR_NOT_FOUND
+(1 row)
+
+RESET
+ dispatch_state 
+----------------
+ CONFIRMED
+(1 row)
+
+==== fixture: fresh AMBIGUOUS key for provider reconciler test ====
+SET
+           call_session_id            |        session_started_at        | is_new | outcome 
+--------------------------------------+----------------------------------+--------+---------
+ 01a049c7-3dff-739f-8572-7224c69d26f5 | 2026-08-29 00:39:49.438666+05:30 | t      | CREATED
+(1 row)
+
+RESET
+SET
+ claimed |           call_session_id            |                       provider_request_ref                       | attempt_count | reason 
+---------+--------------------------------------+------------------------------------------------------------------+---------------+--------
+ t       | 01a049c7-3dff-739f-8572-7224c69d26f5 | zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz3 |             1 | 
+(1 row)
+
+ began | reason 
+-------+--------
+ t     | 
+(1 row)
+
+ fn_record_dispatch_ambiguous 
+------------------------------
+ t
+(1 row)
+
+RESET
+==== TEST provider_reconciler_allowed ====
+SET
+ reconciled | reason 
+------------+--------
+ t          | 
+(1 row)
+
+RESET
+ dispatch_state | reconciliation_source 
+----------------+-----------------------
+ CONFIRMED      | PROVIDER_CALLBACK
+(1 row)
+
+==== TEST app_api_direct_dml_denied ====
+SET
+psql:C:/Users/Dell/pgval16d/02_admin_dml_tests.sql:103: ERROR:  permission denied for table call_dispatch_keys
+psql:C:/Users/Dell/pgval16d/02_admin_dml_tests.sql:104: ERROR:  permission denied for table call_dispatch_keys
+RESET
+==== TEST app_worker_direct_dml_denied ====
+SET
+psql:C:/Users/Dell/pgval16d/02_admin_dml_tests.sql:110: ERROR:  permission denied for table call_dispatch_keys
+psql:C:/Users/Dell/pgval16d/02_admin_dml_tests.sql:111: ERROR:  permission denied for table call_dispatch_keys
+RESET
+==== TEST voice_reconciler_direct_dml_denied ====
+SET
+psql:C:/Users/Dell/pgval16d/02_admin_dml_tests.sql:117: ERROR:  permission denied for table call_dispatch_keys
+psql:C:/Users/Dell/pgval16d/02_admin_dml_tests.sql:118: ERROR:  permission denied for table call_dispatch_keys
+RESET
+==== Privilege matrix, final ====
+       rolname        | sel | ins | upd | del 
+----------------------+-----+-----+-----+-----
+ app_api              | t   | f   | f   | f
+ app_migration        | f   | f   | f   | f
+ app_platform_admin   | t   | f   | f   | f
+ app_readonly         | t   | f   | f   | f
+ app_voice_reconciler | f   | f   | f   | f
+ app_worker           | t   | f   | f   | f
+(6 rows)
+
+       rolname        | sel | ins | upd | del 
+----------------------+-----+-----+-----+-----
+ app_api              | t   | f   | f   | f
+ app_migration        | f   | f   | f   | f
+ app_platform_admin   | t   | f   | f   | f
+ app_readonly         | t   | f   | f   | f
+ app_voice_reconciler | f   | f   | f   | f
+ app_worker           | t   | f   | f   | f
+(6 rows)
+
+ADMIN_DML_TESTS_DONE

@@ -9,35 +9,59 @@
 --   + voice.fn_record_dispatch_confirmed()
 --   + voice.fn_record_dispatch_ambiguous()
 --   + voice.fn_record_dispatch_failed()
---   + voice.fn_reconcile_dispatch_outcome() (authorization-hardened)
---   + role app_voice_reconciler (new)
+--   + voice.fn_reconcile_dispatch_outcome_internal() (mechanism only, no
+--     direct EXECUTE grant to any role)
+--   + voice.fn_reconcile_dispatch_from_provider() (new -- replaces
+--     fn_reconcile_dispatch_outcome(), provider-source-only, EXECUTE:
+--     app_voice_reconciler)
+--   + voice.fn_reconcile_dispatch_by_operator() (new -- replaces
+--     fn_reconcile_dispatch_outcome(), OPERATOR-only, hardcoded, EXECUTE:
+--     app_platform_admin)
+--   + role app_voice_reconciler (new, Final Blocker Remediation pass)
 -- down_revision: 098_5E1
 -- Transaction: yes
 -- Source: docs/phase-06-api-design/6H-Campaign-APIs.md Phase 6H Remediation
---   (2026-08-28) — Blocker #3 (Campaign -> Voice in-process dispatch
+--   (2026-08-28/29) — Blocker #3 (Campaign -> Voice in-process dispatch
 --   idempotency gap), extended by the Final Remediation pass (same day)
 --   with Blocker C (crash-before-provider-submission durability hole) and
 --   the SECURITY DEFINER search_path fix (§A), extended again by the Final
 --   Blocker Remediation pass (same day, third pass) with Blocker A
 --   (expired-CLAIMED-lease double-dial hazard), Blocker C-of-that-pass
 --   (direct-INSERT privilege bypass), and Blocker D (idempotency replay
---   tenant/payload validation) — see §D/§E/§F below — and extended once
---   more by the Final Micro-Remediation pass (same day, fourth pass) with
---   the reconciliation-authorization-boundary fix: fn_reconcile_dispatch_
---   outcome()'s EXECUTE grant was too broad (app_api/app_worker could both
---   call it, meaning ordinary application/worker code could convert an
---   AMBIGUOUS submission to FAILED and re-authorize a second physical
---   telephony attempt) — see §B1/§C's fn_reconcile_dispatch_outcome header.
+--   tenant/payload validation) — see §D/§E/§F below — extended again by the
+--   Final Micro-Remediation pass (same day, fourth pass) with the
+--   reconciliation-authorization-boundary fix (restricting WHO could call
+--   reconciliation: app_voice_reconciler / app_platform_admin only,
+--   REVOKED from app_api/app_worker) — extended once more by the fifth
+--   pass (Final Micro-Fix) with the reconciliation-PROVENANCE fix: the
+--   fourth pass's single fn_reconcile_dispatch_outcome() still let EITHER
+--   authorized caller choose WHICH provenance category
+--   (PROVIDER_CALLBACK/PROVIDER_LOOKUP/OPERATOR) to record via a plain
+--   parameter, meaning the automated reconciler could falsely record
+--   itself as an operator decision or vice versa — an audit-integrity
+--   defect, closed by splitting into two capability-specific functions,
+--   each hardcoding the provenance/actor_type its own EXECUTE grant is
+--   allowed to produce — see §C's fn_reconcile_dispatch_outcome_internal()
+--   header — and extended once more by this sixth pass (Final Admin-DML
+--   Hardening) with the removal of app_platform_admin's own direct
+--   INSERT/UPDATE/DELETE grant on voice.call_dispatch_keys (§B): every
+--   prior pass restricted app_api/app_worker/app_voice_reconciler, but
+--   app_platform_admin's original blanket DML grant on this table was
+--   never touched, meaning it could bypass CONFIRMED immutability, the
+--   SUBMITTING/AMBIGUOUS hard stops, and the provider/operator provenance
+--   split entirely, via one raw UPDATE statement no guarded function ever
+--   sees. app_platform_admin now holds SELECT only, identical in shape to
+--   every other runtime role.
 --
 -- REVISION NOTE: this file supersedes the version first written earlier in
--- this same reconciliation, three times now. It has NOT been applied to any
+-- this same reconciliation, five times now. It has NOT been applied to any
 -- production database (disclosed explicitly in every pass), so it is
 -- corrected in place here rather than superseded by a new 100_5C2.sql —
 -- there is no "frozen, already-applied" version of this file to preserve.
 --
 -- SCOPE DISCIPLINE:
 --   This remains a CONTROLLED, ADDITIVE AMENDMENT to the `voice` schema.
---   It adds one new table (extended across four passes now), eight
+--   It adds one new table (extended across six passes now), ten
 --   functions, all inside `voice`, and one new, narrowly-scoped PostgreSQL
 --   role (app_voice_reconciler — see §B1 for why an existing role was not
 --   reused). voice.call_sessions itself is still untouched — no column is
@@ -134,10 +158,13 @@ GRANT EXECUTE ON FUNCTION voice.fn_new_uuid_v7() TO app_api, app_worker;
 --                   leg, or a crash after SUBMITTING committed with no
 --                   further evidence ever recorded). Reached only from
 --                   SUBMITTING. MUST NOT be blindly retried — closed by
---                   voice.fn_reconcile_dispatch_outcome() below, an
+--                   voice.fn_reconcile_dispatch_from_provider() /
+--                   voice.fn_reconcile_dispatch_by_operator() below, an
 --                   identity-correlated (not lease-owner-correlated)
 --                   resolution path for a delayed provider callback or a
---                   bounded operator/provider-lookup decision.
+--                   bounded operator/provider-lookup decision -- each
+--                   restricted to producing only its own trusted
+--                   provenance category (§C).
 --     FAILED     -- the provider DEFINITELY rejected the request before
 --                   any chance of it having been accepted (a synchronous
 --                   pre-acceptance error), OR a local pre-submission
@@ -220,9 +247,10 @@ CREATE TABLE voice.call_dispatch_keys (
     CHECK (dispatch_state <> 'SUBMITTING' OR submission_started_at IS NOT NULL),
   -- Micro-remediation (reconciliation authorization boundary): the three
   -- provenance fields for a reconciled outcome are all-or-nothing -- a row
-  -- is either untouched by fn_reconcile_dispatch_outcome() (all three NULL)
-  -- or was genuinely reconciled through it (all three populated). No path
-  -- can set one without the other two.
+  -- is either untouched by reconciliation (all three NULL) or was genuinely
+  -- reconciled through fn_reconcile_dispatch_from_provider()/
+  -- fn_reconcile_dispatch_by_operator() (all three populated). No path can
+  -- set one without the other two.
   CONSTRAINT chk_cdk_reconciliation_fields_together
     CHECK (
       (reconciliation_source IS NULL AND reconciled_by IS NULL AND reconciled_at IS NULL)
@@ -233,11 +261,12 @@ CREATE TABLE voice.call_dispatch_keys (
   -- The dangerous direction (SUBMITTING/AMBIGUOUS -> FAILED via reconciliation
   -- re-opens physical retry eligibility) may never be recorded with a blank
   -- evidence field -- this cannot verify the evidence is TRUE (that is what
-  -- the EXECUTE-privilege boundary on fn_reconcile_dispatch_outcome() is for),
-  -- but it makes "no evidence at all" structurally impossible for a reconciled
-  -- FAILED row. Does not constrain the synchronous, same-worker
-  -- fn_record_dispatch_failed() path (a direct observation, not a
-  -- reconciliation of someone else's abandoned attempt).
+  -- the EXECUTE-privilege boundary on fn_reconcile_dispatch_from_provider()/
+  -- fn_reconcile_dispatch_by_operator() is for), but it makes "no evidence
+  -- at all" structurally impossible for a reconciled FAILED row. Does not
+  -- constrain the synchronous, same-worker fn_record_dispatch_failed()
+  -- path (a direct observation, not a reconciliation of someone else's
+  -- abandoned attempt).
   CONSTRAINT chk_cdk_reconciled_failed_has_evidence
     CHECK (
       NOT (dispatch_state = 'FAILED' AND reconciliation_source IS NOT NULL)
@@ -251,7 +280,8 @@ COMMENT ON COLUMN voice.call_dispatch_keys.dispatch_state IS
   'CLAIMED for a pre-submission local abort). Independent of voice.call_sessions'
   '.status (the call''s own conversational/telephony lifecycle, unchanged, '
   'owned by 6D). SUBMITTING and AMBIGUOUS are both hard stops for automatic '
-  'retry -- reconciliation-only (voice.fn_reconcile_dispatch_outcome). This is '
+  'retry -- reconciliation-only (voice.fn_reconcile_dispatch_from_provider/'
+  'fn_reconcile_dispatch_by_operator). This is '
   'the Blocker-A fix: an expired lease on a CLAIMED row is safe to reclaim '
   '(no evidence the provider was ever contacted); an expired lease on a '
   'SUBMITTING row is NEVER auto-reclaimed, because the provider may already '
@@ -281,7 +311,8 @@ COMMENT ON COLUMN voice.call_dispatch_keys.claim_expires_at IS
   'abandoned (crashed-worker) claim and may be re-claimed by '
   'fn_claim_dispatch_for_provider_submission(). A SUBMITTING row past this '
   'timestamp is NOT re-claimable through that path at any point -- only '
-  'fn_reconcile_dispatch_outcome() can resolve it.';
+  'fn_reconcile_dispatch_from_provider()/fn_reconcile_dispatch_by_operator() '
+  'can resolve it.';
 COMMENT ON COLUMN voice.call_dispatch_keys.submission_started_at IS
   'Set exactly once, by fn_begin_provider_submission(), in the same short '
   'transaction that commits the CLAIMED -> SUBMITTING transition, strictly '
@@ -290,30 +321,37 @@ COMMENT ON COLUMN voice.call_dispatch_keys.submission_started_at IS
 COMMENT ON COLUMN voice.call_dispatch_keys.provider_call_ref IS
   'The provider''s own call identifier, recorded only once CONFIRMED.';
 COMMENT ON COLUMN voice.call_dispatch_keys.reconciliation_source IS
-  'Set only by fn_reconcile_dispatch_outcome(): PROVIDER_CALLBACK (an '
-  'authenticated inbound provider status callback, correlated to this key), '
-  'PROVIDER_LOOKUP (an authoritative outbound query against the provider''s '
-  'own API), or OPERATOR (a privileged, audited human decision, backed by '
-  'provider-console evidence, under a controlled procedure). This is '
-  'evidentiary provenance, not authorization -- authorization is enforced '
-  'entirely by which PostgreSQL role may EXECUTE the function (app_worker/'
-  'app_api cannot; only app_voice_reconciler and app_platform_admin can), '
-  'never by any value passed into the function itself.';
+  'Set only via fn_reconcile_dispatch_outcome_internal(), never directly: '
+  'PROVIDER_CALLBACK/PROVIDER_LOOKUP are the only values '
+  'fn_reconcile_dispatch_from_provider() (EXECUTE: app_voice_reconciler '
+  'only) can ever produce -- OPERATOR is not an accepted value there under '
+  'any circumstance; OPERATOR is the only value '
+  'fn_reconcile_dispatch_by_operator() (EXECUTE: app_platform_admin only) '
+  'can ever produce -- it takes no source parameter at all, so no caller '
+  'can request a provider-sourced value through that path. This is '
+  'evidentiary provenance, not authorization by itself -- but unlike the '
+  'prior pass, WHICH provenance value a given EXECUTE grant can produce is '
+  'now fixed by which wrapper function that grant is on, not by any '
+  'caller-suppliable parameter (Blocker: forgeable reconciliation '
+  'provenance, this pass).';
 COMMENT ON COLUMN voice.call_dispatch_keys.reconciled_by IS
-  'Set only by fn_reconcile_dispatch_outcome() -- identifies the callback '
-  'handler / operator / backfill process that resolved a SUBMITTING or '
-  'AMBIGUOUS row, distinct from claimed_by (the original, presumed-gone, '
-  'dispatching worker). Free-text metadata for audit/debugging only -- never '
-  'consulted for authorization (§ "Do not trust reconciled_by as '
-  'authorization" -- verified: no WHERE clause, no IF/CASE branch, and no '
-  'privilege decision anywhere in this migration reads this parameter).';
+  'Set only via fn_reconcile_dispatch_outcome_internal() (through either '
+  'fn_reconcile_dispatch_from_provider() or fn_reconcile_dispatch_by_'
+  'operator()) -- identifies the callback handler / operator / backfill '
+  'process that resolved a SUBMITTING or AMBIGUOUS row, distinct from '
+  'claimed_by (the original, presumed-gone, dispatching worker). Free-text '
+  'metadata for audit/debugging only -- never consulted for authorization '
+  '(§ "Do not trust reconciled_by as authorization" -- verified: no WHERE '
+  'clause, no IF/CASE branch, and no privilege decision anywhere in this '
+  'migration reads this parameter).';
 
 CREATE INDEX idx_cdk_org ON voice.call_dispatch_keys (organization_id);
 CREATE INDEX idx_cdk_call_session_id ON voice.call_dispatch_keys (call_session_id);
 
 -- Reconciliation/monitoring sweep index: RESERVED rows never attempted,
 -- CLAIMED rows whose prep lease has expired (safely reclaimable), and
--- SUBMITTING/AMBIGUOUS rows awaiting fn_reconcile_dispatch_outcome().
+-- SUBMITTING/AMBIGUOUS rows awaiting fn_reconcile_dispatch_from_provider()/
+-- fn_reconcile_dispatch_by_operator().
 CREATE INDEX idx_cdk_reconciliation
   ON voice.call_dispatch_keys (dispatch_state, claim_expires_at)
   WHERE dispatch_state IN ('RESERVED','CLAIMED','SUBMITTING','AMBIGUOUS');
@@ -326,7 +364,7 @@ CREATE POLICY rls_cdk_tenant ON voice.call_dispatch_keys
   USING (organization_id = organization.current_tenant_id())
   WITH CHECK (organization_id = organization.current_tenant_id());
 
--- Blocker C (this pass, Final Blocker Remediation, 2026-08-28): no role
+-- Blocker C (Final Blocker Remediation pass): no ORDINARY runtime role
 -- holds direct INSERT/UPDATE/DELETE on this table. Every row is created
 -- and every state transition happens through one of the guarded functions
 -- below, all SECURITY DEFINER, owned by app_migration (which already
@@ -337,8 +375,30 @@ CREATE POLICY rls_cdk_tenant ON voice.call_dispatch_keys
 -- caller holding INSERT could construct an arbitrary dispatch_state
 -- (including a fabricated 'CONFIRMED' row bypassing the entire state
 -- machine) without ever calling fn_initiate_outbound_call_idempotent().
-GRANT SELECT ON voice.call_dispatch_keys TO app_api, app_worker, app_readonly;
-GRANT SELECT, INSERT, UPDATE, DELETE ON voice.call_dispatch_keys TO app_platform_admin;
+--
+-- FINAL PRIVILEGE-HARDENING PASS (this pass): app_platform_admin's own
+-- direct INSERT/UPDATE/DELETE, retained from the very first version of
+-- this table, is now ALSO removed -- it was the one remaining path that
+-- could bypass every invariant built above it (CONFIRMED immutability, the
+-- SUBMITTING/AMBIGUOUS hard stops, and the provider/operator provenance
+-- split, none of which a raw UPDATE statement is aware of or enforces). A
+-- caller with the old grant could run
+-- `UPDATE voice.call_dispatch_keys SET dispatch_state = 'FAILED' WHERE
+-- dispatch_state = 'CONFIRMED'` directly, re-opening a known-accepted call
+-- for a second physical attempt, or forge
+-- `reconciliation_source = 'PROVIDER_CALLBACK'` on a row it never actually
+-- reconciled via the provider path -- both completely undetectable by, and
+-- unrelated to, the guarded functions' own careful validation. Removing
+-- this grant does not impair the legitimate operator path at all:
+-- fn_reconcile_dispatch_by_operator() is SECURITY DEFINER, owned by
+-- app_migration, and needs no direct grant on this table to keep writing
+-- (identical reasoning already established for app_api/app_worker's own
+-- guarded-function calls). app_platform_admin retains SELECT only, for
+-- diagnostics/support -- explicitly still a legitimate need, not removed.
+-- No documented admin workflow anywhere in 5C/6D/6H depends on direct DML
+-- here; if a future retention/cleanup need arises, it should be a new
+-- guarded function, not a reopened blanket grant.
+GRANT SELECT ON voice.call_dispatch_keys TO app_api, app_worker, app_readonly, app_platform_admin;
 
 -- =================================================================
 -- §B1. app_voice_reconciler -- a new, narrowly-scoped role (micro-remediation,
@@ -350,7 +410,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON voice.call_dispatch_keys TO app_platform
 -- app_migration, app_platform_admin) was inspected first, per this pass's
 -- own instruction, and contains no role narrow enough for this specific
 -- capability. app_api and app_worker are broad, shared-by-many-functions
--- roles -- granting either EXECUTE on fn_reconcile_dispatch_outcome() means
+-- roles -- granting either EXECUTE on the reconciliation functions means
 -- EVERY piece of ordinary application/API/worker code (campaign dispatch,
 -- materialization, real-time call initiation, everything) could resolve an
 -- AMBIGUOUS submission to FAILED and re-open physical retry, which is
@@ -702,10 +762,11 @@ GRANT EXECUTE ON FUNCTION voice.fn_record_dispatch_confirmed(CHAR(64),UUID,TEXT,
 -- outcome could not be determined (timeout, connection reset, 5xx with no
 -- clear body) by the SAME worker that made the attempt, synchronously.
 -- Only legal from SUBMITTING. This is a HARD STOP for automatic retry --
--- the row stays AMBIGUOUS until fn_reconcile_dispatch_outcome() (an
--- operator, a provider callback correlation, or a bounded provider-side
--- lookup) explicitly resolves it. No function in this migration
--- transitions AMBIGUOUS back to CLAIMED/SUBMITTING automatically.
+-- the row stays AMBIGUOUS until fn_reconcile_dispatch_from_provider()
+-- (a provider callback correlation or a bounded provider-side lookup) or
+-- fn_reconcile_dispatch_by_operator() (an operator decision) explicitly
+-- resolves it. No function in this migration transitions AMBIGUOUS back to
+-- CLAIMED/SUBMITTING automatically.
 -- -----------------------------------------------------------------
 CREATE OR REPLACE FUNCTION voice.fn_record_dispatch_ambiguous(
   p_dispatch_idempotency_key CHAR(64),
@@ -780,71 +841,55 @@ GRANT EXECUTE ON FUNCTION voice.fn_record_dispatch_failed(CHAR(64),UUID,TEXT,TEX
 
 
 -- -----------------------------------------------------------------
--- fn_reconcile_dispatch_outcome: the ONLY way a SUBMITTING or AMBIGUOUS
--- row is ever resolved by anyone other than the original dispatching
--- worker. Deliberately NOT CAS-guarded on claimed_by -- the original
--- worker/lease is presumed gone (that is precisely why the row is stuck).
--- Resolution is identity-correlated instead: the caller (a provider
--- status-callback handler that has already matched the inbound callback
--- to this dispatch_idempotency_key via provider_request_ref, or a bounded
--- operator/provider-lookup decision) asserts a definite outcome.
--- Idempotent: calling this again on an already-CONFIRMED/FAILED row
--- matches zero rows and returns reconciled=FALSE, rather than erroring or
--- silently double-applying a side effect.
+-- MICRO-FIX (non-forgeable reconciliation provenance, this pass): the prior
+-- pass's fn_reconcile_dispatch_outcome() correctly restricted WHO could
+-- call reconciliation (app_voice_reconciler / app_platform_admin only) but
+-- still let EITHER of those two callers freely choose WHICH provenance
+-- category to record via a plain p_reconciliation_source parameter. That
+-- means the automated reconciliation credential could pass 'OPERATOR' (or
+-- an operator action could pass 'PROVIDER_CALLBACK'), producing an audit
+-- trail that misrepresents which trusted path actually made the
+-- physical-redial authorization decision -- an audit-integrity defect,
+-- not merely a cosmetic one, for a decision this safety-critical.
 --
--- MICRO-REMEDIATION (reconciliation authorization boundary, this pass):
--- this function is a PHYSICAL-REDIAL SAFETY AUTHORIZATION BOUNDARY, not an
--- ordinary state update -- SUBMITTING/AMBIGUOUS -> FAILED specifically
--- re-opens eligibility for a fresh voice.fn_claim_dispatch_for_provider_
--- submission() claim, i.e. another real telephony attempt. Accordingly:
---   1. EXECUTE is granted only to app_voice_reconciler (the automated,
---      provider-callback/provider-lookup path) and app_platform_admin (the
---      existing break-glass/operator role, `087_5B1.sql`) -- REVOKED from
---      app_api and app_worker, which is the exact defect this pass closes
---      (the prior pass's grant let ANY ordinary application/worker code
---      resolve an ambiguous submission to FAILED and re-authorize redial).
---   2. p_reconciliation_source is now a required, CHECK-constrained
---      provenance field (PROVIDER_CALLBACK | PROVIDER_LOOKUP | OPERATOR) --
---      evidentiary metadata, per the table's own chk_cdk_reconciliation_*
---      constraints, never an authorization input. p_reconciled_by remains
---      pure free-text metadata for exactly the same reason -- neither
---      parameter is ever read in an IF/CASE/WHERE clause that decides
---      anything; a caller cannot forge privilege by passing
---      p_reconciled_by = 'admin' or p_reconciliation_source = 'OPERATOR' --
---      only holding EXECUTE (point 1) grants anything.
---   3. A FAILED outcome now requires a non-empty p_note (evidence
---      description) -- enforced both here and by the table's
---      chk_cdk_reconciled_failed_has_evidence CHECK constraint (defense in
---      depth: the constraint holds even if a future code path calls this
---      function differently or a direct UPDATE were ever mistakenly
---      re-permitted). This cannot verify the evidence is TRUE -- no
---      database can -- it only makes "FAILED with zero stated reason"
---      structurally impossible.
---   4. A durable audit event (audit.fn_insert_audit_event(), 5J §14.2/6D
---      §24.0 -- the sole legal write path to audit.audit_events) is now
---      written synchronously, in the same transaction, for every
---      successful reconciliation -- closing the previous complete absence
---      of audit evidence for a safety-critical transition. This is a
---      deliberate escalation beyond fn_record_dispatch_{confirmed,
---      ambiguous,failed}()'s own (unaudited) convention, justified because
---      reconciliation, unlike those three, can be invoked by a party other
---      than the original dispatching worker and can reopen physical retry.
---      Per fn_insert_audit_event()'s own enforced contract, the CALLER of
---      this function must have already SET the tenant context
---      (`app.tenant_id`) for p_organization_id in this transaction, per 6A
---      §23.2's platform-wide convention -- not a new rule invented here.
---   5. Allowed source states remain unchanged and re-verified this pass:
---      ONLY 'SUBMITTING' and 'AMBIGUOUS'. CONFIRMED, FAILED, RESERVED, and
---      CLAIMED are not in the WHERE clause below and were never reachable
---      -- in particular CONFIRMED -> FAILED (reopening a KNOWN-ACCEPTED
---      physical call for redial) is impossible by construction, not merely
---      by convention.
+-- THE FIX: split into three functions.
+--   fn_reconcile_dispatch_outcome_internal() -- the actual state-transition
+--     + audit logic (identical to the prior single function's body), but
+--     NEVER granted EXECUTE to any app_* role at all. It takes an
+--     ALREADY-DETERMINED p_reconciliation_source/p_actor_type -- it is not
+--     itself a decision point, only a mechanism, and is reachable only via
+--     the two wrappers below calling it internally under their own
+--     SECURITY DEFINER owner privileges (the identical pattern already
+--     used for campaign.fn_new_uuid_v7()/voice.fn_new_uuid_v7() -- a
+--     function nobody is ever directly granted EXECUTE on, callable only
+--     through another SECURITY DEFINER function's own internal call).
+--   fn_reconcile_dispatch_from_provider() -- EXECUTE granted ONLY to
+--     app_voice_reconciler. Accepts a source choice restricted, by a CHECK
+--     inside the function body, to PROVIDER_CALLBACK | PROVIDER_LOOKUP --
+--     'OPERATOR' is not a legal value here even if somehow supplied, and
+--     hardcodes actor_type='WORKER'. There is no code path by which this
+--     function can record OPERATOR provenance.
+--   fn_reconcile_dispatch_by_operator() -- EXECUTE granted ONLY to
+--     app_platform_admin. Takes NO source parameter at all -- provenance
+--     is hardcoded to 'OPERATOR' and actor_type='PLATFORM_ADMIN' inside the
+--     function body. There is no parameter by which a caller could request
+--     PROVIDER_CALLBACK/PROVIDER_LOOKUP provenance through this path.
+--
+-- This makes INV-RECON-01/02/04/05/06 (6H §51) true by construction: the
+-- database itself, not caller-supplied metadata and not application-layer
+-- trust, determines which provenance category a given EXECUTE grant can
+-- ever produce. p_reconciled_by remains pure free-text metadata in both
+-- wrappers, exactly as before -- never read in any authorization decision.
 -- -----------------------------------------------------------------
-CREATE OR REPLACE FUNCTION voice.fn_reconcile_dispatch_outcome(
+
+DROP FUNCTION IF EXISTS voice.fn_reconcile_dispatch_outcome(CHAR(64),UUID,TEXT,TEXT,TEXT,TEXT,TEXT);
+
+CREATE OR REPLACE FUNCTION voice.fn_reconcile_dispatch_outcome_internal(
   p_dispatch_idempotency_key CHAR(64),
   p_organization_id          UUID,
   p_outcome                  TEXT,   -- 'CONFIRMED' | 'FAILED'
-  p_reconciliation_source    TEXT,   -- 'PROVIDER_CALLBACK' | 'PROVIDER_LOOKUP' | 'OPERATOR' -- provenance, NOT authorization
+  p_reconciliation_source    TEXT,   -- already validated/hardcoded by the calling wrapper -- not re-validated against caller input here
+  p_actor_type               TEXT,   -- already determined by the calling wrapper: 'WORKER' | 'PLATFORM_ADMIN'
   p_reconciled_by            TEXT,   -- free-text actor/system identity -- metadata only, NEVER authorization
   p_provider_call_ref        TEXT DEFAULT NULL,
   p_note                     TEXT DEFAULT NULL
@@ -860,22 +905,24 @@ DECLARE
   v_old_state TEXT;
 BEGIN
   IF p_outcome NOT IN ('CONFIRMED','FAILED') THEN
-    RAISE EXCEPTION 'fn_reconcile_dispatch_outcome: invalid p_outcome %, must be CONFIRMED or FAILED', p_outcome;
+    RAISE EXCEPTION 'fn_reconcile_dispatch_outcome_internal: invalid p_outcome %, must be CONFIRMED or FAILED', p_outcome;
   END IF;
 
+  -- Defense in depth only -- by construction, every real caller is one of
+  -- the two wrappers below, which never pass anything else.
   IF p_reconciliation_source NOT IN ('PROVIDER_CALLBACK','PROVIDER_LOOKUP','OPERATOR') THEN
-    RAISE EXCEPTION 'fn_reconcile_dispatch_outcome: invalid p_reconciliation_source %', p_reconciliation_source;
+    RAISE EXCEPTION 'fn_reconcile_dispatch_outcome_internal: invalid p_reconciliation_source %', p_reconciliation_source;
   END IF;
 
   IF p_outcome = 'CONFIRMED' AND (p_provider_call_ref IS NULL OR length(p_provider_call_ref) = 0) THEN
-    RAISE EXCEPTION 'fn_reconcile_dispatch_outcome: p_provider_call_ref is required when p_outcome = CONFIRMED';
+    RAISE EXCEPTION 'fn_reconcile_dispatch_outcome_internal: p_provider_call_ref is required when p_outcome = CONFIRMED';
   END IF;
 
   -- FAILED reopens physical retry eligibility -- never accepted without an
   -- explicit evidence description (also enforced by
   -- chk_cdk_reconciled_failed_has_evidence, defense in depth).
   IF p_outcome = 'FAILED' AND (p_note IS NULL OR length(btrim(p_note)) = 0) THEN
-    RAISE EXCEPTION 'fn_reconcile_dispatch_outcome: p_note (evidence description) is required when p_outcome = FAILED';
+    RAISE EXCEPTION 'fn_reconcile_dispatch_outcome_internal: p_note (evidence description) is required when p_outcome = FAILED';
   END IF;
 
   SELECT dispatch_state INTO v_old_state
@@ -895,7 +942,7 @@ BEGIN
       claim_expires_at = NULL
   WHERE dispatch_idempotency_key = p_dispatch_idempotency_key
     AND organization_id = p_organization_id
-    AND dispatch_state IN ('SUBMITTING', 'AMBIGUOUS')  -- ONLY these two -- see note 5 above
+    AND dispatch_state IN ('SUBMITTING', 'AMBIGUOUS')  -- ONLY these two -- CONFIRMED->FAILED is impossible by construction
   RETURNING * INTO v_row;
   GET DIAGNOSTICS v_rows = ROW_COUNT;
 
@@ -907,15 +954,14 @@ BEGIN
     RETURN;
   END IF;
 
-  -- Durable audit evidence for this safety-critical transition -- see note 4
-  -- above. actor_type reflects the evidentiary source: an OPERATOR-sourced
-  -- reconciliation is recorded as a PLATFORM_ADMIN actor action; both
-  -- provider-driven sources are recorded as WORKER (an automated system
-  -- process, not a human). resource_snapshot carries no phone/PII data --
-  -- voice.call_dispatch_keys itself stores none.
+  -- Durable audit evidence for this safety-critical transition. actor_type
+  -- is whatever the calling wrapper determined -- never derived from
+  -- p_reconciliation_source or any other caller-suppliable value here.
+  -- resource_snapshot carries no phone/PII data -- voice.call_dispatch_keys
+  -- itself stores none.
   PERFORM audit.fn_insert_audit_event(
     p_organization_id   => p_organization_id,
-    p_actor_type        => CASE WHEN p_reconciliation_source = 'OPERATOR' THEN 'PLATFORM_ADMIN' ELSE 'WORKER' END,
+    p_actor_type        => p_actor_type,
     p_actor_ref         => NULL,
     p_actor_name        => p_reconciled_by,
     p_action_kind       => 'VOICE_DISPATCH_RECONCILED',
@@ -941,12 +987,87 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION voice.fn_reconcile_dispatch_outcome(CHAR(64),UUID,TEXT,TEXT,TEXT,TEXT,TEXT) FROM PUBLIC;
--- Deliberately NOT granted to app_api/app_worker -- see the header comment
--- above and 6H §5 finding 26 / DEP-6H-27. Only the narrow, automated
--- reconciliation path and the existing break-glass/operator role may call
--- this function.
-GRANT EXECUTE ON FUNCTION voice.fn_reconcile_dispatch_outcome(CHAR(64),UUID,TEXT,TEXT,TEXT,TEXT,TEXT) TO app_voice_reconciler, app_platform_admin;
+REVOKE ALL ON FUNCTION voice.fn_reconcile_dispatch_outcome_internal(CHAR(64),UUID,TEXT,TEXT,TEXT,TEXT,TEXT,TEXT) FROM PUBLIC;
+-- Deliberately NOT granted to ANY app_* role, including app_voice_reconciler
+-- and app_platform_admin -- callable only via the two wrappers below, which
+-- invoke it under their own SECURITY DEFINER owner privileges (app_migration),
+-- identical to the fn_new_uuid_v7() bridge-function pattern (§A).
+
+
+-- -----------------------------------------------------------------
+-- fn_reconcile_dispatch_from_provider: the automated reconciliation path.
+-- Callable ONLY by app_voice_reconciler. p_provider_source is restricted to
+-- the two provider-evidence categories -- 'OPERATOR' is not an accepted
+-- value here under any circumstance, so this credential cannot record
+-- itself as an operator/admin decision no matter what a caller supplies.
+-- -----------------------------------------------------------------
+CREATE OR REPLACE FUNCTION voice.fn_reconcile_dispatch_from_provider(
+  p_dispatch_idempotency_key CHAR(64),
+  p_organization_id          UUID,
+  p_outcome                  TEXT,   -- 'CONFIRMED' | 'FAILED'
+  p_provider_source          TEXT,   -- 'PROVIDER_CALLBACK' | 'PROVIDER_LOOKUP' ONLY
+  p_reconciled_by            TEXT,   -- stable service identity (e.g. the callback handler's own name) -- metadata only
+  p_provider_call_ref        TEXT DEFAULT NULL,
+  p_note                     TEXT DEFAULT NULL
+)
+RETURNS TABLE(reconciled BOOLEAN, reason TEXT)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = voice, pg_catalog
+AS $$
+BEGIN
+  IF p_provider_source NOT IN ('PROVIDER_CALLBACK','PROVIDER_LOOKUP') THEN
+    RAISE EXCEPTION 'fn_reconcile_dispatch_from_provider: invalid p_provider_source % -- only PROVIDER_CALLBACK or PROVIDER_LOOKUP may be recorded through this capability; OPERATOR provenance cannot be produced by the automated reconciliation path', p_provider_source;
+  END IF;
+
+  RETURN QUERY SELECT * FROM voice.fn_reconcile_dispatch_outcome_internal(
+    p_dispatch_idempotency_key, p_organization_id, p_outcome,
+    p_provider_source,   -- restricted above to the two legal provider values
+    'WORKER',            -- hardcoded -- never derived from any parameter
+    p_reconciled_by, p_provider_call_ref, p_note
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION voice.fn_reconcile_dispatch_from_provider(CHAR(64),UUID,TEXT,TEXT,TEXT,TEXT,TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION voice.fn_reconcile_dispatch_from_provider(CHAR(64),UUID,TEXT,TEXT,TEXT,TEXT,TEXT) TO app_voice_reconciler;
+
+
+-- -----------------------------------------------------------------
+-- fn_reconcile_dispatch_by_operator: the human/operator reconciliation
+-- path. Callable ONLY by app_platform_admin (the existing break-glass/
+-- operator role, `087_5B1.sql` -- no second new role introduced for this).
+-- Takes NO source parameter at all -- 'OPERATOR' is hardcoded, so this
+-- credential cannot record PROVIDER_CALLBACK/PROVIDER_LOOKUP provenance no
+-- matter what evidence an operator believes they have; a genuinely
+-- provider-sourced signal must go through fn_reconcile_dispatch_from_provider
+-- (i.e. through the automated path), never through this one.
+-- -----------------------------------------------------------------
+CREATE OR REPLACE FUNCTION voice.fn_reconcile_dispatch_by_operator(
+  p_dispatch_idempotency_key CHAR(64),
+  p_organization_id          UUID,
+  p_outcome                  TEXT,   -- 'CONFIRMED' | 'FAILED'
+  p_reconciled_by            TEXT,   -- authenticated admin identity, supplied by the application layer -- metadata only
+  p_provider_call_ref        TEXT DEFAULT NULL,
+  p_note                     TEXT DEFAULT NULL
+)
+RETURNS TABLE(reconciled BOOLEAN, reason TEXT)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = voice, pg_catalog
+AS $$
+BEGIN
+  RETURN QUERY SELECT * FROM voice.fn_reconcile_dispatch_outcome_internal(
+    p_dispatch_idempotency_key, p_organization_id, p_outcome,
+    'OPERATOR',           -- hardcoded -- no parameter can override this
+    'PLATFORM_ADMIN',     -- hardcoded -- never derived from any parameter
+    p_reconciled_by, p_provider_call_ref, p_note
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION voice.fn_reconcile_dispatch_by_operator(CHAR(64),UUID,TEXT,TEXT,TEXT,TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION voice.fn_reconcile_dispatch_by_operator(CHAR(64),UUID,TEXT,TEXT,TEXT,TEXT) TO app_platform_admin;
 
 -- =================================================================
 -- §E. Provider-dispatch invariants formalized by this migration (6H §51
@@ -963,8 +1084,9 @@ GRANT EXECUTE ON FUNCTION voice.fn_reconcile_dispatch_outcome(CHAR(64),UUID,TEXT
 --       unconditionally -- Blocker A).
 --   04. Only states that prove provider submission never began (RESERVED,
 --       FAILED, lease-expired CLAIMED) are automatically retryable.
---   05. Ambiguous provider outcomes require fn_reconcile_dispatch_outcome
---       (reconciliation), never a blind redial.
+--   05. Ambiguous provider outcomes require reconciliation
+--       (fn_reconcile_dispatch_from_provider() / fn_reconcile_dispatch_
+--       by_operator()), never a blind redial.
 --   06. provider_request_ref is fixed at reservation time and never
 --       regenerated on retry -- the same stable platform reference is
 --       propagated to the provider on every attempt.
@@ -994,15 +1116,18 @@ GRANT EXECUTE ON FUNCTION voice.fn_reconcile_dispatch_outcome(CHAR(64),UUID,TEXT
 --   What is explicitly NOT guaranteed: exactly-once PHYSICAL provider
 --   submission during a genuinely ambiguous external failure (Case
 --   B/C, §B above). That residual risk is bounded by 6D's pre-existing
---   provider-retry contract (3B §19) and by fn_reconcile_dispatch_outcome
---   (operator/callback-driven resolution), not eliminated by the database
---   alone -- stated plainly rather than claimed away.
+--   provider-retry contract (3B §19) and by fn_reconcile_dispatch_from_
+--   provider()/fn_reconcile_dispatch_by_operator() (operator/callback-
+--   driven resolution), not eliminated by the database alone -- stated
+--   plainly rather than claimed away.
 -- =================================================================
 
 -- =================================================================
 -- §G. Audit governance note (documentation-only, zero additional SQL):
---   this migration's fn_reconcile_dispatch_outcome() writes a
---   'VOICE_DISPATCH_RECONCILED' audit event via audit.fn_insert_audit_event()
+--   this migration's fn_reconcile_dispatch_outcome_internal() (called from
+--   both fn_reconcile_dispatch_from_provider() and fn_reconcile_dispatch_
+--   by_operator()) writes a 'VOICE_DISPATCH_RECONCILED' audit event via
+--   audit.fn_insert_audit_event()
 --   (5J §14.2 / 6D §24.0's sole legal write path). audit.audit_events.
 --   action_kind is TEXT with only a length CHECK (chk_ae_action_kind,
 --   072_5J.sql), not a CHECK...IN(...) enum and not backed by a lookup
@@ -1037,15 +1162,23 @@ GRANT EXECUTE ON FUNCTION voice.fn_reconcile_dispatch_outcome(CHAR(64),UUID,TEXT
 --   A trusted, authenticated provider status-callback-processing service
 --   (running as app_voice_reconciler), upon positively correlating an
 --   inbound callback to this dispatch_idempotency_key (via
---   provider_request_ref), or a privileged operator (running as
---   app_platform_admin, per a controlled, audited procedure backed by
---   provider-console evidence), calls fn_reconcile_dispatch_outcome() to
---   resolve a SUBMITTING or AMBIGUOUS row to its true terminal outcome --
---   this is the only path that resolves a crash that occurred strictly
---   between step 3's COMMIT and step 5's recording (Case B/C, §B above).
---   ORDINARY app_api/app_worker callers CANNOT call this function --
---   EXECUTE is revoked from both (micro-remediation, reconciliation
---   authorization boundary) -- see the function's own header comment for
---   the full authorization/provenance model, and 6H §5 finding 26 for why
---   this was a genuine, closed defect, not a design choice restated.
+--   provider_request_ref), calls fn_reconcile_dispatch_from_provider() --
+--   the ONLY function it can call, and the ONLY function that can ever
+--   record PROVIDER_CALLBACK/PROVIDER_LOOKUP provenance. A privileged
+--   operator (running as app_platform_admin, per a controlled, audited
+--   procedure backed by provider-console evidence) instead calls
+--   fn_reconcile_dispatch_by_operator() -- the ONLY function it can call,
+--   and the ONLY function that can ever record OPERATOR provenance; it has
+--   no source parameter to override this. Neither role can call the
+--   other's function, so neither credential can misrepresent which trusted
+--   path actually made the decision (micro-fix, this pass -- 6H §5 finding
+--   27). Both resolve a SUBMITTING or AMBIGUOUS row to its true terminal
+--   outcome -- this is the only path that resolves a crash that occurred
+--   strictly between step 3's COMMIT and step 5's recording (Case B/C, §B
+--   above). ORDINARY app_api/app_worker callers CANNOT call either
+--   function -- EXECUTE is revoked from both (micro-remediation,
+--   reconciliation authorization boundary, prior pass) -- see each
+--   function's own header comment for the full authorization/provenance
+--   model, and 6H §5 findings 26–27 for why this was a genuine, closed
+--   defect, not a design choice restated.
 -- =================================================================

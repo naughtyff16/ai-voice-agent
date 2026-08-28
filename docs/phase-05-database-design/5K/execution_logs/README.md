@@ -380,3 +380,81 @@ is a genuinely new, independent instance, not a reused one.
 See `../validation/VOICE_DISPATCH_VALIDATION_REPORT.md` (updated by this
 batch) and `../MIGRATION_MANIFEST.md`'s Final Micro-Remediation entry for
 the consolidated result.
+
+## Eighth batch — Phase 6H Final Micro-Fix, non-forgeable reconciliation provenance (2026-08-28, prefix `20260828T231500Z`)
+
+Closes the one remaining item the prior (seventh) batch's own review found:
+`voice.fn_reconcile_dispatch_outcome()` correctly restricted WHO could call
+reconciliation (`app_voice_reconciler`/`app_platform_admin` only) but still
+let either authorized caller freely choose WHICH provenance category
+(`PROVIDER_CALLBACK`/`PROVIDER_LOOKUP`/`OPERATOR`) to record via a plain
+parameter — an audit-integrity defect: the automated reconciler could
+falsely record itself as an operator decision, or vice versa. A third
+fresh, disposable PostgreSQL 16.10 instance was built the same way as the
+sixth and seventh batches (both of which had already been torn down per
+their own documented cleanup) — a genuinely new, independent instance.
+
+| File | Command | Purpose |
+|---|---|---|
+| `84_final_pg16_fresh_upgrade.txt` | `alembic upgrade head` on a genuinely empty `voice_agent_pg16_fresh3` | Fresh-DB gate for the split reconciliation functions — `001_5B → … → 099_5C1`, exit code 0. |
+| `85_final_alembic_heads.txt` / `86_final_alembic_current.txt` | `alembic heads` / `alembic current` | Single head `099_5C1`, current == head. |
+| `87_final_pg16_incremental_upgrade_to_097.txt` / `88_final_pg16_incremental_upgrade_097_to_head.txt` | `alembic upgrade 097_5D5` then `alembic upgrade head` on a second, separately created database | Genuine incremental-apply path, exit code 0 both steps. |
+| `89_final_provenance_fixture_setup.sql` | fixture script | One organization pair, one Voice agent/agent version/tenant phone number — no campaign fixtures (this pass touches only `voice.*`). |
+| `90_final_provenance_tests.sql` / `91_final_provenance_output.txt` | ~30 sequential `psql` statements, `SET ROLE app_api` / `app_worker` / `app_voice_reconciler` / `app_platform_admin` for genuine role-boundary and forgery-attempt testing | The core test suite for this pass — see the Results summary below. |
+| `92_final_regression_tests.sql` / `93_final_regression_output.txt` | Re-run of the sixth/seventh batches' own crash-recovery and idempotency scenarios | Confirms this pass's changes (splitting one function into three, no change to any other function) did not regress anything previously proven. |
+
+**Results summary, the critical proof (full transcript in file `91`):** `app_api` and `app_worker` are denied `permission denied` on *both* new functions (`fn_reconcile_dispatch_from_provider`/`fn_reconcile_dispatch_by_operator`), unchanged from the prior pass. **The forgery tests, new this pass:** `app_voice_reconciler` (holding genuine `EXECUTE` on the provider function) attempting to call `fn_reconcile_dispatch_by_operator` at all is refused at the privilege layer (`permission denied for function fn_reconcile_dispatch_by_operator`) — it has no grant on that function, period. More importantly, `app_voice_reconciler` calling the function it *does* have `EXECUTE` on, `fn_reconcile_dispatch_from_provider`, while passing `p_provider_source = 'OPERATOR'`, is rejected by the **function's own internal `CHECK`** (`invalid p_provider_source OPERATOR -- only PROVIDER_CALLBACK or PROVIDER_LOOKUP may be recorded through this capability`) — proving the restriction is enforced by the function body itself, not merely by which grant happens to exist. Symmetrically, `app_platform_admin` attempting `fn_reconcile_dispatch_from_provider` at all is refused at the privilege layer — it holds no grant on that function; `fn_reconcile_dispatch_by_operator` takes no source parameter whatsoever, so there is no way for an operator call to request provider provenance even in principle. Genuine reconciliation via each path succeeds and persists the correct, function-determined provenance: the provider-callback path records `reconciliation_source='PROVIDER_CALLBACK'`/`actor_type='WORKER'`; the provider-lookup path (`FAILED`) records `'PROVIDER_LOOKUP'`/`'WORKER'` and the row becomes genuinely re-claimable afterward; the operator path records `'OPERATOR'`/`actor_type='PLATFORM_ADMIN'` regardless of caller input, for both a `CONFIRMED` and a (evidence-backed) `FAILED` outcome. The operator path's `FAILED` branch was also confirmed to require non-empty evidence, identically to the provider path (both route through the same shared internal evidence check) — an empty-string and a `NULL` note were both rejected before a call with real evidence succeeded. `CONFIRMED → FAILED` was attempted through *both* functions against an already-`CONFIRMED` row and refused both times (`NOT_RECONCILABLE_OR_NOT_FOUND`, row unchanged). A cross-tenant attempt was made through *both* functions and refused both times, non-disclosingly, with the target row's `organization_id`/state confirmed unchanged. Direct query against `audit.audit_events` confirms all four successful reconciliations in this pass recorded the correct `actor_type` (`WORKER` ×2, `PLATFORM_ADMIN` ×2) matching the function actually called, never a caller-suppliable value. `has_function_privilege()` across all 6 roles for both new functions confirms exactly the intended 1:1 role-to-function mapping: `app_voice_reconciler` → `fn_reconcile_dispatch_from_provider` only; `app_platform_admin` → `fn_reconcile_dispatch_by_operator` only; every other role, `false` for both.
+
+**Regression, unchanged (file `93`):** expired-`CLAIMED`-before-`SUBMITTING` recovery, the `SUBMITTING` hard-stop, same-key/same-payload replay, same-key/different-payload mismatch, same-key cross-tenant denial, and the synchronous `fn_record_dispatch_ambiguous()` path were all re-run and reproduced identical results — none of that logic was touched by this pass (only `fn_reconcile_dispatch_outcome()` was split into three functions; every other function's body is byte-for-byte the same as the prior pass).
+
+**One client-side artifact, disclosed:** a `psql` `\echo` line in the test script containing an unbalanced quote inside a long comment caused a harmless "unterminated quoted string" parser message (line 138 of file `91`) before the very next line's actual SQL statement executed and produced the correct, expected exception — a test-script formatting issue, not a database or application defect.
+
+**No SQL outside `099_5C1.sql` was modified by this batch.** `sha256sum`/`wc -c` were re-run after this batch and match `MIGRATION_MANIFEST.md`'s updated entry.
+
+**Cleanup performed at the end of this batch:** the PG16 server was stopped; the entire `C:\Users\Dell\pgval16c` tree was deleted; the throwaway `.venv_validation_pg16c` virtual environment and any `__pycache__` directories were removed. No pre-existing PostgreSQL instance was touched.
+
+See `../validation/VOICE_DISPATCH_VALIDATION_REPORT.md` (updated by this
+batch) and `../MIGRATION_MANIFEST.md`'s Final Micro-Fix entry for the
+consolidated result.
+
+## Ninth batch — Phase 6H Final Admin-DML Hardening (2026-08-29, prefix `20260829T003700Z`)
+
+Closes the one remaining item the prior (eighth) batch's own review found:
+`app_platform_admin` still held direct `INSERT`/`UPDATE`/`DELETE` on
+`voice.call_dispatch_keys` — a table-level grant that predated every
+prior remediation pass and was never touched by any of them, since each
+one restricted a *different* role (`app_api`, `app_worker`,
+`app_voice_reconciler`). That grant could bypass every invariant built on
+top of it: `CONFIRMED` immutability, the `SUBMITTING`/`AMBIGUOUS` hard
+stops, and the freshly-established provider/operator provenance split, via
+one raw `UPDATE` statement none of the guarded functions ever see. The
+identical grant on `campaign.campaign_contact_identities` was inspected and
+found to have no legitimate use case either, and was closed the same way.
+A fourth fresh, disposable PostgreSQL 16.10 instance was built the same way
+as the sixth/seventh/eighth batches (all three already torn down) — a
+genuinely new, independent instance. The download attempt for this batch's
+own binaries zip was truncated on the first try (11.9 MB instead of ~322
+MB, a transient network issue) — disclosed and re-downloaded to completion
+before proceeding, not silently retried and assumed fine.
+
+| File | Command | Purpose |
+|---|---|---|
+| `94_final_pg16_fresh_upgrade.txt` | `alembic upgrade head` on a genuinely empty `voice_agent_pg16_fresh4` | Fresh-DB gate for the admin-DML-hardened `098_5E1.sql`/`099_5C1.sql` — `001_5B → … → 099_5C1`, exit code 0. |
+| `95_final_alembic_heads.txt` / `96_final_alembic_current.txt` | `alembic heads` / `alembic current` | Single head `099_5C1`, current == head. |
+| `97_final_pg16_incremental_upgrade_to_097.txt` / `98_final_pg16_incremental_upgrade_097_to_head.txt` | `alembic upgrade 097_5D5` then `alembic upgrade head` on a second, separately created database | Genuine incremental-apply path, exit code 0 both steps. |
+| `99_final_admin_dml_fixture_setup.sql` | fixture script | One organization pair, one Voice agent/agent version/tenant phone number. |
+| `100_final_admin_dml_tests.sql` / `101_final_admin_dml_output.txt` | ~25 sequential `psql` statements, `SET ROLE app_platform_admin` / `app_api` / `app_worker` / `app_voice_reconciler` for genuine role-boundary DML denial testing, plus two catalog queries against `information_schema.role_table_grants` | The core test suite for this pass — see the Results summary below. This run produced **zero parser artifacts** (the prior batch's harmless `\echo`-quoting glitch was specifically avoided by rewriting the affected test's prose, per this pass's own instruction to fix and cleanly rerun rather than merely delete the error line). |
+| `102_final_regression_tests.sql` / `103_final_regression_output.txt` | Re-run of the sixth/seventh/eighth batches' own crash-recovery, hard-stop, and idempotency scenarios | Confirms this pass's changes (removing two `GRANT` clauses; no function body touched) did not regress anything previously proven. |
+
+**Results summary, clean and complete (full transcript in file `101`):** direct catalog inspection (`information_schema.role_table_grants`) confirms, **before any test executes**, that `app_api`, `app_worker`, `app_readonly`, and `app_platform_admin` all hold `SELECT` only on both `voice.call_dispatch_keys` and `campaign.campaign_contact_identities` — no role except the table owner (`postgres`, standing in for `app_migration` in this validation instance) holds `INSERT`/`UPDATE`/`DELETE` on either. `app_platform_admin` successfully reads a `CONFIRMED` row (`SELECT` retained, as designed) but is denied with `permission denied for table call_dispatch_keys` on direct `INSERT`, direct `UPDATE` (targeting a live `AMBIGUOUS` row), direct `DELETE`, and — the specific forgery test — a direct `UPDATE` attempting to set `reconciliation_source = 'PROVIDER_CALLBACK'` on a row it never reconciled through the provider path. A direct `UPDATE` attempting to reopen an already-`CONFIRMED` row to `FAILED` is likewise denied at the privilege layer, and the row's `dispatch_state` is confirmed unchanged afterward by a follow-up read. The analogous direct `INSERT` into `campaign.campaign_contact_identities` as `app_platform_admin` is also denied. Critically, removing these grants does **not** impair the legitimate guarded paths: `app_platform_admin` calling `fn_reconcile_dispatch_by_operator()` on a genuine `AMBIGUOUS` row with real evidence succeeds, correctly recording `reconciliation_source='OPERATOR'`; the same function called against an already-`CONFIRMED` row returns `reconciled=false` (`NOT_RECONCILABLE_OR_NOT_FOUND`), proving immutability holds through the guarded path independently of the privilege fix; `app_voice_reconciler` calling `fn_reconcile_dispatch_from_provider()` on a genuine `AMBIGUOUS` row succeeds identically. `app_api`, `app_worker`, and `app_voice_reconciler` were all re-confirmed denied on direct `INSERT`/`UPDATE` against `voice.call_dispatch_keys` — unchanged regressions from prior batches. The final `has_table_privilege()` matrix across all 6 roles for both tables shows `SELECT=true` for `app_api`/`app_worker`/`app_readonly`/`app_platform_admin`, `false` for `app_voice_reconciler` (which was never granted table-level access at all, consistent with its true-least-privilege design — only `EXECUTE` on one function), and `INSERT`/`UPDATE`/`DELETE=false` for every one of the 6 roles on both tables.
+
+**Regression, unchanged (file `103`):** expired-`CLAIMED`-before-`SUBMITTING` recovery, the `SUBMITTING` hard-stop, the `AMBIGUOUS` hard-stop, same-key/same-payload replay, same-key/different-payload mismatch, and same-key cross-tenant denial were all re-run on this pass's own instance and reproduced identical results — this pass's changes touched only two `GRANT` statements, no function body.
+
+**No function body was modified by this batch** — only the `GRANT`/`REVOKE` statements on both tables changed. `sha256sum`/`wc -c` were re-run after this batch and match `MIGRATION_MANIFEST.md`'s updated entries for both `098_5E1.sql` and `099_5C1.sql`.
+
+**Cleanup performed at the end of this batch:** the PG16 server was stopped; the entire `C:\Users\Dell\pgval16d` tree was deleted; the throwaway `.venv_validation_pg16d` virtual environment and any `__pycache__` directories were removed. No pre-existing PostgreSQL instance was touched.
+
+See `../validation/VOICE_DISPATCH_VALIDATION_REPORT.md` and
+`../validation/CAMPAIGN_PRIVILEGE_VALIDATION_REPORT.md` (both updated by
+this batch) and `../MIGRATION_MANIFEST.md`'s Final Admin-DML Hardening
+entry for the consolidated result.

@@ -87,3 +87,37 @@ tenant-ownership check fixed in the prior remediation pass.
 No role except `app_platform_admin` (an explicit, documented operator-only
 escape hatch, unchanged by this pass) and the table owner holds `INSERT`,
 `UPDATE`, or `DELETE`.
+
+## Addendum (2026-08-29, Final Admin-DML Hardening pass) — the "operator-only escape hatch" above is itself removed
+
+The prior finding's own framing — `app_platform_admin`'s direct DML as an
+"explicit, documented operator-only escape hatch" — was re-examined by a
+final review and found to have no legitimate justification: this table's
+entire purpose is a `PRIMARY KEY`-backed uniqueness claim for
+`campaign.fn_enqueue_contact()`'s own atomic claim-then-insert; there is no
+documented admin workflow anywhere in 5E/6H that writes to it directly, and
+doing so risks the identical orphan-identity hazard the guarded function
+exists to prevent. `app_platform_admin`'s `INSERT`/`UPDATE`/`DELETE` is
+removed; `SELECT` is retained.
+
+**Live-proven on PostgreSQL 16.10** (full transcript:
+`execution_logs/20260829T003700Z_101_final_admin_dml_output.txt`):
+catalog inspection before any test confirms `app_platform_admin` holds
+`SELECT` only; a direct `INSERT` attempt as `app_platform_admin` fails with
+`permission denied for table campaign_contact_identities`.
+
+**Final grant matrix, corrected:**
+
+```
+      grantee       | table_schema |         table_name          | privs
+--------------------+--------------+-----------------------------+--------
+ app_api            | campaign     | campaign_contact_identities | SELECT
+ app_platform_admin | campaign     | campaign_contact_identities | SELECT
+ app_readonly       | campaign     | campaign_contact_identities | SELECT
+ app_worker         | campaign     | campaign_contact_identities | SELECT
+ postgres           | campaign     | campaign_contact_identities | DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+```
+
+No role except the table owner holds `INSERT`, `UPDATE`, or `DELETE` —
+`app_platform_admin` is now identical in shape to every other runtime
+role on this table.

@@ -232,6 +232,144 @@ cross-tenant `fn_initiate_outbound_call_idempotent()` denial) was re-run on
 this pass's own fresh PostgreSQL 16 instance and reproduced identical
 results — this pass's changes did not touch any of that logic.
 
+## Addendum (2026-08-28, Final Micro-Fix pass) — non-forgeable reconciliation provenance
+
+The prior addendum's `fn_reconcile_dispatch_outcome()` correctly restricted
+*who* could reconcile but still let either authorized caller freely choose
+*which* provenance category to record via a plain `p_reconciliation_source`
+parameter — the automated reconciler could pass `'OPERATOR'`, or the
+operator role could pass `'PROVIDER_CALLBACK'`, misrepresenting which
+trusted path actually made the decision. This addendum closes that gap by
+splitting the function into three: `fn_reconcile_dispatch_outcome_internal()`
+(granted to no role at all), `fn_reconcile_dispatch_from_provider()`
+(`EXECUTE`: `app_voice_reconciler` only; source restricted by an internal
+`CHECK` to `PROVIDER_CALLBACK`/`PROVIDER_LOOKUP`), and
+`fn_reconcile_dispatch_by_operator()` (`EXECUTE`: `app_platform_admin`
+only; source hardcoded to `'OPERATOR'`, no source parameter exists). Full
+raw transcript: `execution_logs/20260828T231500Z_91_final_provenance_output.txt`.
+
+**The critical forgery test, on PostgreSQL 16.10:**
+
+```sql
+-- app_voice_reconciler GENUINELY holds EXECUTE on this function:
+SET ROLE app_voice_reconciler;
+SELECT * FROM voice.fn_reconcile_dispatch_from_provider(
+  <key>, <org>, 'CONFIRMED', 'OPERATOR', 'reconciler-claiming-operator', 'FAKE-OPERATOR-REF', NULL
+);
+```
+```
+ERROR:  fn_reconcile_dispatch_from_provider: invalid p_provider_source OPERATOR --
+only PROVIDER_CALLBACK or PROVIDER_LOOKUP may be recorded through this capability;
+OPERATOR provenance cannot be produced by the automated reconciliation path
+```
+
+This is rejected by the **function body's own `CHECK`**, not by a missing
+`GRANT` — proving the restriction is structural, not merely a privilege
+gate the caller happened not to have.
+
+**Full authorization/forgery matrix, on PostgreSQL 16.10:**
+
+| Caller | Function | Result |
+|---|---|---|
+| `app_api` | either | `permission denied` |
+| `app_worker` | either | `permission denied` |
+| `app_voice_reconciler` | `fn_reconcile_dispatch_by_operator` | `permission denied` (no grant) |
+| `app_voice_reconciler` | `fn_reconcile_dispatch_from_provider`, `p_provider_source='OPERATOR'` | Rejected by internal `CHECK` (has the grant, value is illegal) |
+| `app_platform_admin` | `fn_reconcile_dispatch_from_provider` | `permission denied` (no grant) |
+| `app_voice_reconciler` | `fn_reconcile_dispatch_from_provider`, `PROVIDER_CALLBACK`/`PROVIDER_LOOKUP` | Succeeds; correct provenance persisted |
+| `app_platform_admin` | `fn_reconcile_dispatch_by_operator` | Succeeds; `OPERATOR` provenance hardcoded regardless of any input |
+
+**Provenance and audit, verified by direct query:** the provider-callback
+path recorded `reconciliation_source='PROVIDER_CALLBACK'`; the
+provider-lookup path (`FAILED`) recorded `'PROVIDER_LOOKUP'` and the row
+became genuinely re-claimable afterward; the operator path recorded
+`'OPERATOR'` for both a `CONFIRMED` and an evidence-backed `FAILED`
+outcome. `audit.audit_events` confirmed the correct `actor_type` for all
+four successful reconciliations in this pass: `WORKER` for both
+provider-driven sources, `PLATFORM_ADMIN` for both operator-driven ones —
+matching the function actually called, never a caller-supplied value.
+`has_function_privilege()` across all 6 roles confirmed an exact 1:1
+mapping: `app_voice_reconciler` → `fn_reconcile_dispatch_from_provider`
+only; `app_platform_admin` → `fn_reconcile_dispatch_by_operator` only.
+
+**Evidence requirement, confirmed shared across both paths:** the
+operator path's `FAILED` branch rejected an empty-string and a `NULL`
+evidence note identically to the provider path (both route through the
+same internal check), then succeeded once real evidence was supplied.
+
+**Immutability and tenancy, re-confirmed through both new functions:**
+`CONFIRMED → FAILED` was attempted through both functions against an
+already-`CONFIRMED` row and refused both times
+(`NOT_RECONCILABLE_OR_NOT_FOUND`). A cross-tenant attempt was made through
+both functions and refused both times, non-disclosingly, with the target
+row's `organization_id`/state confirmed unchanged.
+
+**Regression, unchanged:** the full sixth/seventh-batch scenario set
+(expired-`CLAIMED`-before-`SUBMITTING` recovery, the `SUBMITTING`
+hard-stop, same-key/same-payload replay, same-key/different-payload
+mismatch, same-key cross-tenant denial, the synchronous `AMBIGUOUS` path)
+was re-run on this pass's own genuinely fresh PostgreSQL 16 instance and
+reproduced identical results.
+
+## Addendum (2026-08-29, Final Admin-DML Hardening pass) — removing the platform-admin direct DML bypass
+
+Every prior privilege pass restricted a *different* role. `app_platform_admin`'s own original `GRANT SELECT, INSERT, UPDATE, DELETE` on `voice.call_dispatch_keys` — present since the table was first created — was never touched, and could bypass `CONFIRMED` immutability and the freshly-established provenance split entirely via one raw `UPDATE`. This addendum removes `INSERT`/`UPDATE`/`DELETE` from that grant, retaining only `SELECT`. Full raw transcript: `execution_logs/20260829T003700Z_101_final_admin_dml_output.txt`.
+
+**Catalog inspection, before any test ran:**
+```sql
+SELECT grantee, string_agg(privilege_type, ',' ORDER BY privilege_type) AS privs
+FROM information_schema.role_table_grants
+WHERE table_schema = 'voice' AND table_name = 'call_dispatch_keys'
+GROUP BY grantee ORDER BY grantee;
+```
+```
+      grantee       | privs
+--------------------+--------
+ app_api            | SELECT
+ app_platform_admin | SELECT
+ app_readonly       | SELECT
+ app_worker         | SELECT
+```
+Confirmed on PostgreSQL 16.10: no role but the table owner holds `INSERT`/`UPDATE`/`DELETE`.
+
+**Direct DML tests, `app_platform_admin`:**
+
+| Attempt | Result |
+|---|---|
+| `SELECT dispatch_state FROM voice.call_dispatch_keys WHERE ...` (a live `CONFIRMED` row) | Succeeds — `SELECT` retained, as designed |
+| `INSERT INTO voice.call_dispatch_keys (...)` | `ERROR: permission denied for table call_dispatch_keys` |
+| `UPDATE voice.call_dispatch_keys SET dispatch_state = 'FAILED' WHERE ...` (targeting a live `AMBIGUOUS` row) | `ERROR: permission denied for table call_dispatch_keys` |
+| `DELETE FROM voice.call_dispatch_keys WHERE ...` | `ERROR: permission denied for table call_dispatch_keys` |
+| `UPDATE voice.call_dispatch_keys SET reconciliation_source = 'PROVIDER_CALLBACK', reconciled_by = 'fake-provider' WHERE ...` (the provenance-forgery test) | `ERROR: permission denied for table call_dispatch_keys` |
+| `UPDATE voice.call_dispatch_keys SET dispatch_state = 'FAILED' WHERE ...` (targeting an already-`CONFIRMED` row) | `ERROR: permission denied for table call_dispatch_keys`; row confirmed still `CONFIRMED` by a follow-up `SELECT` |
+
+**Guarded-path regression, proving the privilege removal does not break legitimate reconciliation:**
+
+| Caller | Call | Result |
+|---|---|---|
+| `app_platform_admin` | `fn_reconcile_dispatch_by_operator(..., 'FAILED', ..., 'authoritative provider console lookup shows no call was ever created')` on a genuine `AMBIGUOUS` row | Succeeds; `reconciliation_source='OPERATOR'`, `reconciled_by='operator-jane'` persisted |
+| `app_platform_admin` | `fn_reconcile_dispatch_by_operator(..., 'FAILED', ...)` on an already-`CONFIRMED` row | `reconciled=false, reason=NOT_RECONCILABLE_OR_NOT_FOUND` — row remains `CONFIRMED` (immutability holds through the guarded path independently of the privilege fix) |
+| `app_voice_reconciler` | `fn_reconcile_dispatch_from_provider(..., 'CONFIRMED', 'PROVIDER_CALLBACK', ...)` on a genuine `AMBIGUOUS` row | Succeeds; `reconciliation_source='PROVIDER_CALLBACK'` persisted |
+
+**Regression, `app_api`/`app_worker`/`app_voice_reconciler` direct DML still denied:** all three re-attempted direct `INSERT`/`UPDATE` and were denied identically to every prior pass — this pass touched only `app_platform_admin`'s grant.
+
+**The analogous fix on `campaign.campaign_contact_identities`:** the identical grant pattern was found and closed the same way — see `validation/CAMPAIGN_PRIVILEGE_VALIDATION_REPORT.md`'s own addendum for the full evidence.
+
+**Final privilege matrix, `has_table_privilege()` across all 6 roles:**
+```
+       rolname        | sel | ins | upd | del
+----------------------+-----+-----+-----+-----
+ app_api              | t   | f   | f   | f
+ app_migration        | f   | f   | f   | f
+ app_platform_admin   | t   | f   | f   | f
+ app_readonly         | t   | f   | f   | f
+ app_voice_reconciler | f   | f   | f   | f
+ app_worker           | t   | f   | f   | f
+```
+`app_voice_reconciler` shows `f` for `SELECT` too — it was never granted table-level access at all, only `EXECUTE` on one function, the true-least-privilege design already established in the sixth batch.
+
+**Regression, full suite, unchanged:** expired-`CLAIMED`-before-`SUBMITTING` recovery, the `SUBMITTING` hard-stop, the `AMBIGUOUS` hard-stop, same-key/same-payload replay, same-key/different-payload mismatch, and same-key cross-tenant denial were all re-run on this pass's own fresh instance and reproduced identical results — no function body was touched by this pass, only the two `GRANT` statements.
+
 ## What remains an accepted, disclosed limitation
 
 A crash strictly between the `SUBMITTING` commit and the process actually

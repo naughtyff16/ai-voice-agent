@@ -10,27 +10,38 @@ reclaims SUBMITTING regardless of lease staleness), voice.
 fn_begin_provider_submission() (new — the durable pre-network-call
 boundary), voice.fn_record_dispatch_confirmed(), voice.
 fn_record_dispatch_ambiguous(), voice.fn_record_dispatch_failed()
-(revised source states), voice.fn_reconcile_dispatch_outcome() (revised
-again this pass — see below). Eight voice.fn_* functions total in this
-migration. Also creates one new PostgreSQL role, app_voice_reconciler
-(LOGIN, not BYPASSRLS, no table DML — EXECUTE on exactly one function).
+(revised source states); voice.fn_reconcile_dispatch_outcome_internal()
+(new name/shape this pass — the actual reconciliation mechanism, never
+directly granted EXECUTE to any role); voice.fn_reconcile_dispatch_from_
+provider() (new this pass — EXECUTE: app_voice_reconciler only; can only
+ever record PROVIDER_CALLBACK/PROVIDER_LOOKUP provenance); voice.
+fn_reconcile_dispatch_by_operator() (new this pass — EXECUTE:
+app_platform_admin only; hardcodes OPERATOR provenance, takes no source
+parameter). Ten voice.fn_* functions total in this migration (up from
+eight — replaces the single fn_reconcile_dispatch_outcome() with three).
+Also creates one new PostgreSQL role, app_voice_reconciler (LOGIN, not
+BYPASSRLS, no table DML — EXECUTE on exactly one function), introduced by
+the prior (Final Blocker Remediation) pass.
+
 Resolves Phase 6H Campaign remediation Blocker #3 (Campaign -> Voice
 in-process dispatch idempotency), its follow-on Blocker C
 (crash-before-provider-submission durability hole), the Final Blocker
 Remediation pass's Blocker A (expired-CLAIMED-lease double-dial hazard),
 Blocker C (direct-INSERT privilege bypass — see the GRANT statements in
 099_5C1.sql), and Blocker D (idempotency replay tenant/payload
-validation), and the Final Micro-Remediation pass's reconciliation-
-authorization-boundary fix: fn_reconcile_dispatch_outcome()'s EXECUTE grant
-was too broad (app_api/app_worker could both call it, meaning ordinary
-application/worker code could convert an AMBIGUOUS submission to FAILED and
-re-authorize a second physical telephony attempt) — EXECUTE is now granted
-only to app_voice_reconciler and app_platform_admin, with a new required
-p_reconciliation_source provenance parameter/column, a mandatory evidence
-requirement for FAILED reconciliation, and a synchronous
-VOICE_DISPATCH_RECONCILED audit event. Additive only — voice.call_sessions
-itself is untouched. See 099_5C1.sql's own header comment for full
-rationale.
+validation); the Final Micro-Remediation pass's reconciliation-
+authorization-boundary fix (WHO may reconcile: app_voice_reconciler /
+app_platform_admin only, revoked from app_api/app_worker); and this final
+pass's reconciliation-PROVENANCE fix (WHICH provenance category a given
+credential can ever produce — the single fn_reconcile_dispatch_outcome()
+still let either authorized caller freely choose PROVIDER_CALLBACK /
+PROVIDER_LOOKUP / OPERATOR via a plain parameter, meaning the automated
+reconciler could falsely record itself as an operator decision or vice
+versa — an audit-integrity defect. Splitting into two capability-specific
+functions, each hardcoding the provenance/actor_type its own EXECUTE grant
+is allowed to produce, makes this impossible by construction rather than
+by convention. Additive only — voice.call_sessions itself is untouched.
+See 099_5C1.sql's own header comment for full rationale.
 
 Revision ID: 099_5C1
 Revises: '098_5E1'
@@ -58,7 +69,7 @@ def downgrade() -> None:
         "Migration 099_5C1 is part of the frozen, forward-only 5K SQL "
         "package. No rollback DDL is authored here. To revert, restore "
         "from a database backup taken before this revision was applied "
-        "(the eight new voice.fn_* functions would need to be dropped, "
+        "(the ten new voice.fn_* functions would need to be dropped, "
         "then voice.call_dispatch_keys itself, then the app_voice_reconciler "
         "role — an operational runbook note, not an Alembic-managed "
         "downgrade)."

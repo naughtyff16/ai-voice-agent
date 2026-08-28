@@ -108,8 +108,155 @@ regeneration corrects that. See "Reconciliation" below for details.
 | 095 | 5D.4 | `095_5D4.sql` | `094_5D3` | transactional | 5484 | `694a01d3af46d1df48c94a4e099954e450029edb06460a6f7421dd5a2d766d1b` |
 | 096 | 5B.2 | `096_5B2.sql` | `095_5D4` | transactional | 2543 | `1d79ad3aa068eccb7d3181773bae61e4157ef37eb221e8777c7597c1a975bffc` |
 | 097 | 5D.5 | `097_5D5.sql` | `096_5B2` | transactional | 13681 | `1ebb277a8551b648cec8f085edc0dae5596ad2c54b8b348f58d8323a05f13fe1` |
-| 098 | 5E.1 | `098_5E1.sql` | `097_5D5` | transactional | 15651 | `b3880884b392c095c96f29362a57ec1e31d0343e87bd9f982d31e3f0bd26947d` |
-| 099 | 5C.1 | `099_5C1.sql` | `098_5E1` | transactional | 56477 | `bbb004da8143f48586643adbea9f030a721f9db3491e4cab074344d34fd57298` |
+| 098 | 5E.1 | `098_5E1.sql` | `097_5D5` | transactional | 16943 | `aad468ae59b50bf0a3b8c29e99b248268198ed8a5c3f3fb896b69d0911b7afd6` |
+| 099 | 5C.1 | `099_5C1.sql` | `098_5E1` | transactional | 63844 | `3dcf9b245b1a352069d3ff70da2a5af625f968c4ec728adc70ae0265f623310f` |
+
+---
+
+## Phase 6H Final Admin-DML Hardening (2026-08-29) — remove platform-admin direct DML bypass, PostgreSQL 16 live-validated
+
+Both `098_5E1.sql` and `099_5C1.sql` corrected in place once more — still
+never applied to any production database, so the disclosed migration
+policy (edit in place, no `100_5E2.sql`/`100_5C2.sql`) continues to apply.
+Every prior privilege-hardening pass restricted a *different* role
+(`app_worker`'s `INSERT` on the campaign identity table; `app_api`/
+`app_worker`'s `INSERT` on the Voice dispatch table; then `EXECUTE` on the
+reconciliation functions for `app_api`/`app_worker`, and later further
+split by provenance) — but `app_platform_admin`'s own original `GRANT
+SELECT, INSERT, UPDATE, DELETE` on both tables, present since each table
+was first created, was never touched by any of them. That grant could
+bypass every invariant built on top of it: a direct `UPDATE ... SET
+dispatch_state = 'FAILED' WHERE dispatch_state = 'CONFIRMED'` would reopen
+a known-accepted call for a second physical telephony attempt, and a
+direct `UPDATE ... SET reconciliation_source = 'PROVIDER_CALLBACK'` would
+forge the very provenance boundary the two most recent passes just
+established — both completely invisible to, and unenforced by, any guarded
+function, since a raw `UPDATE` never calls one.
+
+**The fix:** `app_platform_admin`'s `INSERT`/`UPDATE`/`DELETE` grant is
+removed from both `voice.call_dispatch_keys` and `campaign.
+campaign_contact_identities`; `SELECT` is retained on both (an explicit,
+still-legitimate diagnostics/support need). Removing these grants does not
+impair `fn_reconcile_dispatch_by_operator()` at all — like every other
+guarded function in this schema, it is `SECURITY DEFINER`, owned by the
+migration-running role, and needs no direct table grant to keep writing.
+The identical, already-established reasoning (`app_worker`'s own
+`fn_enqueue_contact()` call working with zero direct grant) applies
+unchanged.
+
+**Live-validated on a fourth, genuinely independent PostgreSQL 16.10
+instance** (the sixth/seventh/eighth batches' own instances had each
+already been torn down): fresh-database and incremental `alembic upgrade`
+both exit code 0, single head `099_5C1` unchanged. Direct catalog
+inspection (`information_schema.role_table_grants`) confirms `app_api`,
+`app_worker`, `app_readonly`, and `app_platform_admin` all hold `SELECT`
+only on both tables, before any test runs. `app_platform_admin` is denied
+`permission denied` on direct `INSERT`, `UPDATE` (including the specific
+provenance-forgery attempt and the specific `CONFIRMED → FAILED` reopen
+attempt), and `DELETE` against `voice.call_dispatch_keys`, and on direct
+`INSERT` against `campaign.campaign_contact_identities` — while `SELECT`
+against a live `CONFIRMED` row succeeds. The legitimate guarded paths are
+unaffected: `app_platform_admin` calling `fn_reconcile_dispatch_by_operator
+()` on a genuine `AMBIGUOUS` row with real evidence succeeds; the same
+function against an already-`CONFIRMED` row correctly returns
+`reconciled=false`; `app_voice_reconciler` calling `fn_reconcile_dispatch_
+from_provider()` succeeds identically. `app_api`/`app_worker`/
+`app_voice_reconciler` remain denied on direct DML, unchanged. The full
+prior-pass regression suite (expired-`CLAIMED` recovery, both hard stops,
+replay/mismatch/cross-tenant idempotency) was re-run and reproduced
+unchanged. Full transcripts: `execution_logs/README.md`'s "Ninth batch";
+`validation/VOICE_DISPATCH_VALIDATION_REPORT.md` and `validation/
+CAMPAIGN_PRIVILEGE_VALIDATION_REPORT.md`, both updated.
+
+**Reconciled totals after this amendment:** 99/99 `migrations/*.sql` files
+(unchanged count), single linear chain, single head `099_5C1`. No function
+body changed in either file — only the two `GRANT` statements per table.
+
+`098_5E1.sql`: 16943 bytes, SHA-256
+`aad468ae59b50bf0a3b8c29e99b248268198ed8a5c3f3fb896b69d0911b7afd6`.
+`099_5C1.sql`: 63844 bytes, SHA-256
+`3dcf9b245b1a352069d3ff70da2a5af625f968c4ec728adc70ae0265f623310f`.
+
+**Consumer:** `docs/phase-06-api-design/6H-Campaign-APIs.md` (Revision 7)
+§18.4, §49.9c; `docs/phase-06-api-design/6D-Voice-Call-Agent-APIs.md`
+§28.10a; `docs/phase-05-database-design/5C-Voice-Schema.md`.
+
+---
+
+## Phase 6H Final Micro-Fix (2026-08-28) — non-forgeable reconciliation provenance, PostgreSQL 16 live-validated
+
+`099_5C1.sql` corrected in place a fifth time — still never applied to any
+production database, so the disclosed migration policy (edit in place, no
+`100_5C2.sql`) continues to apply. The Final Micro-Remediation pass above
+correctly restricted reconciliation to two roles but left a caller-supplied
+`p_reconciliation_source` parameter that either authorized caller could set
+to any of the three legal values — meaning `app_voice_reconciler` (the
+automated path) could pass `'OPERATOR'`, or `app_platform_admin` (the
+operator path) could pass `'PROVIDER_CALLBACK'`, producing an audit trail
+that misrepresents which trusted path actually made the physical-redial
+authorization decision.
+
+**The fix:** `voice.fn_reconcile_dispatch_outcome()` is dropped and
+replaced by three functions:
+
+1. **`voice.fn_reconcile_dispatch_outcome_internal()`** — the actual
+   state-transition + audit mechanism (identical logic to the prior single
+   function), but granted `EXECUTE` to **no role at all**. Reachable only
+   via the two wrappers below, which invoke it under their own `SECURITY
+   DEFINER` owner privileges — the identical bridge-function pattern
+   already used for `fn_new_uuid_v7()`.
+2. **`voice.fn_reconcile_dispatch_from_provider()`** — `EXECUTE`: `app_
+   voice_reconciler` only. Accepts a source parameter restricted, by a
+   `CHECK` inside the function body, to `PROVIDER_CALLBACK`/
+   `PROVIDER_LOOKUP` — `'OPERATOR'` is rejected with an exception even
+   though the caller holds `EXECUTE`, because the *value* is invalid, not
+   because the *caller* lacks privilege. Hardcodes `actor_type='WORKER'`.
+3. **`voice.fn_reconcile_dispatch_by_operator()`** — `EXECUTE`: `app_
+   platform_admin` only. Takes **no source parameter at all** —
+   `'OPERATOR'` and `actor_type='PLATFORM_ADMIN'` are hardcoded inside the
+   function body, so there is no parameter by which a caller could request
+   provider provenance.
+
+This makes which provenance category a given credential can ever produce a
+property of the database schema itself, not of caller-supplied metadata or
+application-layer trust.
+
+**Live-validated on a third, genuinely independent PostgreSQL 16.10
+instance** (the sixth and seventh batches' own instances had already been
+torn down): fresh-database and incremental `alembic upgrade` both exit code
+0, single head `099_5C1` unchanged. The critical proof: `app_voice_
+reconciler`, while genuinely holding `EXECUTE` on `fn_reconcile_dispatch_
+from_provider`, calling it with `p_provider_source = 'OPERATOR'` was
+rejected by the function's own internal `CHECK` — not merely denied by a
+missing grant. `app_voice_reconciler` calling `fn_reconcile_dispatch_by_
+operator` at all was denied at the privilege layer (no grant exists).
+`app_platform_admin` calling `fn_reconcile_dispatch_from_provider` at all
+was denied at the privilege layer, symmetrically. Genuine reconciliation
+through each path recorded the correct, function-determined provenance
+and `actor_type`, confirmed by direct query against both `voice.
+call_dispatch_keys` and `audit.audit_events`. `CONFIRMED → FAILED` and
+cross-tenant reconciliation were both attempted through *both* functions
+and refused every time. The operator path's evidence requirement for
+`FAILED` was confirmed identical to the provider path's (shared internal
+check). The full prior-pass regression suite (expired-`CLAIMED` recovery,
+the `SUBMITTING` hard-stop, replay/mismatch/cross-tenant idempotency, the
+synchronous `AMBIGUOUS` path) was re-run and reproduced unchanged. Full
+transcripts: `execution_logs/README.md`'s "Eighth batch";
+`validation/VOICE_DISPATCH_VALIDATION_REPORT.md`.
+
+**Reconciled totals after this amendment:** 99/99 `migrations/*.sql` files
+(unchanged count), single linear chain, single head `099_5C1`, 10
+`voice.fn_*` functions (up from 8 — one function replaced by three), 6
+PostgreSQL roles (unchanged from the prior pass — no new role introduced
+this time; the fix is entirely a function-boundary split using the
+existing `app_voice_reconciler`/`app_platform_admin` roles).
+
+`099_5C1.sql`: 61703 bytes, SHA-256
+`f5e0352e3407dd318c36351cedb98546b5c6adf464a48c81aa49da37b4fc3c0c`.
+
+**Consumer:** `docs/phase-06-api-design/6H-Campaign-APIs.md` (Revision 6)
+§18.4, §49.9b; `docs/phase-06-api-design/6D-Voice-Call-Agent-APIs.md`
+§28.10a.
 
 ---
 

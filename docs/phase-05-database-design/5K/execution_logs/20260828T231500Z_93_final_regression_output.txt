@@ -1,0 +1,111 @@
+==== REGRESSION: expired CLAIMED before SUBMITTING -> safe reclaim ====
+SET
+           call_session_id            |        session_started_at        | is_new | outcome 
+--------------------------------------+----------------------------------+--------+---------
+ 01a04979-778d-78a8-972e-2e884ed593d5 | 2026-08-28 23:14:52.317676+05:30 | t      | CREATED
+(1 row)
+
+RESET
+SET
+ claimed |           call_session_id            |                       provider_request_ref                       | attempt_count | reason 
+---------+--------------------------------------+------------------------------------------------------------------+---------------+--------
+ t       | 01a04979-778d-78a8-972e-2e884ed593d5 | yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy1 |             1 | 
+(1 row)
+
+RESET
+ pg_sleep 
+----------
+ 
+(1 row)
+
+SET
+ claimed | reason 
+---------+--------
+ t       | 
+(1 row)
+
+RESET
+==== REGRESSION: SUBMITTING hard-stop (the P0 assertion) still holds ====
+SET
+           call_session_id            |        session_started_at        | is_new | outcome 
+--------------------------------------+----------------------------------+--------+---------
+ 01a04979-8f38-7f03-8121-21de7ad61f01 | 2026-08-28 23:14:58.424076+05:30 | t      | CREATED
+(1 row)
+
+RESET
+SET
+ claimed |           call_session_id            |                       provider_request_ref                       | attempt_count | reason 
+---------+--------------------------------------+------------------------------------------------------------------+---------------+--------
+ t       | 01a04979-8f38-7f03-8121-21de7ad61f01 | yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy2 |             1 | 
+(1 row)
+
+ began | reason 
+-------+--------
+ t     | 
+(1 row)
+
+RESET
+ pg_sleep 
+----------
+ 
+(1 row)
+
+SET
+ claimed |          reason          
+---------+--------------------------
+ f       | NOT_CLAIMABLE_SUBMITTING
+(1 row)
+
+RESET
+==== REGRESSION: same-key/same-payload replay, different-payload mismatch, cross-tenant denial ====
+SET
+ outcome 
+---------
+ CREATED
+(1 row)
+
+ outcome  
+----------
+ REPLAYED
+(1 row)
+
+            outcome             
+--------------------------------
+ IDEMPOTENCY_KEY_REUSE_MISMATCH
+(1 row)
+
+psql:C:/Users/Dell/pgval16c/03_regression.sql:37: ERROR:  fn_initiate_outbound_call_idempotent: dispatch_idempotency_key not available for organization 00000000-0000-0000-0000-0000000000b1
+CONTEXT:  PL/pgSQL function fn_initiate_outbound_call_idempotent(uuid,text,text,uuid,uuid,text,character) line 74 at RAISE
+RESET
+==== REGRESSION: concurrent claim race (same key, two connections) still gives exactly one winner ====
+SET
+           call_session_id            |        session_started_at        | is_new | outcome 
+--------------------------------------+----------------------------------+--------+---------
+ 01a04979-a6be-7360-b4b4-b445ab458fd7 | 2026-08-28 23:15:04.445822+05:30 | t      | CREATED
+(1 row)
+
+RESET
+==== REGRESSION: provider timeout -> AMBIGUOUS via synchronous fn_record_dispatch_ambiguous still works unchanged ====
+SET
+ claimed |           call_session_id            |                       provider_request_ref                       | attempt_count | reason 
+---------+--------------------------------------+------------------------------------------------------------------+---------------+--------
+ t       | 01a04979-a6be-7360-b4b4-b445ab458fd7 | yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy4 |             1 | 
+(1 row)
+
+ began | reason 
+-------+--------
+ t     | 
+(1 row)
+
+ fn_record_dispatch_ambiguous 
+------------------------------
+ t
+(1 row)
+
+RESET
+ dispatch_state 
+----------------
+ AMBIGUOUS
+(1 row)
+
+REGRESSION_DONE

@@ -1,0 +1,118 @@
+==== REGRESSION: expired CLAIMED before SUBMITTING -> safe reclaim ====
+SET
+           call_session_id            |        session_started_at        | is_new | outcome 
+--------------------------------------+----------------------------------+--------+---------
+ 01a049c7-a1db-7198-aca7-a737cd0cda53 | 2026-08-29 00:40:14.999157+05:30 | t      | CREATED
+(1 row)
+
+RESET
+SET
+ claimed |           call_session_id            |                       provider_request_ref                       | attempt_count | reason 
+---------+--------------------------------------+------------------------------------------------------------------+---------------+--------
+ t       | 01a049c7-a1db-7198-aca7-a737cd0cda53 | wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww1 |             1 | 
+(1 row)
+
+RESET
+ pg_sleep 
+----------
+ 
+(1 row)
+
+SET
+ claimed | reason 
+---------+--------
+ t       | 
+(1 row)
+
+RESET
+==== REGRESSION: SUBMITTING hard-stop still holds ====
+SET
+           call_session_id            |        session_started_at        | is_new | outcome 
+--------------------------------------+----------------------------------+--------+---------
+ 01a049c7-b95a-71e3-84f0-f0bbeebf9d97 | 2026-08-29 00:40:21.018014+05:30 | t      | CREATED
+(1 row)
+
+RESET
+SET
+ claimed |           call_session_id            |                       provider_request_ref                       | attempt_count | reason 
+---------+--------------------------------------+------------------------------------------------------------------+---------------+--------
+ t       | 01a049c7-b95a-71e3-84f0-f0bbeebf9d97 | wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww2 |             1 | 
+(1 row)
+
+ began | reason 
+-------+--------
+ t     | 
+(1 row)
+
+RESET
+ pg_sleep 
+----------
+ 
+(1 row)
+
+SET
+ claimed |          reason          
+---------+--------------------------
+ f       | NOT_CLAIMABLE_SUBMITTING
+(1 row)
+
+RESET
+==== REGRESSION: AMBIGUOUS hard-stop still holds ====
+SET
+           call_session_id            |        session_started_at        | is_new | outcome 
+--------------------------------------+----------------------------------+--------+---------
+ 01a049c7-d0dd-7526-803f-3fcdcf1156dc | 2026-08-29 00:40:27.037262+05:30 | t      | CREATED
+(1 row)
+
+RESET
+SET
+ claimed |           call_session_id            |                       provider_request_ref                       | attempt_count | reason 
+---------+--------------------------------------+------------------------------------------------------------------+---------------+--------
+ t       | 01a049c7-d0dd-7526-803f-3fcdcf1156dc | wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww3 |             1 | 
+(1 row)
+
+ began | reason 
+-------+--------
+ t     | 
+(1 row)
+
+ fn_record_dispatch_ambiguous 
+------------------------------
+ t
+(1 row)
+
+ claimed |         reason          
+---------+-------------------------
+ f       | NOT_CLAIMABLE_AMBIGUOUS
+(1 row)
+
+RESET
+==== REGRESSION: same-key/same-payload replay, different-payload mismatch, cross-tenant denial ====
+SET
+ outcome 
+---------
+ CREATED
+(1 row)
+
+ outcome  
+----------
+ REPLAYED
+(1 row)
+
+            outcome             
+--------------------------------
+ IDEMPOTENCY_KEY_REUSE_MISMATCH
+(1 row)
+
+psql:C:/Users/Dell/pgval16d/03_regression.sql:48: ERROR:  fn_initiate_outbound_call_idempotent: dispatch_idempotency_key not available for organization 00000000-0000-0000-0000-0000000000b1
+CONTEXT:  PL/pgSQL function fn_initiate_outbound_call_idempotent(uuid,text,text,uuid,uuid,text,character) line 74 at RAISE
+RESET
+==== REGRESSION: concurrent claim race still gives exactly one winner ====
+SET
+           call_session_id            |        session_started_at        | is_new | outcome 
+--------------------------------------+----------------------------------+--------+---------
+ 01a049c7-d0e7-79a2-94c9-c9859335b3a7 | 2026-08-29 00:40:27.046946+05:30 | t      | CREATED
+(1 row)
+
+RESET
+REGRESSION_DONE

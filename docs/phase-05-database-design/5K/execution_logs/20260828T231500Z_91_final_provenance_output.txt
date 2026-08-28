@@ -1,0 +1,305 @@
+SET
+           call_session_id            |        session_started_at        | is_new | outcome 
+--------------------------------------+----------------------------------+--------+---------
+ 01a04978-c6da-7f17-b3de-dee20cc7169b | 2026-08-28 23:14:07.124879+05:30 | t      | CREATED
+(1 row)
+
+           call_session_id            |        session_started_at        | is_new | outcome 
+--------------------------------------+----------------------------------+--------+---------
+ 01a04978-c6e8-792a-aac4-c46c300d9f8c | 2026-08-28 23:14:07.143483+05:30 | t      | CREATED
+(1 row)
+
+           call_session_id            |        session_started_at        | is_new | outcome 
+--------------------------------------+----------------------------------+--------+---------
+ 01a04978-c6e9-7e3b-84db-db1d6b72277a | 2026-08-28 23:14:07.144514+05:30 | t      | CREATED
+(1 row)
+
+           call_session_id            |        session_started_at        | is_new | outcome 
+--------------------------------------+----------------------------------+--------+---------
+ 01a04978-c6ea-7956-862a-2a451cb4d1d7 | 2026-08-28 23:14:07.145531+05:30 | t      | CREATED
+(1 row)
+
+           call_session_id            |       session_started_at        | is_new | outcome 
+--------------------------------------+---------------------------------+--------+---------
+ 01a04978-c6eb-75db-ba8d-8d378219afdd | 2026-08-28 23:14:07.14642+05:30 | t      | CREATED
+(1 row)
+
+           call_session_id            |        session_started_at        | is_new | outcome 
+--------------------------------------+----------------------------------+--------+---------
+ 01a04978-c6eb-7686-bc64-64b40930d687 | 2026-08-28 23:14:07.147207+05:30 | t      | CREATED
+(1 row)
+
+RESET
+SET
+ claimed |           call_session_id            |                       provider_request_ref                       | attempt_count | reason 
+---------+--------------------------------------+------------------------------------------------------------------+---------------+--------
+ t       | 01a04978-c6da-7f17-b3de-dee20cc7169b | ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp1 |             1 | 
+(1 row)
+
+ began | reason 
+-------+--------
+ t     | 
+(1 row)
+
+ fn_record_dispatch_ambiguous 
+------------------------------
+ t
+(1 row)
+
+ claimed |           call_session_id            |                       provider_request_ref                       | attempt_count | reason 
+---------+--------------------------------------+------------------------------------------------------------------+---------------+--------
+ t       | 01a04978-c6e8-792a-aac4-c46c300d9f8c | ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp2 |             1 | 
+(1 row)
+
+ began | reason 
+-------+--------
+ t     | 
+(1 row)
+
+ fn_record_dispatch_ambiguous 
+------------------------------
+ t
+(1 row)
+
+ claimed |           call_session_id            |                       provider_request_ref                       | attempt_count | reason 
+---------+--------------------------------------+------------------------------------------------------------------+---------------+--------
+ t       | 01a04978-c6e9-7e3b-84db-db1d6b72277a | ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp3 |             1 | 
+(1 row)
+
+ began | reason 
+-------+--------
+ t     | 
+(1 row)
+
+ fn_record_dispatch_ambiguous 
+------------------------------
+ t
+(1 row)
+
+ claimed |           call_session_id            |                       provider_request_ref                       | attempt_count | reason 
+---------+--------------------------------------+------------------------------------------------------------------+---------------+--------
+ t       | 01a04978-c6ea-7956-862a-2a451cb4d1d7 | ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp4 |             1 | 
+(1 row)
+
+ began | reason 
+-------+--------
+ t     | 
+(1 row)
+
+ fn_record_dispatch_confirmed 
+------------------------------
+ t
+(1 row)
+
+ claimed |           call_session_id            |                       provider_request_ref                       | attempt_count | reason 
+---------+--------------------------------------+------------------------------------------------------------------+---------------+--------
+ t       | 01a04978-c6eb-75db-ba8d-8d378219afdd | ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp5 |             1 | 
+(1 row)
+
+ began | reason 
+-------+--------
+ t     | 
+(1 row)
+
+ fn_record_dispatch_ambiguous 
+------------------------------
+ t
+(1 row)
+
+ claimed |           call_session_id            |                       provider_request_ref                       | attempt_count | reason 
+---------+--------------------------------------+------------------------------------------------------------------+---------------+--------
+ t       | 01a04978-c6eb-7686-bc64-64b40930d687 | ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp6 |             1 | 
+(1 row)
+
+ began | reason 
+-------+--------
+ t     | 
+(1 row)
+
+ fn_record_dispatch_ambiguous 
+------------------------------
+ t
+(1 row)
+
+RESET
+==== TEST 27: app_api / app_worker denied on BOTH reconciliation functions ====
+SET
+psql:C:/Users/Dell/pgval16c/02_provenance_tests.sql:44: ERROR:  permission denied for function fn_reconcile_dispatch_from_provider
+psql:C:/Users/Dell/pgval16c/02_provenance_tests.sql:45: ERROR:  permission denied for function fn_reconcile_dispatch_by_operator
+RESET
+SET
+psql:C:/Users/Dell/pgval16c/02_provenance_tests.sql:48: ERROR:  permission denied for function fn_reconcile_dispatch_from_provider
+psql:C:/Users/Dell/pgval16c/02_provenance_tests.sql:49: ERROR:  permission denied for function fn_reconcile_dispatch_by_operator
+RESET
+==== TEST 19/37: provider reconciler (app_voice_reconciler) CANNOT call the operator function -- must be DENIED at the privilege layer ====
+SET
+psql:C:/Users/Dell/pgval16c/02_provenance_tests.sql:54: ERROR:  permission denied for function fn_reconcile_dispatch_by_operator
+RESET
+==== TEST (forgery, function-level): app_voice_reconciler HOLDS EXECUTE on fn_reconcile_dispatch_from_provider, but passes p_provider_source=OPERATOR -- must be REJECTED by thepsql:C:/Users/Dell/pgval16c/02_provenance_tests.sql:57: error: unterminated quoted string
+
+SET
+psql:C:/Users/Dell/pgval16c/02_provenance_tests.sql:59: ERROR:  fn_reconcile_dispatch_from_provider: invalid p_provider_source OPERATOR -- only PROVIDER_CALLBACK or PROVIDER_LOOKUP may be recorded through this capability; OPERATOR provenance cannot be produced by the automated reconciliation path
+CONTEXT:  PL/pgSQL function fn_reconcile_dispatch_from_provider(character,uuid,text,text,text,text,text) line 4 at RAISE
+RESET
+-- confirm dispatch key 1 is STILL AMBIGUOUS after all three forgery/denial attempts above --
+ dispatch_state | reconciliation_source 
+----------------+-----------------------
+ AMBIGUOUS      | 
+(1 row)
+
+==== TEST 20/37: platform admin CANNOT call the provider function -- must be DENIED at the privilege layer ====
+SET
+psql:C:/Users/Dell/pgval16c/02_provenance_tests.sql:66: ERROR:  permission denied for function fn_reconcile_dispatch_from_provider
+RESET
+-- confirm dispatch key 1 is STILL AMBIGUOUS --
+ dispatch_state | reconciliation_source 
+----------------+-----------------------
+ AMBIGUOUS      | 
+(1 row)
+
+==== TEST 21: genuine provider callback path -- AMBIGUOUS -> CONFIRMED via fn_reconcile_dispatch_from_provider ====
+SET
+ reconciled | reason 
+------------+--------
+ t          | 
+(1 row)
+
+RESET
+ dispatch_state | reconciliation_source |   reconciled_by   |  provider_call_ref   
+----------------+-----------------------+-------------------+----------------------
+ CONFIRMED      | PROVIDER_CALLBACK     | webhook-handler-1 | PROVIDER-CALL-REF-P1
+(1 row)
+
+==== TEST 22: genuine provider lookup path -- AMBIGUOUS -> FAILED via fn_reconcile_dispatch_from_provider, then retry eligible ====
+SET
+ reconciled | reason 
+------------+--------
+ t          | 
+(1 row)
+
+RESET
+ dispatch_state | reconciliation_source 
+----------------+-----------------------
+ FAILED         | PROVIDER_LOOKUP
+(1 row)
+
+SET
+ claimed | reason 
+---------+--------
+ t       | 
+(1 row)
+
+RESET
+==== TEST 23: genuine operator path -- AMBIGUOUS -> CONFIRMED via fn_reconcile_dispatch_by_operator ====
+SET
+ reconciled | reason 
+------------+--------
+ t          | 
+(1 row)
+
+RESET
+ dispatch_state | reconciliation_source | reconciled_by 
+----------------+-----------------------+---------------
+ CONFIRMED      | OPERATOR              | operator-jane
+(1 row)
+
+==== TEST 24: operator path requires evidence for FAILED (empty then NULL note both rejected) ====
+SET
+psql:C:/Users/Dell/pgval16c/02_provenance_tests.sql:94: ERROR:  fn_reconcile_dispatch_outcome_internal: p_note (evidence description) is required when p_outcome = FAILED
+CONTEXT:  PL/pgSQL function fn_reconcile_dispatch_outcome_internal(character,uuid,text,text,text,text,text,text) line 25 at RAISE
+SQL statement "SELECT * FROM voice.fn_reconcile_dispatch_outcome_internal(
+    p_dispatch_idempotency_key, p_organization_id, p_outcome,
+    'OPERATOR',           -- hardcoded -- no parameter can override this
+    'PLATFORM_ADMIN',     -- hardcoded -- never derived from any parameter
+    p_reconciled_by, p_provider_call_ref, p_note
+  )"
+PL/pgSQL function fn_reconcile_dispatch_by_operator(character,uuid,text,text,text,text) line 3 at RETURN QUERY
+psql:C:/Users/Dell/pgval16c/02_provenance_tests.sql:95: ERROR:  fn_reconcile_dispatch_outcome_internal: p_note (evidence description) is required when p_outcome = FAILED
+CONTEXT:  PL/pgSQL function fn_reconcile_dispatch_outcome_internal(character,uuid,text,text,text,text,text,text) line 25 at RAISE
+SQL statement "SELECT * FROM voice.fn_reconcile_dispatch_outcome_internal(
+    p_dispatch_idempotency_key, p_organization_id, p_outcome,
+    'OPERATOR',           -- hardcoded -- no parameter can override this
+    'PLATFORM_ADMIN',     -- hardcoded -- never derived from any parameter
+    p_reconciled_by, p_provider_call_ref, p_note
+  )"
+PL/pgSQL function fn_reconcile_dispatch_by_operator(character,uuid,text,text,text,text) line 3 at RETURN QUERY
+RESET
+ dispatch_state 
+----------------
+ AMBIGUOUS
+(1 row)
+
+-- now with acceptable evidence: must succeed --
+SET
+ reconciled | reason 
+------------+--------
+ t          | 
+(1 row)
+
+RESET
+ dispatch_state | reconciliation_source 
+----------------+-----------------------
+ FAILED         | OPERATOR
+(1 row)
+
+==== TEST 25: CONFIRMED immutability -- both functions attempt CONFIRMED(key 4) -> FAILED, must be denied ====
+SET
+ reconciled |            reason             
+------------+-------------------------------
+ f          | NOT_RECONCILABLE_OR_NOT_FOUND
+(1 row)
+
+RESET
+SET
+ reconciled |            reason             
+------------+-------------------------------
+ f          | NOT_RECONCILABLE_OR_NOT_FOUND
+(1 row)
+
+RESET
+ dispatch_state 
+----------------
+ CONFIRMED
+(1 row)
+
+==== TEST 26: cross-tenant -- Org B attempts both functions against Org A dispatch key 6 (still AMBIGUOUS) ====
+SET
+ reconciled |            reason             
+------------+-------------------------------
+ f          | NOT_RECONCILABLE_OR_NOT_FOUND
+(1 row)
+
+RESET
+SET
+ reconciled |            reason             
+------------+-------------------------------
+ f          | NOT_RECONCILABLE_OR_NOT_FOUND
+(1 row)
+
+RESET
+           organization_id            | dispatch_state 
+--------------------------------------+----------------
+ 00000000-0000-0000-0000-0000000000a1 | AMBIGUOUS
+(1 row)
+
+==== Audit verification: actor_type/source correctness for the three successful reconciliations ====
+        action_kind        |   actor_type   |    actor_name     | outcome |        src        
+---------------------------+----------------+-------------------+---------+-------------------
+ VOICE_DISPATCH_RECONCILED | WORKER         | webhook-handler-1 | SUCCESS | PROVIDER_CALLBACK
+ VOICE_DISPATCH_RECONCILED | WORKER         | reconciler-svc    | SUCCESS | PROVIDER_LOOKUP
+ VOICE_DISPATCH_RECONCILED | PLATFORM_ADMIN | operator-jane     | SUCCESS | OPERATOR
+ VOICE_DISPATCH_RECONCILED | PLATFORM_ADMIN | operator-jane     | SUCCESS | OPERATOR
+(4 rows)
+
+==== Privilege matrix ====
+       rolname        | can_exec_provider | can_exec_operator 
+----------------------+-------------------+-------------------
+ app_api              | f                 | f
+ app_migration        | f                 | f
+ app_platform_admin   | f                 | t
+ app_readonly         | f                 | f
+ app_voice_reconciler | t                 | f
+ app_worker           | f                 | f
+(6 rows)
+
+PROVENANCE_TESTS_DONE
