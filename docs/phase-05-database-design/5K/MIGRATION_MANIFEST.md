@@ -108,6 +108,146 @@ regeneration corrects that. See "Reconciliation" below for details.
 | 095 | 5D.4 | `095_5D4.sql` | `094_5D3` | transactional | 5484 | `694a01d3af46d1df48c94a4e099954e450029edb06460a6f7421dd5a2d766d1b` |
 | 096 | 5B.2 | `096_5B2.sql` | `095_5D4` | transactional | 2543 | `1d79ad3aa068eccb7d3181773bae61e4157ef37eb221e8777c7597c1a975bffc` |
 | 097 | 5D.5 | `097_5D5.sql` | `096_5B2` | transactional | 13681 | `1ebb277a8551b648cec8f085edc0dae5596ad2c54b8b348f58d8323a05f13fe1` |
+| 098 | 5E.1 | `098_5E1.sql` | `097_5D5` | transactional | 14473 | `57432208eb89c0fa35df64e2499717b78810be96f48227c9fa8ce282bed32e7d` |
+| 099 | 5C.1 | `099_5C1.sql` | `098_5E1` | transactional | 23609 | `cefdac7e72708694ff54410091e4b50f05cc2d83babdfef343bac21269dc703d` |
+
+---
+
+## Phase 6H Campaign Final Remediation (2026-08-28) — dispatch concurrency-safety amendment, live-validated
+
+Two new **forward** migrations, added after and on top of the validated 97-row
+Phase 6G Follow-up baseline. No row 001–097 was edited. Both are additive-only
+inside their respective already-frozen schemas (`campaign`, `voice`) — no
+existing table, column, constraint, index, or grant from `027_5E.sql`–
+`033_5E.sql` or `009_5C.sql`–`018_5C.sql` is altered.
+
+This entry supersedes an earlier same-day pass at these two row numbers.
+Neither `098_5E1.sql` nor `099_5C1.sql` had ever been applied to any real
+database when the earlier pass was superseded, so both are corrected in
+place rather than carried forward to `100_5E2.sql`/`101_5C2.sql` — there is
+no frozen, already-applied version of either file to preserve. **Unlike the
+earlier pass, this one was live-executed** against a disposable local
+PostgreSQL 18 database (a real `uv`-managed Python 3.14 environment with
+`alembic==1.19.1`/`sqlalchemy==2.0.52`/`psycopg==3.3.4`, installed for this
+validation only, not committed to the repository) — full detail, transcripts,
+and exact commands in `docs/phase-06-api-design/6H-Campaign-APIs.md` §49.
+
+**Fixes carried in this pass, beyond the two migrations' original scope:**
+
+1. **SECURITY DEFINER `search_path` hardening (found and reproduced live
+   before being fixed, not assumed).** `campaign.fn_enqueue_contact()` and
+   `campaign.fn_reserve_dispatch()` called the platform's shared
+   `gen_uuid_v7()` (`001_5B.sql`, lives in `public`) without `public` in
+   their own restrictive `search_path`. Live-reproduced failure:
+   `function gen_random_bytes(integer) does not exist` — because
+   `gen_uuid_v7()` itself calls `gen_random_bytes()` (pgcrypto) unqualified
+   with no `SET search_path` of its own, inheriting the *caller's*
+   search_path at execution time; qualifying only the outer call
+   (`public.gen_uuid_v7()`) is insufficient, confirmed live. Fix: a single,
+   isolated, single-purpose bridge function per schema
+   (`campaign.fn_new_uuid_v7()`, `voice.fn_new_uuid_v7()`), each the *only*
+   function in its migration permitted to see `public` — every other
+   function's `search_path` remains minimal (`campaign, organization,
+   pg_catalog` / `voice, organization, pg_catalog` / `voice, pg_catalog`).
+2. **Two genuine cross-tenant/cross-campaign defects, found by live
+   adversarial testing during this pass, not by inspection alone.**
+   `campaign.fn_enqueue_contact()` originally trusted its
+   `p_organization_id` parameter without ever confirming `p_campaign_id`
+   actually belonged to it — a live probe (Org A calling the function with
+   Org B's `campaign_id`) succeeded and created a real cross-tenant
+   `campaign_contacts` row before the fix. `campaign.fn_reserve_dispatch()`
+   separately never confirmed the targeted `CampaignContact` actually
+   belonged to the claimed `campaign_id` (only to the claimed
+   `organization_id`) — a live probe with a mismatched same-tenant
+   `(campaign_id, campaign_contact_id)` pair would have created a
+   `call_jobs` row whose `campaign_id` disagreed with the contact it
+   referenced. Both are now closed by an explicit ownership lookup/predicate
+   before any write; re-tested live afterward and confirmed rejected
+   (non-disclosing exception / `CONTACT_NOT_FOUND`, matching this codebase's
+   established non-disclosure convention).
+3. **A `#variable_conflict use_column` PL/pgSQL fix**, found and reproduced
+   live: `voice.fn_claim_dispatch_for_provider_submission()`'s `RETURNS
+   TABLE` output parameter `attempt_count` collided with
+   `voice.call_dispatch_keys.attempt_count`, the exact column its own
+   `UPDATE ... SET attempt_count = attempt_count + 1` needed to increment —
+   PL/pgSQL raised "column reference is ambiguous" until this pragma was
+   added.
+4. **Row 099 (`099_5C1.sql`, Phase 5C.1) now also closes the provider-
+   dispatch durability hole a second-pass adversarial review found in the
+   first version of this file** (a genuine, distinct defect from Blocker #3
+   above, not merely a restatement of it): the first version refused to
+   ever re-invoke the telephony provider once a dispatch key was claimed,
+   which meant a worker crash **between** committing the logical-call
+   reservation and actually calling `TelephonyPort.place_call()` would
+   **permanently lose the call** — the exact opposite failure mode from
+   double-dialing. `voice.call_dispatch_keys` now carries a full
+   provider-dispatch state machine (`RESERVED → CLAIMED → CONFIRMED |
+   AMBIGUOUS | FAILED`, lease-based ownership, `attempt_count`,
+   `provider_request_ref`/`provider_call_ref`, `last_error`), with four new
+   functions (`fn_claim_dispatch_for_provider_submission()`,
+   `fn_record_dispatch_confirmed()`, `fn_record_dispatch_ambiguous()`,
+   `fn_record_dispatch_failed()`) giving a genuine claim/lease/outcome
+   protocol instead of a single claim-then-never-retry flag. **AMBIGUOUS is
+   a hard stop** — no function in this migration ever transitions it back
+   to `CLAIMED` automatically; only a stale (lease-expired) `CLAIMED` row or
+   an explicit `FAILED` row is re-claimable.
+
+**Live validation performed in this pass (all genuinely executed, not
+narrated — full transcripts and exact commands in
+`docs/phase-06-api-design/6H-Campaign-APIs.md` §49):**
+
+- Fresh-database `alembic upgrade head` (001 → 099): **PASS**, exit code 0.
+- Incremental upgrade from an existing `097_5D5` database to `head`: **PASS**,
+  exit code 0.
+- `alembic heads`/`alembic current`: single head `099_5C1`, current matches
+  head, linear history confirmed.
+- `pg_proc`/`information_schema` inspection: all 9 new functions confirmed
+  `SECURITY DEFINER` with the documented, minimal `search_path`; `EXECUTE`
+  confirmed granted only to the intended roles and revoked from `PUBLIC` on
+  every one.
+- Genuine two-connection concurrency races (both orderings interleaved via
+  real overlapping transactions, not simulated sequentially): duplicate
+  `CampaignContact` enqueue (exactly one winner, zero duplicate rows);
+  duplicate dispatch reservation for the same `CampaignContact` (exactly one
+  `call_jobs` row); Pause-vs-in-flight-reservation (reservation already
+  holding the lock completes; Pause's own `UPDATE` genuinely blocked ~1.5s
+  waiting for it, then succeeded); Pause-already-committed-first (a fresh
+  reservation attempt correctly refused, `CAMPAIGN_NOT_RUNNING`); duplicate
+  Voice in-process dispatch with an identical key (exactly one
+  `call_sessions` row, exactly one `call_dispatch_keys` row); duplicate
+  provider-submission claim with an identical key (exactly one claimant).
+- Crash-recovery proofs: a claimed-then-abandoned (simulated crash, never
+  confirmed) dispatch, once its lease genuinely expired, was safely
+  re-claimed and confirmed by a different worker — the call was **not**
+  permanently lost; an `AMBIGUOUS` outcome was proven to permanently block
+  every subsequent reclaim attempt regardless of lease state (no automatic
+  retry); a `FAILED` outcome was proven safely re-claimable (the opposite
+  of `AMBIGUOUS`, confirming the state machine's asymmetry is real, not
+  just documented).
+- Duplicate Celery-style task redelivery (the identical dispatch attempt
+  submitted twice, sequentially): second delivery correctly refused
+  (`CONTACT_NOT_DISPATCHABLE`), exactly one `call_jobs` row.
+- Cross-tenant/cross-campaign probes (post-fix): all four rejected as
+  designed.
+
+**What remains an accepted, bounded, external-system limit, not closed by
+either migration:** whether the *telephony provider itself* received and
+acted on a single `TelephonyPort.place_call()` network call whose own
+response leg was lost is not resolvable by any idempotency key on the
+platform's own side alone — that residual sliver is bounded by 6D's
+pre-existing provider-retry contract (3B §19) and, where the active provider
+adapter supports it, a `provider_request_ref`-based reconciliation window
+against inbound callbacks (a documented, disclosed dependency on the
+provider-adapter layer, not assumed universally true of every provider).
+
+**Reconciled totals after this amendment:** 99/99 `migrations/*.sql` files,
+single linear chain, single head `099_5C1`, with matching
+`alembic/versions/098_5E1.py`/`099_5C1.py` wrappers now present and
+genuinely exercised (unlike the superseded pass, which had SQL files but no
+Alembic wrappers and no live execution at all).
+
+**Consumer:** `docs/phase-06-api-design/6H-Campaign-APIs.md` (Revision 3)
+§9, §16–§18, §32, §46–§47, §49–§51.
 
 ---
 

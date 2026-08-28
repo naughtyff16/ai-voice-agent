@@ -1345,6 +1345,51 @@ Every endpoint instantiates 6A's `{data, meta}`/`{error}` envelope, error shape,
 - **Concurrency:** two concurrent `POST /calls` under the same `Idempotency-Key` → second returns the cached first response (6A §16.2); under different keys, both proceed independently and are separately subject to the quota check (no race between them beyond the quota check's own indexed-count read, which is not a hard serialization point — a documented, low-severity race where two near-simultaneous requests could both pass a quota check that a strictly serialized check would have rejected the second of; **DEP-6D-09**, §36, non-blocking, identical in nature to 6C's own disclosed, non-blocking concurrency residuals).
 - **Security:** `from_number` is never client-suppliable — the client selects only an opaque `phone_number_id` (§10.2a), and the server resolves/returns the actual E.164 value; this is the specific structural control preventing caller-ID spoofing of a number the tenant does not own.
 
+### 28.10a Controlled Amendment — Phase 6H Campaign Dispatch Idempotency (added 2026-08-28; extended same day with provider-dispatch durability)
+
+**This subsection is an additive amendment, not a rewrite of §28.10 above.** Every statement in §28.10 remains exactly as written and continues to govern `POST /api/v1/calls` unchanged. This subsection documents a *separate* contract for a caller `POST /api/v1/calls` never serves: Campaign's in-process invocation of the outbound-call use case (§6's row: "Campaign triggers outbound calls via an in-process module call ... not a 6D-owned HTTP endpoint").
+
+**The gap this closes:** §28.10's `Idempotency-Key` requirement is an HTTP-layer mechanism (6A §16.2) — it has no meaning for a caller that never issues an HTTP request. A Phase 6H remediation review found that, absent an equivalent in-process contract, a Campaign worker that crashes or times out between committing its own `campaign.call_jobs` row and recording the resulting `call_session_id` had no way to safely retry without risking a second, real-world outbound call to the same person. **A same-day follow-up adversarial pass then found that the first version of this fix created the opposite failure mode**: refusing to ever re-invoke the provider once a dispatch key was claimed meant a crash *between* reserving the logical call and actually calling the provider would permanently lose the call. Both are closed together below.
+
+**Existing contract (unchanged):** the in-process port is `InitiateOutboundCallUseCase`, invoked directly by the Campaign Executor, bypassing the REST layer, tenant-JWT auth, and rate limiting entirely (it runs as a trusted in-process call within the same modular monolith, per 4H §9.1's boundary).
+
+**Corrected/extended contract — two calls, not one:**
+
+```
+# Step 1 — reserve the logical call identity (idempotent; safe to retry any number of times)
+InitiateOutboundCallUseCase(
+    organization_id, agent_id, agent_version_id, phone_number_id, to_number,
+    campaign_lead_ref,
+    dispatch_idempotency_key: str,   # required for this in-process caller
+) -> InitiateOutboundCallResult(call_session_id, session_started_at, is_new: bool)
+
+# Step 2 — claim exclusive ownership of the actual provider network call
+ClaimDispatchForProviderSubmission(
+    dispatch_idempotency_key, organization_id, worker_id: str,
+    lease_seconds: int = 30, provider_request_ref: str | None = None,
+) -> ClaimResult(claimed: bool, call_session_id, attempt_count: int, reason: str | None)
+
+# Step 3 (only if claimed=True) — call TelephonyPort.place_call() OUTSIDE any transaction,
+# then record exactly one of:
+RecordDispatchConfirmed(dispatch_idempotency_key, organization_id, worker_id, provider_call_ref: str) -> bool
+RecordDispatchFailed(dispatch_idempotency_key, organization_id, worker_id, error: str | None) -> bool     # definite rejection, pre-acceptance — safe to retry
+RecordDispatchAmbiguous(dispatch_idempotency_key, organization_id, worker_id, error: str | None) -> bool  # outcome unknown — NEVER auto-retried
+```
+
+- **Idempotency semantics (Step 1, unchanged from the first pass):** `dispatch_idempotency_key` is the caller's own domain identity (for Campaign: the exact same SHA-256 `campaign.call_jobs.idempotency_key` value already computed per DDR-4D-002 — passed through unchanged, never recomputed by Voice). Backed by `voice.fn_initiate_outbound_call_idempotent()` (`099_5C1.sql`) — a `PRIMARY KEY`-backed atomic claim (`voice.call_dispatch_keys`), because `voice.call_sessions` is itself `PARTITION BY RANGE (started_at)` and cannot carry a direct partition-key-free `UNIQUE` constraint on this key. A retried call with the same key returns `is_new = FALSE` and the *same* `call_session_id` instead of creating a second row. **Live-proven**: a genuine two-connection concurrent call with the same key produced exactly one `call_sessions` row.
+- **Provider-dispatch ownership semantics (Step 2, new):** `dispatch_state` on `voice.call_dispatch_keys` moves `RESERVED → CLAIMED` only for the one caller whose claim succeeds — a concurrent second claim attempt for the same key is refused (`claimed=False`, `reason='NOT_CLAIMABLE_CLAIMED'`) while the lease is valid, and a lease-expired `CLAIMED` row (an abandoned/crashed claim) becomes re-claimable, guaranteeing the call is never permanently lost. **Live-proven**: two concurrent claims for the same key produced exactly one claimant; a claimed-then-abandoned dispatch was safely re-claimed and confirmed by a different worker once its 5-second test lease genuinely expired.
+- **Outcome-recording semantics (Step 3, new):** `RecordDispatchConfirmed` requires a `provider_call_ref` and moves the state to `CONFIRMED` (terminal, not re-claimable). `RecordDispatchFailed` is for a **definite**, pre-acceptance provider rejection (e.g., a synchronous validation error) and leaves the row safely re-claimable. `RecordDispatchAmbiguous` is for **any** outcome that cannot be determined (timeout, connection reset, unclear response) and is a **hard stop** — no function transitions `AMBIGUOUS` back to `CLAIMED` automatically, ever; resolving it requires either a provider-side reconciliation (matching an inbound callback against `provider_request_ref`, where the active provider adapter supports echoing a caller-supplied reference — verify this against the actual Exotel/other adapter contract before relying on it; not assumed here) or a bounded operator decision. **Live-proven**: an `AMBIGUOUS` row was confirmed to reject every subsequent claim attempt regardless of lease state, while a `FAILED` row was confirmed safely re-claimable — the asymmetry is real, not just documented.
+- **Campaign caller behavior:** on Step 2's `claimed=True`, Campaign proceeds to `TelephonyPort.place_call()` **outside any transaction** (unchanged from §23.3's existing rule), then calls exactly one of the three Step-3 outcome recorders based on what actually happened. On `claimed=False`, Campaign **must not** call the provider — it reads `reason` to determine why (already confirmed, ambiguous pending reconciliation, or another worker currently owns it) and reconciles accordingly.
+- **Error behavior:** a validation failure inside Step 1 (invalid `agent_version_id`, inactive `phone_number_id`, etc.) raises exactly as it does for the REST path today (§28.10's `422`/`404` conditions) — unchanged by this amendment.
+- **Backward compatibility:** none of this affects `POST /api/v1/calls`'s own HTTP `Idempotency-Key` mechanism (§28.10) — a human/API-key caller through the REST endpoint never supplies or sees any of these parameters. 6D's own implementation of `POST /calls` may, in a future revision, choose to route through the same primitives; this amendment does not mandate that today.
+- **Why this does not invalidate the rest of frozen 6D:** purely additive to one internal port's contract that no tenant-facing surface in this document depends on; no existing endpoint, permission, DTO, error code, or state-machine transition in §1–§37 is altered. `voice.call_sessions`' own columns, constraints, and grants (`011_5C.sql`) remain completely untouched.
+
+**What this explicitly does not and cannot solve:** whether the telephony *provider itself* received and acted on a single `TelephonyPort.place_call()` network call whose response leg was lost is an external-system ambiguity no platform-side idempotency key can resolve alone — bounded by the pre-existing provider-retry contract (3B §19, reused by 6D as-is) and, where the adapter supports it, `provider_request_ref`-based reconciliation. This amendment eliminates *platform-internal* double-dispatch and *platform-internal* permanent call loss; it does not and cannot manufacture certainty about a specific external network call's fate.
+
+**Verification status:** live-executed and race-tested against a disposable local PostgreSQL 18 database — fresh-database and incremental `alembic upgrade` both passed; every concurrency/crash-recovery scenario named above was exercised as a genuine multi-connection transaction or real elapsed-time lease expiry. Full transcripts: `docs/phase-06-api-design/6H-Campaign-APIs.md` §49.
+
+**Full DDL and rationale:** `099_5C1.sql`; `docs/phase-05-database-design/5C-Voice-Schema.md`'s matching amendment section; `docs/phase-06-api-design/6H-Campaign-APIs.md` (Revision 3) §18, §49.
+
 ### 28.11 `GET /api/v1/calls`
 
 - **Purpose:** List calls. **Authz:** `call:read`. **Filters:** `status`, `direction`, date range, `contact_ref`. **Pagination:** cursor. **Latency:** Tier A.
