@@ -169,6 +169,69 @@ were inspected directly against `pg_proc.proconfig` and confirmed to carry
 their documented, minimal `search_path`; `has_function_privilege('public',
 oid, 'EXECUTE')` returned `false` for every one of them.
 
+## Addendum (2026-08-28, Final Micro-Remediation pass) — reconciliation authorization boundary
+
+The prior pass's own `fn_reconcile_dispatch_outcome()` — the function that
+can convert `AMBIGUOUS`/`SUBMITTING` into `FAILED`, re-opening physical
+retry eligibility — granted `EXECUTE` to `app_api` and `app_worker`, the two
+broad application roles. This addendum closes that gap. Full raw
+transcript: `execution_logs/20260828T210000Z_81_final_reconciliation_privilege_and_provenance_output.txt`.
+
+**Role model inspected first:** the existing catalog (`app_api`,
+`app_worker`, `app_readonly`, `app_migration`, `app_platform_admin`) was
+checked for a narrow-enough existing capability before creating anything
+new — none fit (see `MIGRATION_MANIFEST.md`'s Final Micro-Remediation entry
+for the full reasoning). A new role, `app_voice_reconciler` (`LOGIN`, `NOT
+BYPASSRLS`, no table DML, `EXECUTE` on exactly one function), was created.
+
+**Privilege tests, on PostgreSQL 16.10:**
+
+| Caller | Action | Result |
+|---|---|---|
+| `app_api` | `fn_reconcile_dispatch_outcome(..., 'FAILED', ...)` | `ERROR: permission denied for function fn_reconcile_dispatch_outcome` |
+| `app_worker` | same | `ERROR: permission denied for function fn_reconcile_dispatch_outcome` |
+| `app_api`, forging `p_reconciled_by = 'admin'` | same | Still `permission denied` — the forged parameter never reaches the function body |
+| `app_voice_reconciler` | `AMBIGUOUS → CONFIRMED` (with `provider_call_ref`) | Succeeds; `reconciliation_source='PROVIDER_CALLBACK'` persisted |
+| `app_voice_reconciler` | `AMBIGUOUS → FAILED` (with evidence note) | Succeeds; the row is then genuinely re-claimable (`attempt_count` incremented) — proves `FAILED` really reopens retry |
+| `app_voice_reconciler` | `AMBIGUOUS → FAILED`, empty-string note | `ERROR: p_note (evidence description) is required when p_outcome = FAILED` |
+| `app_voice_reconciler` | `AMBIGUOUS → FAILED`, `NULL` note | Same error |
+| `app_voice_reconciler` | `CONFIRMED → FAILED` (attempting to reopen a known-accepted call) | `reconciled=false, reason=NOT_RECONCILABLE_OR_NOT_FOUND` — row remains `CONFIRMED` |
+| `app_voice_reconciler`, Org B credentials, targeting an Org A dispatch key | `AMBIGUOUS → FAILED` | `reconciled=false, reason=NOT_RECONCILABLE_OR_NOT_FOUND` — non-disclosing; row's `organization_id`/state confirmed unchanged afterward |
+
+`has_function_privilege()` across all 6 roles: only `app_voice_reconciler`
+and `app_platform_admin` show `true`; `app_api`, `app_worker`,
+`app_readonly`, `app_migration` all show `false`.
+
+**Provenance, verified by direct query (not assumed present):**
+```
+ dispatch_state | reconciliation_source | reconciled_by     | has_ts | provider_call_ref     | last_error
+ CONFIRMED      | PROVIDER_CALLBACK     | webhook-handler-1 | t      | PROVIDER-CALL-REF-R1  | matched via provider_request_ref callback
+ FAILED         | PROVIDER_LOOKUP       | reconciler-svc    | t      |                       | authoritative provider lookup: call never created
+```
+
+**Audit evidence, verified by direct query against `audit.audit_events`:**
+both successful reconciliations produced a `VOICE_DISPATCH_RECONCILED`
+event with `actor_type='WORKER'` (both tested sources were provider-driven,
+not `OPERATOR`), the correct `resource_id` (the call session), `outcome=
+'SUCCESS'`, and a `resource_snapshot` containing only the dispatch key,
+old/new state, reconciliation source, and provider reference — no phone
+number or other PII.
+
+**Test-script artifact, disclosed:** two follow-up diagnostic `SELECT`s
+against `voice.call_dispatch_keys`, issued while still `SET ROLE
+app_voice_reconciler`, failed with `permission denied for table
+call_dispatch_keys` — confirming this role has no privilege on the table
+itself beyond the one function's `EXECUTE`, exactly as intended (true least
+privilege). The provenance table above was retrieved via a follow-up query
+run as the test session's superuser instead.
+
+**Regression, unchanged:** the full sixth-batch scenario set (expired-
+`CLAIMED`-before-`SUBMITTING` recovery, the `SUBMITTING` hard-stop,
+same-key/same-payload replay, same-key/different-payload mismatch,
+cross-tenant `fn_initiate_outbound_call_idempotent()` denial) was re-run on
+this pass's own fresh PostgreSQL 16 instance and reproduced identical
+results — this pass's changes did not touch any of that logic.
+
 ## What remains an accepted, disclosed limitation
 
 A crash strictly between the `SUBMITTING` commit and the process actually

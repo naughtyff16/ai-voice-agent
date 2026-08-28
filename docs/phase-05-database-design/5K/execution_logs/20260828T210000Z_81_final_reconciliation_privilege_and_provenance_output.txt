@@ -1,0 +1,205 @@
+SET
+           call_session_id            |        session_started_at        | is_new | outcome 
+--------------------------------------+----------------------------------+--------+---------
+ 01a048f9-692e-7f1a-b795-9573bd19312e | 2026-08-28 20:55:00.071779+05:30 | t      | CREATED
+(1 row)
+
+           call_session_id            |        session_started_at        | is_new | outcome 
+--------------------------------------+----------------------------------+--------+---------
+ 01a048f9-693e-7738-9e8e-8e79938802a6 | 2026-08-28 20:55:00.093749+05:30 | t      | CREATED
+(1 row)
+
+           call_session_id            |        session_started_at        | is_new | outcome 
+--------------------------------------+----------------------------------+--------+---------
+ 01a048f9-693f-733f-98a3-a3daee7aef59 | 2026-08-28 20:55:00.095028+05:30 | t      | CREATED
+(1 row)
+
+           call_session_id            |       session_started_at        | is_new | outcome 
+--------------------------------------+---------------------------------+--------+---------
+ 01a048f9-6941-7813-83b3-b3aeff4421ab | 2026-08-28 20:55:00.09643+05:30 | t      | CREATED
+(1 row)
+
+RESET
+SET
+ claimed |           call_session_id            |                       provider_request_ref                       | attempt_count | reason 
+---------+--------------------------------------+------------------------------------------------------------------+---------------+--------
+ t       | 01a048f9-692e-7f1a-b795-9573bd19312e | rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr1 |             1 | 
+(1 row)
+
+ began | reason 
+-------+--------
+ t     | 
+(1 row)
+
+ fn_record_dispatch_ambiguous 
+------------------------------
+ t
+(1 row)
+
+ claimed |           call_session_id            |                       provider_request_ref                       | attempt_count | reason 
+---------+--------------------------------------+------------------------------------------------------------------+---------------+--------
+ t       | 01a048f9-693e-7738-9e8e-8e79938802a6 | rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr2 |             1 | 
+(1 row)
+
+ began | reason 
+-------+--------
+ t     | 
+(1 row)
+
+ fn_record_dispatch_ambiguous 
+------------------------------
+ t
+(1 row)
+
+ claimed |           call_session_id            |                       provider_request_ref                       | attempt_count | reason 
+---------+--------------------------------------+------------------------------------------------------------------+---------------+--------
+ t       | 01a048f9-693f-733f-98a3-a3daee7aef59 | rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr3 |             1 | 
+(1 row)
+
+ began | reason 
+-------+--------
+ t     | 
+(1 row)
+
+ fn_record_dispatch_ambiguous 
+------------------------------
+ t
+(1 row)
+
+ claimed |           call_session_id            |                       provider_request_ref                       | attempt_count | reason 
+---------+--------------------------------------+------------------------------------------------------------------+---------------+--------
+ t       | 01a048f9-6941-7813-83b3-b3aeff4421ab | rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr4 |             1 | 
+(1 row)
+
+ began | reason 
+-------+--------
+ t     | 
+(1 row)
+
+ fn_record_dispatch_confirmed 
+------------------------------
+ t
+(1 row)
+
+RESET
+==== TEST 17/21: ordinary app_api attempts direct reconciliation -- MUST BE DENIED ====
+SET
+psql:C:/Users/Dell/pgval16b/02_reconcile_tests.sql:34: ERROR:  permission denied for function fn_reconcile_dispatch_outcome
+RESET
+==== TEST 18/21: generic app_worker attempts direct reconciliation -- MUST BE DENIED ====
+SET
+psql:C:/Users/Dell/pgval16b/02_reconcile_tests.sql:39: ERROR:  permission denied for function fn_reconcile_dispatch_outcome
+RESET
+-- confirm dispatch key 1 is STILL AMBIGUOUS after both denied attempts --
+ dispatch_state 
+----------------
+ AMBIGUOUS
+(1 row)
+
+==== TEST 8/9 (authorization forgery attempt): reconciled_by=admin/provider must NOT grant privilege when caller role itself lacks EXECUTE ====
+SET
+psql:C:/Users/Dell/pgval16b/02_reconcile_tests.sql:47: ERROR:  permission denied for function fn_reconcile_dispatch_outcome
+RESET
+==== TEST 19: authorized reconciler (app_voice_reconciler) resolves AMBIGUOUS -> CONFIRMED ====
+SET
+SET
+ reconciled | reason 
+------------+--------
+ t          | 
+(1 row)
+
+psql:C:/Users/Dell/pgval16b/02_reconcile_tests.sql:54: ERROR:  permission denied for table call_dispatch_keys
+RESET
+RESET
+==== TEST 20: authorized reconciler resolves AMBIGUOUS -> FAILED with authoritative negative evidence, then verify retry becomes eligible ====
+SET
+SET
+ reconciled | reason 
+------------+--------
+ t          | 
+(1 row)
+
+psql:C:/Users/Dell/pgval16b/02_reconcile_tests.sql:62: ERROR:  permission denied for table call_dispatch_keys
+RESET
+-- normal retry flow: fresh claim of the now-FAILED row must succeed --
+SET
+ claimed |           call_session_id            |                       provider_request_ref                       | attempt_count | reason 
+---------+--------------------------------------+------------------------------------------------------------------+---------------+--------
+ t       | 01a048f9-693e-7738-9e8e-8e79938802a6 | rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr2 |             2 | 
+(1 row)
+
+RESET
+RESET
+==== TEST (§6): FAILED reconciliation with NO evidence must be rejected even for the authorized role ====
+SET
+SET
+psql:C:/Users/Dell/pgval16b/02_reconcile_tests.sql:73: ERROR:  fn_reconcile_dispatch_outcome: p_note (evidence description) is required when p_outcome = FAILED
+CONTEXT:  PL/pgSQL function fn_reconcile_dispatch_outcome(character,uuid,text,text,text,text,text) line 23 at RAISE
+psql:C:/Users/Dell/pgval16b/02_reconcile_tests.sql:74: ERROR:  fn_reconcile_dispatch_outcome: p_note (evidence description) is required when p_outcome = FAILED
+CONTEXT:  PL/pgSQL function fn_reconcile_dispatch_outcome(character,uuid,text,text,text,text,text) line 23 at RAISE
+RESET
+-- confirm dispatch key 3 is STILL AMBIGUOUS (both no-evidence attempts rejected) --
+ dispatch_state 
+----------------
+ AMBIGUOUS
+(1 row)
+
+RESET
+==== TEST 22: CONFIRMED state immutability -- authorized reconciler attempts CONFIRMED -> FAILED, must be denied ====
+SET
+SET
+ reconciled |            reason             
+------------+-------------------------------
+ f          | NOT_RECONCILABLE_OR_NOT_FOUND
+(1 row)
+
+RESET
+-- confirm dispatch key 4 is STILL CONFIRMED --
+ dispatch_state 
+----------------
+ CONFIRMED
+(1 row)
+
+RESET
+==== TEST 23: cross-tenant reconciliation -- Org B attempts to reconcile Org A dispatch key 3 (still AMBIGUOUS) ====
+SET
+SET
+ reconciled |            reason             
+------------+-------------------------------
+ f          | NOT_RECONCILABLE_OR_NOT_FOUND
+(1 row)
+
+RESET
+RESET
+-- confirm dispatch key 3 organization_id and state are unchanged, no cross-tenant leak --
+           organization_id            | dispatch_state 
+--------------------------------------+----------------
+ 00000000-0000-0000-0000-0000000000a1 | AMBIGUOUS
+(1 row)
+
+==== TEST 24: reconciliation provenance persisted, direct query ====
+                     dispatch_idempotency_key                     | dispatch_state | reconciliation_source |   reconciled_by   | has_ts |  provider_call_ref   |                    last_error                     
+------------------------------------------------------------------+----------------+-----------------------+-------------------+--------+----------------------+---------------------------------------------------
+ rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr1 | CONFIRMED      | PROVIDER_CALLBACK     | webhook-handler-1 | t      | PROVIDER-CALL-REF-R1 | matched via provider_request_ref callback
+ rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr2 | CLAIMED        | PROVIDER_LOOKUP       | reconciler-svc    | t      |                      | authoritative provider lookup: call never created
+(2 rows)
+
+==== TEST: audit event written for successful reconciliations ====
+        action_kind        | actor_type |    actor_name     |      resource_type       |             resource_id              | outcome |                                                                                                                resource_snapshot                                                                                                                
+---------------------------+------------+-------------------+--------------------------+--------------------------------------+---------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ VOICE_DISPATCH_RECONCILED | WORKER     | webhook-handler-1 | voice.call_dispatch_keys | 01a048f9-692e-7f1a-b795-9573bd19312e | SUCCESS | {"new_state": "CONFIRMED", "old_state": "AMBIGUOUS", "provider_call_ref": "PROVIDER-CALL-REF-R1", "reconciliation_source": "PROVIDER_CALLBACK", "dispatch_idempotency_key": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr1"}
+ VOICE_DISPATCH_RECONCILED | WORKER     | reconciler-svc    | voice.call_dispatch_keys | 01a048f9-693e-7738-9e8e-8e79938802a6 | SUCCESS | {"new_state": "FAILED", "old_state": "AMBIGUOUS", "provider_call_ref": null, "reconciliation_source": "PROVIDER_LOOKUP", "dispatch_idempotency_key": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr2"}
+(2 rows)
+
+==== Privilege matrix: has_function_privilege per role ====
+       rolname        | can_execute 
+----------------------+-------------
+ app_api              | f
+ app_migration        | f
+ app_platform_admin   | t
+ app_readonly         | f
+ app_voice_reconciler | t
+ app_worker           | f
+(6 rows)
+
+RECONCILE_TESTS_DONE

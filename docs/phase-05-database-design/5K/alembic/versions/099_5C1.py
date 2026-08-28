@@ -10,17 +10,27 @@ reclaims SUBMITTING regardless of lease staleness), voice.
 fn_begin_provider_submission() (new — the durable pre-network-call
 boundary), voice.fn_record_dispatch_confirmed(), voice.
 fn_record_dispatch_ambiguous(), voice.fn_record_dispatch_failed()
-(revised source states), voice.fn_reconcile_dispatch_outcome() (new —
-identity-correlated resolution of a SUBMITTING/AMBIGUOUS row, e.g. from a
-delayed provider callback). Eight voice.fn_* functions total in this
-migration. Resolves Phase 6H Campaign remediation Blocker #3 (Campaign ->
-Voice in-process dispatch idempotency), its follow-on Blocker C
-(crash-before-provider-submission durability hole), and the Final Blocker
+(revised source states), voice.fn_reconcile_dispatch_outcome() (revised
+again this pass — see below). Eight voice.fn_* functions total in this
+migration. Also creates one new PostgreSQL role, app_voice_reconciler
+(LOGIN, not BYPASSRLS, no table DML — EXECUTE on exactly one function).
+Resolves Phase 6H Campaign remediation Blocker #3 (Campaign -> Voice
+in-process dispatch idempotency), its follow-on Blocker C
+(crash-before-provider-submission durability hole), the Final Blocker
 Remediation pass's Blocker A (expired-CLAIMED-lease double-dial hazard),
 Blocker C (direct-INSERT privilege bypass — see the GRANT statements in
 099_5C1.sql), and Blocker D (idempotency replay tenant/payload
-validation). Additive only — voice.call_sessions itself is untouched. See
-099_5C1.sql's own header comment for full rationale.
+validation), and the Final Micro-Remediation pass's reconciliation-
+authorization-boundary fix: fn_reconcile_dispatch_outcome()'s EXECUTE grant
+was too broad (app_api/app_worker could both call it, meaning ordinary
+application/worker code could convert an AMBIGUOUS submission to FAILED and
+re-authorize a second physical telephony attempt) — EXECUTE is now granted
+only to app_voice_reconciler and app_platform_admin, with a new required
+p_reconciliation_source provenance parameter/column, a mandatory evidence
+requirement for FAILED reconciliation, and a synchronous
+VOICE_DISPATCH_RECONCILED audit event. Additive only — voice.call_sessions
+itself is untouched. See 099_5C1.sql's own header comment for full
+rationale.
 
 Revision ID: 099_5C1
 Revises: '098_5E1'
@@ -49,6 +59,7 @@ def downgrade() -> None:
         "package. No rollback DDL is authored here. To revert, restore "
         "from a database backup taken before this revision was applied "
         "(the eight new voice.fn_* functions would need to be dropped, "
-        "then voice.call_dispatch_keys itself — an operational runbook "
-        "note, not an Alembic-managed downgrade)."
+        "then voice.call_dispatch_keys itself, then the app_voice_reconciler "
+        "role — an operational runbook note, not an Alembic-managed "
+        "downgrade)."
     )

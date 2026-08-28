@@ -109,7 +109,102 @@ regeneration corrects that. See "Reconciliation" below for details.
 | 096 | 5B.2 | `096_5B2.sql` | `095_5D4` | transactional | 2543 | `1d79ad3aa068eccb7d3181773bae61e4157ef37eb221e8777c7597c1a975bffc` |
 | 097 | 5D.5 | `097_5D5.sql` | `096_5B2` | transactional | 13681 | `1ebb277a8551b648cec8f085edc0dae5596ad2c54b8b348f58d8323a05f13fe1` |
 | 098 | 5E.1 | `098_5E1.sql` | `097_5D5` | transactional | 15651 | `b3880884b392c095c96f29362a57ec1e31d0343e87bd9f982d31e3f0bd26947d` |
-| 099 | 5C.1 | `099_5C1.sql` | `098_5E1` | transactional | 42871 | `5ed3d473911ac00b8b9bd0399cb54e029126405b668aa7c9d39e1e14a99a765f` |
+| 099 | 5C.1 | `099_5C1.sql` | `098_5E1` | transactional | 56477 | `bbb004da8143f48586643adbea9f030a721f9db3491e4cab074344d34fd57298` |
+
+---
+
+## Phase 6H Final Micro-Remediation (2026-08-28) — reconciliation authorization boundary, provenance, PostgreSQL 16 live-validated
+
+`099_5C1.sql` corrected in place a fourth time — still never applied to any
+production database, so the disclosed migration policy (edit in place, no
+`100_5C2.sql`) continues to apply. The prior (Final Blocker Remediation)
+pass closed the P0 double-dial hazard with a durable `SUBMITTING` boundary
+and a new `voice.fn_reconcile_dispatch_outcome()` resolution function — but
+granted that function's `EXECUTE` privilege to `app_api` and `app_worker`,
+the two broad, shared-by-everything application roles. Because this
+function can transition `SUBMITTING`/`AMBIGUOUS` to `FAILED`, and a
+`FAILED` row is immediately re-claimable for a fresh physical provider
+attempt, that grant meant **any** ordinary application or worker code path
+could unilaterally re-authorize a second physical telephony attempt for an
+ambiguous call — the exact class of defect this whole remediation exists to
+prevent, just relocated to the reconciliation function itself.
+
+**What changed, closing this gap:**
+
+1. **New role, `app_voice_reconciler`** (`LOGIN`, `NOT BYPASSRLS`, no table
+   DML, no membership elsewhere). The existing five-role catalog (`001_5B.
+   sql`: `app_api`, `app_worker`, `app_readonly`, `app_migration`,
+   `app_platform_admin`) was inspected first; none was narrow enough for
+   this one capability (`app_api`/`app_worker` are too broad; `app_readonly`
+   cannot write; `app_platform_admin` is correct for the human/operator path
+   but far broader than a single automated function needs). Its entire
+   privilege surface is `USAGE` on schema `voice` plus `EXECUTE` on exactly
+   one function — nothing else.
+2. **`EXECUTE` on `voice.fn_reconcile_dispatch_outcome()` revoked from
+   `app_api`/`app_worker`, granted only to `app_voice_reconciler`
+   (the automated provider-callback/provider-lookup path) and
+   `app_platform_admin`** (the existing break-glass/operator role,
+   `087_5B1.sql` — reusing it rather than inventing a second new role for
+   the human path).
+3. **New required provenance field, `p_reconciliation_source`** (`
+   'PROVIDER_CALLBACK' | 'PROVIDER_LOOKUP' | 'OPERATOR'`), persisted to a
+   new column, `voice.call_dispatch_keys.reconciliation_source`, with an
+   all-or-nothing `CHECK` constraint tying it to `reconciled_by`/
+   `reconciled_at`. This is evidentiary metadata, never authorization —
+   `p_reconciled_by` and `p_reconciliation_source` are never read in any
+   `IF`/`CASE`/`WHERE` clause that decides anything; a caller cannot forge
+   privilege by passing `p_reconciled_by = 'admin'` (live-proven: an
+   `app_api` call with exactly that forged value still fails at the
+   `permission denied` stage, before the function body ever executes).
+4. **`FAILED` reconciliation now requires a non-empty evidence description**
+   (`p_note`), enforced both in the function body and by a new `CHECK`
+   constraint (`chk_cdk_reconciled_failed_has_evidence`, defense in depth) —
+   "no evidence at all" is now structurally impossible for a reconciled
+   `FAILED` row. This cannot verify the evidence is *true* (no database
+   can) — that is what the `EXECUTE`-privilege boundary is for — it only
+   closes the "silently blank" failure mode.
+5. **A durable audit event (`VOICE_DISPATCH_RECONCILED`, via
+   `audit.fn_insert_audit_event()`, 5J §14.2's sole legal write path) is now
+   written synchronously for every successful reconciliation** — closing
+   the prior complete absence of audit evidence for this safety-critical
+   transition. `action_kind` is `TEXT` with only a length `CHECK`
+   (`chk_ae_action_kind`), identical precedent to every prior phase's own
+   new value — zero additional schema change (§G of `099_5C1.sql`).
+6. **Allowed source states re-verified, unchanged**: only `SUBMITTING` and
+   `AMBIGUOUS` — `CONFIRMED → FAILED` (reopening a known-accepted call) was
+   already structurally impossible before this pass and remains so; **live-
+   proven this pass**, not merely re-asserted: an authorized-role attempt to
+   reconcile an already-`CONFIRMED` row returned `reconciled=false`, the row
+   unchanged.
+
+**Live-validated on a genuinely fresh, disposable PostgreSQL 16.10 instance**
+(the prior pass's own instance had already been torn down per its documented
+cleanup — this is an independently rebuilt instance, same method: binaries-
+only distribution, `pgvector` built from source via the local MSVC
+toolchain): fresh-database and incremental `alembic upgrade` both exit code
+0, single head `099_5C1`; direct execution of the reconciliation function as
+`app_api` and `app_worker` both fail with `permission denied`; the
+authorized role successfully resolves `AMBIGUOUS → CONFIRMED` and a separate
+`AMBIGUOUS → FAILED` (with the `FAILED` row then genuinely re-claimable,
+proving retry is really reopened); two no-evidence `FAILED` attempts
+correctly rejected; a `CONFIRMED`-row reconciliation attempt correctly
+refused; a cross-tenant attempt correctly refused, non-disclosingly, with no
+mutation; provenance and the audit event both confirmed present and
+accurate by direct query; the full sixth-batch regression suite (expired-
+`CLAIMED` recovery, the `SUBMITTING` hard-stop, replay/mismatch/cross-tenant
+idempotency) re-run and unchanged. Full transcripts:
+`execution_logs/README.md`'s "Seventh batch";
+`validation/VOICE_DISPATCH_VALIDATION_REPORT.md`.
+
+**Reconciled totals after this amendment:** 99/99 `migrations/*.sql` files
+(unchanged count — no new row added), single linear chain, single head
+`099_5C1`, 6 PostgreSQL roles (`app_api`, `app_worker`, `app_readonly`,
+`app_migration`, `app_platform_admin`, `app_voice_reconciler` — the last one
+new this pass).
+
+**Consumer:** `docs/phase-06-api-design/6H-Campaign-APIs.md` (Revision 5)
+§18.4, §49.9a; `docs/phase-06-api-design/6D-Voice-Call-Agent-APIs.md`
+§28.10a.
 
 ---
 
