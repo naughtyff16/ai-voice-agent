@@ -1,0 +1,22 @@
+SET
+ pg_sleep 
+----------
+ 
+(1 row)
+
+ claimed |           call_session_id            |                       provider_request_ref                       | attempt_count |        reason         
+---------+--------------------------------------+------------------------------------------------------------------+---------------+-----------------------
+ f       | 01a048d1-7043-7d86-ad28-28295731d7ab | rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr |             1 | NOT_CLAIMABLE_CLAIMED
+(1 row)
+
+SET
+ pg_sleep 
+----------
+ 
+(1 row)
+
+ claimed |           call_session_id            |                       provider_request_ref                       | attempt_count | reason 
+---------+--------------------------------------+------------------------------------------------------------------+---------------+--------
+ t       | 01a048d1-7043-7d86-ad28-28295731d7ab | rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr |             1 | 
+(1 row)
+

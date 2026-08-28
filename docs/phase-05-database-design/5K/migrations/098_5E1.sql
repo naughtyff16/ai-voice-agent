@@ -18,6 +18,23 @@
 -- SECURITY DEFINER search_path fix in §A below; the table/function
 -- purpose, invariants, and grants are otherwise unchanged.
 --
+-- REVISION NOTE (Final Blocker Remediation pass, same day, second pass):
+-- Blocker B closed. app_worker's direct INSERT grant on
+-- campaign.campaign_contact_identities (below) is removed. An adversarial
+-- review correctly observed that a caller holding that grant could INSERT
+-- an identity row directly, bypassing campaign.fn_enqueue_contact()
+-- entirely -- creating an orphan identity claim with no corresponding
+-- campaign_contacts row, which would then permanently block every future
+-- legitimate fn_enqueue_contact() call for that (campaign_id, contact_id)
+-- pair (its ON CONFLICT DO NOTHING would always lose to the orphan, which
+-- has no campaign_contacts row to report back as the "winner"). This
+-- function is SECURITY DEFINER, owned by the migration-running role
+-- (app_migration), which already holds full privileges on every object it
+-- creates independent of any GRANT statement -- removing app_worker's own
+-- direct INSERT grant does not impair the guarded function itself, only
+-- direct caller access. SELECT remains granted directly for read-side
+-- reconciliation/diagnostics.
+--
 -- =================================================================
 -- §A. SECURITY DEFINER search_path — empirically verified fix
 -- =================================================================
@@ -101,11 +118,12 @@ CREATE POLICY rls_cci_tenant ON campaign.campaign_contact_identities
   USING (organization_id = organization.current_tenant_id())
   WITH CHECK (organization_id = organization.current_tenant_id());
 
--- Only the materialization worker path ever writes this table directly, and
--- only through fn_enqueue_contact() below in practice; SELECT is also
--- granted directly for read-side reconciliation/diagnostics.
-GRANT SELECT, INSERT ON campaign.campaign_contact_identities TO app_worker;
-GRANT SELECT ON campaign.campaign_contact_identities TO app_api, app_readonly;
+-- Blocker B (Final Blocker Remediation, 2026-08-28): no role holds direct
+-- INSERT on this table. The ONLY legal write path is
+-- campaign.fn_enqueue_contact() below (SECURITY DEFINER, owned by
+-- app_migration, which does not need or use this GRANT to write). SELECT
+-- is granted directly for read-side reconciliation/diagnostics only.
+GRANT SELECT ON campaign.campaign_contact_identities TO app_worker, app_api, app_readonly;
 GRANT SELECT, INSERT, UPDATE, DELETE ON campaign.campaign_contact_identities TO app_platform_admin;
 
 CREATE OR REPLACE FUNCTION campaign.fn_enqueue_contact(

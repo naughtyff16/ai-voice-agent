@@ -291,3 +291,58 @@ database, and was left empty at the end of this batch.
 
 See `../validation/077_5J1_VALIDATION_REPORT.md` (updated by this batch) and
 `../MIGRATION_MANIFEST.md` row `077` for the consolidated result.
+
+## Sixth batch — Phase 6H Final Blocker Remediation, PostgreSQL 16 live validation (2026-08-28, prefix `20260828T143000Z`)
+
+Everything above (batches 1-5) validated 098_5E1/099_5C1 (or their
+predecessor rows) against local PostgreSQL 18. This batch re-validates the
+Final Blocker Remediation rewrite of `098_5E1.sql`/`099_5C1.sql` — the
+provider-submission-boundary (`SUBMITTING`) state machine, the removal of
+direct `INSERT` grants on `campaign.campaign_contact_identities` and
+`voice.call_dispatch_keys`, and the tenant/payload-fingerprint validation
+added to `voice.fn_initiate_outbound_call_idempotent()` — against a
+**genuinely separate, disposable PostgreSQL 16.10 instance**, since the
+declared production baseline is PostgreSQL 16, not 18. No Docker engine is
+available in this environment (confirmed again in this pass); PostgreSQL
+16.10 was instead installed as a standalone, service-free binary
+distribution (EDB's `postgresql-16.10-1-windows-x64-binaries.zip`,
+downloaded directly from `get.enterprisedb.com`, no admin/service
+registration required, unlike the full GUI installer which this pass tried
+first and which genuinely failed with "the requested operation requires
+elevation" — captured, not worked around by assuming success) at
+`C:\Users\Dell\pgval16`, `initdb`'d fresh, and started on port `5433`
+(the existing PostgreSQL 18 instance on `5432` was never touched). `vector`
+was not bundled in the binaries-only zip; it was built from `pgvector`
+source tag `v0.8.0` against this PG16 instance's own headers/import libs
+using the Visual Studio 18 (MSVC 14.51) toolchain already present on this
+machine, installed, and loaded — `CREATE EXTENSION vector` confirmed live,
+alongside `pgcrypto` and `pg_stat_statements`, all three required
+extensions. Both the PG16 install tree and its data directory were removed
+at the end of this batch (see closing note below) — nothing was left
+running.
+
+| File | Command | Purpose |
+|---|---|---|
+| `63_pg16_fresh_upgrade_001_to_099.txt` | `alembic upgrade head` against a genuinely empty, freshly created `voice_agent_pg16_fresh` database | **Critical gate.** Full `001_5B → … → 099_5C1` chain on PostgreSQL 16.10, exit code 0. |
+| `64_pg16_alembic_heads.txt` | `alembic heads` | Confirms exactly one head, `099_5C1`. |
+| `65_pg16_alembic_current.txt` | `alembic current` | Confirms current == head (`099_5C1`). |
+| `66_pg16_incremental_upgrade_to_097.txt` | `alembic upgrade 097_5D5` against a second fresh database | Pins a separate database at the pre-remediation baseline, mirroring a real "existing deployment" starting point. |
+| `67_pg16_incremental_upgrade_097_to_head.txt` | `alembic upgrade head` on that same, now-pinned database | `097_5D5 → 098_5E1 → 099_5C1`, exit code 0 — the genuine incremental-apply path, not a second fresh-DB run relabeled. |
+| `68_fixture_setup.sql` | fixture script | Two organizations, two users, three campaigns (one deliberately paused mid-run for the Pause-regression test), two CRM contacts, one Voice agent/agent version/tenant phone number — run once against `voice_agent_pg16_fresh` before every functional/security test below. |
+| `69_privilege_and_dispatch_state_machine_tests.txt` | ~30 sequential `psql` statements, `SET ROLE app_worker` / `SET ROLE app_api` for genuine role-boundary enforcement (trust auth, no passwords needed for these roles) | The core functional/security suite for this pass — see the Results table below for what each block proves. |
+| `70_reserve_dispatch_tests.sql` | `campaign.fn_reserve_dispatch()` regression suite (concatenation of two scripts; the first attempt's cross-campaign fixture was accidentally reused from a campaign this same run had just paused, which the second script corrects with a fresh `RUNNING` campaign — the mistake and its correction are both preserved here rather than silently rewritten) | Confirms the pre-existing campaign_id-ownership guard (fixed in the prior remediation pass, unmodified by this one) still rejects a genuine cross-campaign mismatch on PostgreSQL 16, and that a correctly-scoped reservation still succeeds. |
+| `71_voice_dispatch_claim_concurrency_race.txt` | two genuinely concurrent `psql` processes, both gated by an identical `pg_sleep(2)` start signal, both calling `voice.fn_claim_dispatch_for_provider_submission()` on the SAME `RESERVED` dispatch key | **INV-VOICE-DISPATCH-02 live proof.** Exactly one connection returns `claimed=t`; the other returns `claimed=f, reason=NOT_CLAIMABLE_CLAIMED` — real concurrent contention, not simulated sequentially. |
+| `72_campaign_enqueue_concurrency_race.txt` | two genuinely concurrent `psql` processes racing `campaign.fn_enqueue_contact()` on the identical `(campaign_id, contact_id)` pair | Regression check (unmodified logic this pass): exactly one `is_new=t`, the other `is_new=f` with the identical `campaign_contact_id` — zero duplicates on PostgreSQL 16. |
+| `73_pause_vs_reservation_race.txt` | one connection attempting to hold a `campaigns` row lock (see note below) then calling `fn_reserve_dispatch()`, racing a concurrent `UPDATE campaigns SET status='PAUSED'` | Regression check, Pause-committed-first ordering: `fn_reserve_dispatch()` correctly returns `CAMPAIGN_NOT_RUNNING` once Pause has applied. **Caveat, disclosed rather than hidden:** this file's own diagnostic `SELECT ... FOR UPDATE` probe (run as `app_worker`, no `app.tenant_id` set) was itself silently filtered to zero rows by RLS before it could acquire anything, so it did not actually hold the lock it was intended to hold — the Pause `UPDATE` proceeded immediately rather than blocking. The *correctness* outcome (Pause-first is honored) is still genuinely proven; the specific lock-wait-duration timing artifact from the prior PostgreSQL 18 pass (§49.7 of `6H-Campaign-APIs.md`, ~1.5s measured blocking) was not re-derived here because `fn_reserve_dispatch()`'s locking logic was not touched by this remediation pass — see `PG16_MIGRATION_VALIDATION_REPORT.md` for the full accounting of what this batch did and did not re-prove. |
+
+**Results summary** (full transcript in file `69`, referenced by line range in `docs/phase-05-database-design/5K/validation/VOICE_DISPATCH_VALIDATION_REPORT.md`): direct `INSERT` denied for `app_worker` on `campaign.campaign_contact_identities` and for both `app_worker`/`app_api` on `voice.call_dispatch_keys`; every guarded function still succeeds for its intended role; a same-tenant/same-payload replay returns the original call session (`REPLAYED`); a same-key/different-payload replay returns `IDEMPOTENCY_KEY_REUSE_MISMATCH` with no session identity disclosed; a same-key cross-tenant replay raises a non-disclosing exception; a `CLAIMED` row whose lease expires before `fn_begin_provider_submission()` is ever called is safely re-claimed (Case A); a `SUBMITTING` row whose lease expires is **provably not** re-claimable (`NOT_CLAIMABLE_SUBMITTING`) even though nothing else has touched it — **the direct empirical closure of Blocker A / the original P0 double-dial defect**; the same worker's own later `fn_begin_provider_submission()` call also fails closed (`NOT_CLAIM_HOLDER`) once its lease has lapsed; a stuck `SUBMITTING` row is successfully resolved by `fn_reconcile_dispatch_outcome()` (identity-correlated, not lease-owner-correlated) to `CONFIRMED`; a stuck `AMBIGUOUS` row is resolved by the same function to `FAILED` and is then genuinely re-claimable; a `SUBMITTING` row that receives a definite pre-acceptance rejection via `fn_record_dispatch_failed()` is also re-claimable; `pg_proc`/`has_function_privilege` inspection confirms all 11 `SECURITY DEFINER` functions touched by 098/099 (3 `campaign.fn_*` + 8 `voice.fn_*`) carry the documented minimal `search_path` and `PUBLIC` cannot `EXECUTE` any of them; the final table-grant matrix for both hardened tables shows no role holds `INSERT`/`UPDATE`/`DELETE` except `app_platform_admin` and `postgres`; the function count for `voice.fn_*` is confirmed as exactly `8` by direct count, not asserted from memory.
+
+**No SQL was modified by this batch** — every test ran against `098_5E1.sql`/`099_5C1.sql` exactly as committed for this remediation pass; `sha256sum`/`wc -c` were re-run after this batch to confirm the files on disk still match `MIGRATION_MANIFEST.md`'s recorded checksums (they do, since this batch made no further edits after the SQL was written).
+
+**Cleanup performed at the end of this batch:** the PG16 server process was stopped (`pg_ctl stop`); the entire `C:\Users\Dell\pgval16` tree (binaries, data directory, pgvector source/build artifacts, the two validation databases it contained) was deleted; the throwaway `uv`-managed Python virtual environment (`docs/phase-05-database-design/5K/.venv_validation_pg16`) and any `__pycache__` directories it created were removed. The pre-existing PostgreSQL 18 instance and its own databases were never touched by this batch.
+
+See `../validation/PG16_MIGRATION_VALIDATION_REPORT.md`,
+`../validation/VOICE_DISPATCH_VALIDATION_REPORT.md`,
+`../validation/CAMPAIGN_PRIVILEGE_VALIDATION_REPORT.md`, and
+`../MIGRATION_MANIFEST.md`'s Final Blocker Remediation entry for the
+consolidated results.

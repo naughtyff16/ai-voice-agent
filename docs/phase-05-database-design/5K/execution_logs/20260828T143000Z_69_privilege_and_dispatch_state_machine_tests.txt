@@ -1,0 +1,371 @@
+==== TEST: Blocker B — app_worker direct INSERT on campaign_contact_identities must be DENIED ====
+SET
+psql:C:/Users/Dell/pgval16/02_privilege_and_functional.sql:15: ERROR:  permission denied for table campaign_contact_identities
+RESET
+==== TEST: Blocker B — fn_enqueue_contact (guarded) must SUCCEED for app_worker ====
+SET
+         campaign_contact_id          |           imported_at            | is_new 
+--------------------------------------+----------------------------------+--------
+ 01a048cf-5c67-7b76-a40d-0d1a908ba749 | 2026-08-28 20:09:04.292461+05:30 | t
+(1 row)
+
+RESET
+==== TEST: duplicate enqueue via guarded function is idempotent (is_new=false second time) ====
+SET
+         campaign_contact_id          |           imported_at            | is_new 
+--------------------------------------+----------------------------------+--------
+ 01a048cf-5c67-7b76-a40d-0d1a908ba749 | 2026-08-28 20:09:04.292461+05:30 | f
+(1 row)
+
+RESET
+==== TEST: Blocker B cross-tenant guard still enforced (Org B calling with Org A campaign) ====
+SET
+psql:C:/Users/Dell/pgval16/02_privilege_and_functional.sql:30: ERROR:  fn_enqueue_contact: campaign 00000000-0000-0000-0000-0000000000a5 not found for organization 00000000-0000-0000-0000-0000000000b1
+CONTEXT:  PL/pgSQL function fn_enqueue_contact(uuid,uuid,uuid,text,integer,boolean,text,text) line 27 at RAISE
+RESET
+==== enqueue second contact for campa (needed for reserve-dispatch tests) ====
+SET
+         campaign_contact_id          |           imported_at            | is_new 
+--------------------------------------+----------------------------------+--------
+ 01a048cf-5c76-7dbe-9d8d-8ddeb3d18e44 | 2026-08-28 20:09:04.309701+05:30 | t
+(1 row)
+
+RESET
+==== TEST: Blocker C — app_worker direct INSERT on voice.call_dispatch_keys must be DENIED ====
+SET
+psql:C:/Users/Dell/pgval16/02_privilege_and_functional.sql:41: ERROR:  permission denied for table call_dispatch_keys
+RESET
+==== TEST: Blocker C — app_api direct INSERT on voice.call_dispatch_keys must be DENIED ====
+SET
+psql:C:/Users/Dell/pgval16/02_privilege_and_functional.sql:47: ERROR:  permission denied for table call_dispatch_keys
+RESET
+==== TEST: guarded fn_initiate_outbound_call_idempotent SUCCEEDS for app_api (key K1, payload P1) ====
+SET
+           call_session_id            |        session_started_at        | is_new | outcome 
+--------------------------------------+----------------------------------+--------+---------
+ 01a048cf-5c79-7e1f-af39-3974d223bd61 | 2026-08-28 20:09:04.312187+05:30 | t      | CREATED
+(1 row)
+
+RESET
+==== TEST: same key K1, SAME payload -> REPLAYED, same call_session_id ====
+SET
+           call_session_id            |        session_started_at        | is_new | outcome  
+--------------------------------------+----------------------------------+--------+----------
+ 01a048cf-5c79-7e1f-af39-3974d223bd61 | 2026-08-28 20:09:04.312187+05:30 | f      | REPLAYED
+(1 row)
+
+RESET
+==== TEST (Blocker D): same key K1, DIFFERENT payload (different to_number) -> IDEMPOTENCY_KEY_REUSE_MISMATCH, no session returned ====
+SET
+ call_session_id | session_started_at | is_new |            outcome             
+-----------------+--------------------+--------+--------------------------------
+                 |                    | f      | IDEMPOTENCY_KEY_REUSE_MISMATCH
+(1 row)
+
+RESET
+==== TEST (Blocker D): same key K1 replayed by Org B -> non-disclosing EXCEPTION, no data leak ====
+SET
+psql:C:/Users/Dell/pgval16/02_privilege_and_functional.sql:67: ERROR:  fn_initiate_outbound_call_idempotent: dispatch_idempotency_key not available for organization 00000000-0000-0000-0000-0000000000b1
+CONTEXT:  PL/pgSQL function fn_initiate_outbound_call_idempotent(uuid,text,text,uuid,uuid,text,character) line 74 at RAISE
+RESET
+==== fixture: create call_dispatch_key K2 for full dispatch lifecycle tests ====
+SET
+           call_session_id            |        session_started_at        | is_new | outcome 
+--------------------------------------+----------------------------------+--------+---------
+ 01a048cf-5c86-7c0e-9dce-ce78dfdd4f29 | 2026-08-28 20:09:04.325805+05:30 | t      | CREATED
+(1 row)
+
+RESET
+==== TEST (Blocker A / normal path): claim K2 -> begin_provider_submission -> confirm ====
+SET
+ claimed |           call_session_id            |                       provider_request_ref                       | attempt_count | reason 
+---------+--------------------------------------+------------------------------------------------------------------+---------------+--------
+ t       | 01a048cf-5c86-7c0e-9dce-ce78dfdd4f29 | 2222222222222222222222222222222222222222222222222222222222222222 |             1 | 
+(1 row)
+
+ began | reason 
+-------+--------
+ t     | 
+(1 row)
+
+ fn_record_dispatch_confirmed 
+------------------------------
+ t
+(1 row)
+
+ dispatch_state | provider_call_ref | claimed_by | claim_expires_at 
+----------------+-------------------+------------+------------------
+(0 rows)
+
+RESET
+==== fixture: create call_dispatch_key K3 for crash-before-submission test ====
+SET
+           call_session_id            |       session_started_at       | is_new | outcome 
+--------------------------------------+--------------------------------+--------+---------
+ 01a048cf-5c8b-7d17-865e-5ee99ff76e48 | 2026-08-28 20:09:04.3309+05:30 | t      | CREATED
+(1 row)
+
+RESET
+==== TEST (crash-before-submission, Case A): claim K3 with a 5s lease, NEVER call begin_provider_submission (simulated crash) ====
+SET
+ claimed |           call_session_id            |                       provider_request_ref                       | attempt_count | reason 
+---------+--------------------------------------+------------------------------------------------------------------+---------------+--------
+ t       | 01a048cf-5c8b-7d17-865e-5ee99ff76e48 | 3333333333333333333333333333333333333333333333333333333333333333 |             1 | 
+(1 row)
+
+RESET
+-- sleeping 6s past the 5s lease to simulate lease expiry --
+ pg_sleep 
+----------
+ 
+(1 row)
+
+-- reclaim MUST succeed (still CLAIMED, never reached SUBMITTING) --
+SET
+ claimed |           call_session_id            |                       provider_request_ref                       | attempt_count | reason 
+---------+--------------------------------------+------------------------------------------------------------------+---------------+--------
+ t       | 01a048cf-5c8b-7d17-865e-5ee99ff76e48 | 3333333333333333333333333333333333333333333333333333333333333333 |             2 | 
+(1 row)
+
+ began | reason 
+-------+--------
+ t     | 
+(1 row)
+
+ fn_record_dispatch_confirmed 
+------------------------------
+ t
+(1 row)
+
+ dispatch_state | attempt_count | provider_call_ref 
+----------------+---------------+-------------------
+(0 rows)
+
+RESET
+==== fixture: create call_dispatch_key K4 for Blocker A (crash AFTER SUBMITTING -- must NOT be reclaimable) ====
+SET
+           call_session_id            |        session_started_at        | is_new | outcome 
+--------------------------------------+----------------------------------+--------+---------
+ 01a048cf-7406-76b5-b8b2-b2e35f4a7883 | 2026-08-28 20:09:10.342085+05:30 | t      | CREATED
+(1 row)
+
+RESET
+SET
+ claimed |           call_session_id            |                       provider_request_ref                       | attempt_count | reason 
+---------+--------------------------------------+------------------------------------------------------------------+---------------+--------
+ t       | 01a048cf-7406-76b5-b8b2-b2e35f4a7883 | 4444444444444444444444444444444444444444444444444444444444444444 |             1 | 
+(1 row)
+
+ began | reason 
+-------+--------
+ t     | 
+(1 row)
+
+-- worker now crashes: NEVER calls confirmed/ambiguous/failed. Lease will expire. --
+RESET
+-- sleeping 6s past the 5s lease --
+ pg_sleep 
+----------
+ 
+(1 row)
+
+==== TEST (Blocker A, THE critical assertion): reclaiming K4 via fn_claim MUST FAIL (NOT_CLAIMABLE_SUBMITTING) even though the lease is expired -- this is the P0 fix ====
+SET
+ claimed |           call_session_id            |                       provider_request_ref                       | attempt_count |          reason          
+---------+--------------------------------------+------------------------------------------------------------------+---------------+--------------------------
+ f       | 01a048cf-7406-76b5-b8b2-b2e35f4a7883 | 4444444444444444444444444444444444444444444444444444444444444444 |             1 | NOT_CLAIMABLE_SUBMITTING
+(1 row)
+
+ dispatch_state | claimed_by | claim_expires_at | submission_started_at 
+----------------+------------+------------------+-----------------------
+(0 rows)
+
+RESET
+==== TEST: fn_begin_provider_submission called AGAIN by same worker after its own lease expired -- must also fail closed (began=FALSE, NOT_CLAIM_HOLDER) ====
+SET
+ began |      reason      
+-------+------------------
+ f     | NOT_CLAIM_HOLDER
+(1 row)
+
+RESET
+==== TEST: K4 reconciliation via callback correlation (fn_reconcile_dispatch_outcome) from SUBMITTING -> CONFIRMED ====
+SET
+ reconciled | reason 
+------------+--------
+ t          | 
+(1 row)
+
+ dispatch_state | provider_call_ref | reconciled_by 
+----------------+-------------------+---------------
+(0 rows)
+
+RESET
+==== fixture: K5 for AMBIGUOUS -> reconcile-to-FAILED path (definite negative resolution) ====
+SET
+           call_session_id            |       session_started_at        | is_new | outcome 
+--------------------------------------+---------------------------------+--------+---------
+ 01a048cf-8b84-78ce-8279-7973bd9abed1 | 2026-08-28 20:09:16.35575+05:30 | t      | CREATED
+(1 row)
+
+RESET
+SET
+ claimed |           call_session_id            |                       provider_request_ref                       | attempt_count | reason 
+---------+--------------------------------------+------------------------------------------------------------------+---------------+--------
+ t       | 01a048cf-8b84-78ce-8279-7973bd9abed1 | 5555555555555555555555555555555555555555555555555555555555555555 |             1 | 
+(1 row)
+
+ began | reason 
+-------+--------
+ t     | 
+(1 row)
+
+==== TEST (provider timeout -> AMBIGUOUS, no blind redial) ====
+ fn_record_dispatch_ambiguous 
+------------------------------
+ t
+(1 row)
+
+RESET
+-- attempt to reclaim an AMBIGUOUS row must fail --
+SET
+ claimed |           call_session_id            |                       provider_request_ref                       | attempt_count |         reason          
+---------+--------------------------------------+------------------------------------------------------------------+---------------+-------------------------
+ f       | 01a048cf-8b84-78ce-8279-7973bd9abed1 | 5555555555555555555555555555555555555555555555555555555555555555 |             1 | NOT_CLAIMABLE_AMBIGUOUS
+(1 row)
+
+RESET
+-- resolve the ambiguity via reconciliation to a definite FAILED (e.g. provider-side lookup found no such call) --
+SET
+ reconciled | reason 
+------------+--------
+ t          | 
+(1 row)
+
+RESET
+-- NOW a fresh claim of the FAILED row must succeed (retryable) --
+SET
+ claimed |           call_session_id            |                       provider_request_ref                       | attempt_count | reason 
+---------+--------------------------------------+------------------------------------------------------------------+---------------+--------
+ t       | 01a048cf-8b84-78ce-8279-7973bd9abed1 | 5555555555555555555555555555555555555555555555555555555555555555 |             2 | 
+(1 row)
+
+RESET
+==== fixture: K6 -- definite pre-acceptance rejection from SUBMITTING (fn_record_dispatch_failed) ====
+SET
+           call_session_id            |        session_started_at        | is_new | outcome 
+--------------------------------------+----------------------------------+--------+---------
+ 01a048cf-8b89-7c9f-93fe-fefb9da97e05 | 2026-08-28 20:09:16.360575+05:30 | t      | CREATED
+(1 row)
+
+RESET
+SET
+ claimed |           call_session_id            |                       provider_request_ref                       | attempt_count | reason 
+---------+--------------------------------------+------------------------------------------------------------------+---------------+--------
+ t       | 01a048cf-8b89-7c9f-93fe-fefb9da97e05 | 6666666666666666666666666666666666666666666666666666666666666666 |             1 | 
+(1 row)
+
+ began | reason 
+-------+--------
+ t     | 
+(1 row)
+
+ fn_record_dispatch_failed 
+---------------------------
+ t
+(1 row)
+
+ dispatch_state 
+----------------
+(0 rows)
+
+-- retry now allowed --
+ claimed |           call_session_id            |                       provider_request_ref                       | attempt_count | reason 
+---------+--------------------------------------+------------------------------------------------------------------+---------------+--------
+ t       | 01a048cf-8b89-7c9f-93fe-fefb9da97e05 | 6666666666666666666666666666666666666666666666666666666666666666 |             2 | 
+(1 row)
+
+RESET
+==== TEST: cross-tenant claim attempt on K2 (already CONFIRMED, owned by org A) using org B -- must not be claimable/found under org B ====
+SET
+ claimed | call_session_id | provider_request_ref | attempt_count |         reason         
+---------+-----------------+----------------------+---------------+------------------------
+ f       |                 |                      |             0 | DISPATCH_KEY_NOT_FOUND
+(1 row)
+
+RESET
+==== TEST: campaign.fn_reserve_dispatch happy path for conta on campa ====
+SET
+psql:C:/Users/Dell/pgval16/02_privilege_and_functional.sql:175: ERROR:  syntax error at or near "FROM"
+LINE 2: FROM campaign.campaign_contacts cc WHERE cc.campaign_id = '0...
+        ^
+RESET
+==== TEST: cross-campaign mismatch regression -- same-tenant contact belongs to campa, but caller claims campa2 ====
+SET
+psql:C:/Users/Dell/pgval16/02_privilege_and_functional.sql:181: ERROR:  syntax error at or near "FROM"
+LINE 2: FROM campaign.campaign_contacts cc WHERE cc.campaign_id = '0...
+        ^
+RESET
+==== TEST: Pause-before-reservation (STOPPING campaign) -- reservation must be refused ====
+UPDATE 1
+SET
+ reserved | call_job_id |        reason        
+----------+-------------+----------------------
+ f        |             | CAMPAIGN_NOT_RUNNING
+(1 row)
+
+RESET
+==== SECURITY DEFINER inspection: all voice/campaign functions from this pass ====
+ nspname  |                  proname                  | prosecdef |                search_path_setting                 
+----------+-------------------------------------------+-----------+----------------------------------------------------
+ campaign | fn_enqueue_contact                        | t         | {"search_path=campaign, organization, pg_catalog"}
+ campaign | fn_new_uuid_v7                            | t         | {"search_path=public, pg_catalog"}
+ campaign | fn_reserve_dispatch                       | t         | {"search_path=campaign, organization, pg_catalog"}
+ voice    | fn_begin_provider_submission              | t         | {"search_path=voice, pg_catalog"}
+ voice    | fn_claim_dispatch_for_provider_submission | t         | {"search_path=voice, pg_catalog"}
+ voice    | fn_initiate_outbound_call_idempotent      | t         | {"search_path=voice, organization, pg_catalog"}
+ voice    | fn_new_uuid_v7                            | t         | {"search_path=public, pg_catalog"}
+ voice    | fn_reconcile_dispatch_outcome             | t         | {"search_path=voice, pg_catalog"}
+ voice    | fn_record_dispatch_ambiguous              | t         | {"search_path=voice, pg_catalog"}
+ voice    | fn_record_dispatch_confirmed              | t         | {"search_path=voice, pg_catalog"}
+ voice    | fn_record_dispatch_failed                 | t         | {"search_path=voice, pg_catalog"}
+(11 rows)
+
+==== PUBLIC EXECUTE check (must be false for every function) ====
+ nspname  |                  proname                  | public_can_execute 
+----------+-------------------------------------------+--------------------
+ campaign | fn_enqueue_contact                        | f
+ campaign | fn_new_uuid_v7                            | f
+ campaign | fn_reserve_dispatch                       | f
+ voice    | fn_begin_provider_submission              | f
+ voice    | fn_claim_dispatch_for_provider_submission | f
+ voice    | fn_initiate_outbound_call_idempotent      | f
+ voice    | fn_new_uuid_v7                            | f
+ voice    | fn_reconcile_dispatch_outcome             | f
+ voice    | fn_record_dispatch_ambiguous              | f
+ voice    | fn_record_dispatch_confirmed              | f
+ voice    | fn_record_dispatch_failed                 | f
+(11 rows)
+
+==== Table grant matrix for the two hardened tables ====
+      grantee       | table_schema |         table_name          |                          privs                          
+--------------------+--------------+-----------------------------+---------------------------------------------------------
+ app_api            | campaign     | campaign_contact_identities | SELECT
+ app_platform_admin | campaign     | campaign_contact_identities | DELETE,INSERT,SELECT,UPDATE
+ app_readonly       | campaign     | campaign_contact_identities | SELECT
+ app_worker         | campaign     | campaign_contact_identities | SELECT
+ postgres           | campaign     | campaign_contact_identities | DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+ app_api            | voice        | call_dispatch_keys          | SELECT
+ app_platform_admin | voice        | call_dispatch_keys          | DELETE,INSERT,SELECT,UPDATE
+ app_readonly       | voice        | call_dispatch_keys          | SELECT
+ app_worker         | voice        | call_dispatch_keys          | SELECT
+ postgres           | voice        | call_dispatch_keys          | DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+(10 rows)
+
+==== Function count for this migration ====
+ voice_fn_count 
+----------------
+              8
+(1 row)
+
+ALL_TESTS_DONE

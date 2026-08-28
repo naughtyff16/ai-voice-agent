@@ -1,0 +1,62 @@
+SET
+Timing is on.
+BEGIN
+Time: 0.125 ms
+ pg_sleep 
+----------
+ 
+(1 row)
+
+Time: 2008.595 ms (00:02.009)
+       a_lock_acquire_start       
+----------------------------------
+ 2026-08-28 20:12:21.570682+05:30
+(1 row)
+
+Time: 0.228 ms
+ id 
+----
+(0 rows)
+
+Time: 4.856 ms
+ pg_sleep 
+----------
+ 
+(1 row)
+
+Time: 3013.531 ms (00:03.014)
+ reserved | call_job_id |        reason        
+----------+-------------+----------------------
+ f        |             | CAMPAIGN_NOT_RUNNING
+(1 row)
+
+Time: 9.301 ms
+        a_about_to_commit         
+----------------------------------
+ 2026-08-28 20:12:24.599559+05:30
+(1 row)
+
+Time: 0.275 ms
+COMMIT
+Time: 1.690 ms
+Timing is on.
+ pg_sleep 
+----------
+ 
+(1 row)
+
+Time: 2010.379 ms (00:02.010)
+       pause_attempt_start        
+----------------------------------
+ 2026-08-28 20:12:21.617042+05:30
+(1 row)
+
+Time: 0.281 ms
+UPDATE 1
+Time: 8.503 ms
+       pause_attempt_end       
+-------------------------------
+ 2026-08-28 20:12:21.626+05:30
+(1 row)
+
+Time: 0.143 ms

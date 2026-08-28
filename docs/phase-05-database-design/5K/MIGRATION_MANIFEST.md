@@ -108,8 +108,134 @@ regeneration corrects that. See "Reconciliation" below for details.
 | 095 | 5D.4 | `095_5D4.sql` | `094_5D3` | transactional | 5484 | `694a01d3af46d1df48c94a4e099954e450029edb06460a6f7421dd5a2d766d1b` |
 | 096 | 5B.2 | `096_5B2.sql` | `095_5D4` | transactional | 2543 | `1d79ad3aa068eccb7d3181773bae61e4157ef37eb221e8777c7597c1a975bffc` |
 | 097 | 5D.5 | `097_5D5.sql` | `096_5B2` | transactional | 13681 | `1ebb277a8551b648cec8f085edc0dae5596ad2c54b8b348f58d8323a05f13fe1` |
-| 098 | 5E.1 | `098_5E1.sql` | `097_5D5` | transactional | 14473 | `57432208eb89c0fa35df64e2499717b78810be96f48227c9fa8ce282bed32e7d` |
-| 099 | 5C.1 | `099_5C1.sql` | `098_5E1` | transactional | 23609 | `cefdac7e72708694ff54410091e4b50f05cc2d83babdfef343bac21269dc703d` |
+| 098 | 5E.1 | `098_5E1.sql` | `097_5D5` | transactional | 15651 | `b3880884b392c095c96f29362a57ec1e31d0343e87bd9f982d31e3f0bd26947d` |
+| 099 | 5C.1 | `099_5C1.sql` | `098_5E1` | transactional | 42871 | `5ed3d473911ac00b8b9bd0399cb54e029126405b668aa7c9d39e1e14a99a765f` |
+
+---
+
+## Phase 6H Final Blocker Remediation (2026-08-28) — provider-submission-boundary hardening, privilege bypass closure, idempotency tenant/payload validation, PostgreSQL 16 live-validated
+
+Same two rows (`098_5E1.sql`, `099_5C1.sql`) corrected in place a third
+time — both are still disclosed as never having been applied to any
+production database, so there is still no frozen, already-applied version
+of either file to preserve, and the migration policy explicitly stated in
+the prior entry below (edit in place, do not renumber) continues to apply
+unchanged. An independent, adversarial final freeze review found that the
+*previous* pass's fix for Blocker #3/Blocker C, while a genuine
+improvement, still permitted a specific and serious failure: a `CLAIMED`
+row's lease expiring was the only signal used to decide re-claimability,
+and `CLAIMED` covered the entire span up to and including the moment the
+provider was actually contacted — so a worker that crashed **after** the
+provider received the request would eventually have its row re-claimed by
+another worker, which would call the provider again and could physically
+dial the customer twice. Four blockers were identified and closed in this
+pass, all live-validated on a genuinely separate PostgreSQL 16.10 instance
+(the declared production baseline — every prior 6H pass had validated only
+against PostgreSQL 18):
+
+1. **Blocker A — expired-CLAIMED double-dial hazard (P0).** `voice.
+   call_dispatch_keys.dispatch_state` gained a new state, `SUBMITTING`,
+   entered only via a new function, `voice.fn_begin_provider_submission()`,
+   which the caller's contract requires committing **before** ever
+   invoking `TelephonyPort.place_call()`. `voice.
+   fn_claim_dispatch_for_provider_submission()`'s reclaim predicate now
+   excludes `SUBMITTING` unconditionally, regardless of lease staleness —
+   only `RESERVED`, `FAILED`, and a lease-expired `CLAIMED` row (none of
+   which have any evidence the provider was ever contacted) are
+   automatically retryable. Live-proven: a `CLAIMED` row whose lease
+   expires before `fn_begin_provider_submission` is ever called is safely
+   re-claimed (attempt_count increments, call not lost); a `SUBMITTING`
+   row whose lease expires is provably **not** re-claimable
+   (`NOT_CLAIMABLE_SUBMITTING`) even though nothing else has touched it —
+   the direct empirical closure of the P0 defect. A new function, `voice.
+   fn_reconcile_dispatch_outcome()`, gives a genuine, identity-correlated
+   (not lease-owner-correlated) resolution path for a `SUBMITTING` or
+   `AMBIGUOUS` row via a delayed provider callback or a bounded
+   operator/provider-lookup decision — live-proven resolving both a stuck
+   `SUBMITTING` row to `CONFIRMED` and a stuck `AMBIGUOUS` row to `FAILED`
+   (with the latter then genuinely re-claimable, proving the two states
+   are not merely the same thing under different names).
+2. **Blocker B — direct INSERT bypass on `campaign.
+   campaign_contact_identities`.** `app_worker`'s `INSERT` grant is
+   removed; only `SELECT` remains for `app_worker`/`app_api`/
+   `app_readonly`. The only legal write path is `campaign.
+   fn_enqueue_contact()` (`SECURITY DEFINER`, unaffected by the grant
+   change since it runs as the migration-owning role). Live-proven: direct
+   `INSERT` as `app_worker` now fails with `permission denied`; the guarded
+   function, and its pre-existing idempotency and cross-tenant guards,
+   remain fully functional.
+3. **Blocker C — direct INSERT bypass on `voice.call_dispatch_keys`.**
+   Same fix, same reasoning: `app_api`/`app_worker`'s `INSERT` grant is
+   removed; only `SELECT` remains. Every dispatch-state-machine row and
+   transition now provably requires going through one of the eight guarded
+   `voice.fn_*` functions. Live-proven: direct `INSERT` as both
+   `app_worker` and `app_api` now fails with `permission denied`.
+4. **Blocker D — idempotency replay tenant/payload validation.** `voice.
+   fn_initiate_outbound_call_idempotent()` now computes a canonical,
+   versioned SHA-256 `payload_fingerprint` (via `public.digest()`) from the
+   actual immutable request fields on every call — never accepted as a
+   caller-supplied value — and persists it with the dispatch key. On
+   replay: a different `organization_id` raises a non-disclosing exception
+   (this function is `SECURITY DEFINER` and bypasses RLS entirely, so this
+   explicit check is the *entire* tenant-isolation guarantee for a replay,
+   not defense-in-depth); a different `payload_fingerprint` under the same
+   key returns `outcome = 'IDEMPOTENCY_KEY_REUSE_MISMATCH'` (6A §16.2's
+   existing global error semantic, reused at this domain layer rather than
+   inventing new vocabulary) with no session identity disclosed; a genuine
+   same-tenant, same-payload replay returns the original call
+   (`outcome = 'REPLAYED'`). All three live-proven, including the
+   cross-tenant case producing a generic, non-disclosing error message.
+
+**Function count correction (also closed in this pass):** `099_5C1.py`'s
+`downgrade()` docstring previously said "five new voice.fn_* functions,"
+already stale even before this pass (the file defined six). This pass adds
+two more (`fn_begin_provider_submission`, `fn_reconcile_dispatch_outcome`)
+for a directly-queried total of **eight** `voice.fn_*` functions — every
+reference to this count, across `099_5C1.py`, `6D-Voice-Call-Agent-APIs.md`,
+and `6H-Campaign-APIs.md`, is corrected to `8`, verified by
+`SELECT count(*) FROM pg_proc ...` rather than re-asserted from memory.
+
+**PostgreSQL 16 live validation performed in this pass** (full detail in
+`validation/PG16_MIGRATION_VALIDATION_REPORT.md`,
+`validation/VOICE_DISPATCH_VALIDATION_REPORT.md`,
+`validation/CAMPAIGN_PRIVILEGE_VALIDATION_REPORT.md`,
+`validation/SECURITY_DEFINER_VALIDATION_REPORT.md`, and
+`execution_logs/README.md`'s "Sixth batch"): the EDB full installer for
+PostgreSQL 16.10 genuinely failed in this environment ("the requested
+operation requires elevation" — a real, disclosed failure, not smoothed
+over); the binaries-only distribution was used instead (no service
+registration, no elevation needed), `pgvector` was built from source
+against it via the locally available MSVC toolchain (pgvector is not
+bundled in the binaries-only zip), and all three required extensions
+(`vector`, `pgcrypto`, `pg_stat_statements`) were confirmed loadable before
+any migration ran. Fresh-database `alembic upgrade head` (`001_5B →
+099_5C1`): **PASS**, exit code 0. Incremental upgrade from a database
+pinned at `097_5D5`: **PASS**, exit code 0. Single Alembic head `099_5C1`
+confirmed both ways. Genuine two-connection concurrency races (not
+simulated): provider-dispatch claim ownership (exactly one winner);
+`CampaignContact` duplicate enqueue (exactly one winner, regression check —
+this logic was not modified by this pass). `pg_proc`/
+`has_function_privilege` inspection: all 11 `SECURITY DEFINER` functions
+touched by 098/099 confirmed with their documented minimal `search_path`
+and `PUBLIC EXECUTE` denied on every one.
+
+**What remains an accepted, disclosed limitation, unchanged from the prior
+pass:** whether the telephony provider itself received and acted on a
+single network call whose own response was lost cannot be resolved by any
+platform-side database mechanism alone — bounded by 6D's pre-existing
+provider-retry contract (3B §19) and `fn_reconcile_dispatch_outcome`'s
+dependency on the provider adapter actually supporting reference
+echo-back, not verified for Exotel specifically in this or any prior pass.
+
+**Reconciled totals after this amendment:** 99/99 `migrations/*.sql` files
+(unchanged count — no new row added, both existing rows corrected in
+place), single linear chain, single head `099_5C1`, now live-validated on
+both PostgreSQL 18 (prior pass) and PostgreSQL 16 (this pass, the declared
+production baseline).
+
+**Consumer:** `docs/phase-06-api-design/6H-Campaign-APIs.md` (Revision 4)
+§18, §32, §46-§47, §49-§53; `docs/phase-06-api-design/6D-Voice-Call-Agent-APIs.md`
+§28.10a.
 
 ---
 
