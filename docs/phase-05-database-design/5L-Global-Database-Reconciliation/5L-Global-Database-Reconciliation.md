@@ -910,3 +910,52 @@ section for the physical-schema documentation update.
 **PHASE 6G CRM RECONCILIATION COMPLETE — DEP-6G-01, DEP-6G-06, DEP-6G-07,
 DEP-6G-10 RESOLVED — `docs/phase-06-api-design/6G-CRM-Leads-APIs.md`
 REVISION 2 READY FOR INDEPENDENT FREEZE REVIEW**
+
+---
+
+## Phase 6G CRM Reconciliation, Follow-up (2026-08-28) — merge marker PII removal
+
+An independent whole-project review performed after the reconciliation
+above found one further real defect in `093_5D2.sql`'s
+`crm.fn_merge_contacts()`: the merge-marker Activity it records on the
+survivor copied the secondary Contact's `full_name` and `phone_e164`
+directly into the Activity's `payload`. Since `crm.activities` is
+append-only and outside Contact GDPR erasure's field-clearing scope, this
+created a second, erasure-proof copy of exactly the PII `DELETE
+/contacts/{id}` is supposed to clear — a genuine breach of the CRM
+erasure boundary this reconciliation pass itself established (§10.4/§22
+of `6G-CRM-Leads-APIs.md`).
+
+**Fixed via one further additive forward migration, `097_5D5.sql`**
+(`CREATE OR REPLACE FUNCTION crm.fn_merge_contacts(...)`; `093_5D2.sql`
+itself untouched, its checksum unchanged) — the marker payload now
+carries `{event, primary_contact_id, secondary_contact_id, merged_by}`
+only. No Contact name, phone, email, address, custom-field value, or
+qualification reason is ever written into it. Every other property of
+the merge design from the prior pass — mutable-child repointing,
+`merged_into_contact_id`/`merged_at` distinct from `deleted_at`, Activities/
+LeadScoreRecords left physically unchanged, all guards, and `SECURITY
+DEFINER` hardening — is unchanged.
+
+**Live-validated** (disposable local PostgreSQL 18; fresh-DB `001_5B ->
+097_5D5` and existing-DB `096_5B2 -> 097_5D5`, both exit code 0, single
+head `097_5D5`; 97/97 `migrations/*.sql` and `alembic/versions/*.py`
+files, no duplicate revisions, single root, single head): the full
+12-item merge regression matrix — valid merge, mutable-child repointing,
+Activities/LeadScoreRecords physically unchanged, marker Activity
+created with a payload key set confirmed via `jsonb_object_keys` to be
+exactly the four allowed fields, `payload ? 'secondary_full_name'` /
+`payload ? 'secondary_phone_e164'` both `false`, a direct text-search of
+the serialized payload for the test fixture's actual name/phone
+confirming neither string appears anywhere in it, GDPR erasure of an
+already-merged secondary still succeeding with the (already PII-free)
+marker payload unaffected, cross-tenant merge still rejected, and a
+genuine two-connection concurrent merge race reproducing the identical
+pre-fix outcome.
+
+See `MIGRATION_MANIFEST.md`'s "Phase 6G CRM Reconciliation, Follow-up"
+entry and `5D-CRM-Schema.md`'s matching amendment section for full detail.
+
+**PHASE 6G CRM RECONCILIATION FOLLOW-UP COMPLETE — MERGE-MARKER GDPR
+EXPOSURE RESOLVED — `docs/phase-06-api-design/6G-CRM-Leads-APIs.md`
+REVISION 3 READY FOR INDEPENDENT FREEZE REVIEW**

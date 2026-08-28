@@ -2444,3 +2444,48 @@ Fixed before either migration was left in a broken state, by adopting
 pattern exactly: include `public` in `search_path`, and generate the new
 row's id into a local variable rather than relying solely on the column
 default.
+
+### Follow-up Amendment — Merge Marker PII Removal (`097_5D5.sql`)
+
+An independent whole-project review found that the merge-marker Activity
+recorded by `crm.fn_merge_contacts()` (§10.1 above) copied the secondary
+Contact's `full_name` and `phone_e164` directly into the Activity's JSONB
+`payload`. Because `crm.activities` is append-only and outside the scope
+of Contact GDPR erasure (erasure clears fields on `crm.contacts` only —
+§5.1, ADR-5D-007), this created a second, erasure-proof copy of exactly
+the PII `DELETE /contacts/{id}` is supposed to clear — a genuine breach
+of the CRM erasure boundary, not a cosmetic concern.
+
+`097_5D5.sql` replaces `crm.fn_merge_contacts()` (`CREATE OR REPLACE`,
+`093_5D2.sql` itself untouched) with an identical function except the
+marker Activity payload now carries **identifiers and provenance only**:
+
+```json
+{"event": "contact_merged", "primary_contact_id": "...", "secondary_contact_id": "...", "merged_by": "..."}
+```
+
+**No Contact name, phone, email, address, custom-field value, or
+qualification reason is ever written into this payload.** This is a
+structural property of the function body, not an application-layer
+promise — verified live: `payload ? 'secondary_full_name'` and `payload
+? 'secondary_phone_e164'` both evaluate `false`, and a direct
+`payload::text LIKE '%<the fixture's actual name/phone>%'` search
+confirms neither string is present anywhere in the row.
+
+**Practical consequence for GDPR erasure:** a Contact's PII is fully
+erasable by `DELETE /contacts/{id}` regardless of whether that Contact
+was ever a merge secondary in the past — no merge, past or future, can
+leave a durable, unerasable copy of a Contact's name or phone number
+sitting in `crm.activities`. If a human-readable record of *what specific
+data* was merged is ever needed beyond the four identifier fields above,
+it must be produced by re-reading the (still-erasable) `crm.contacts`
+rows at query time — never by duplicating their PII into this immutable
+record.
+
+Every other property of the merge design (§10.1 above) is unchanged:
+mutable-child repointing, `merged_into_contact_id`/`merged_at` as the
+merge-lineage representation distinct from `deleted_at`, `crm.activities`/
+`crm.lead_score_records` left physically unchanged, suppression and
+consent records untouched, all guard triggers and constraints, and
+`SECURITY DEFINER` hardening (`search_path` including `public`,
+`REVOKE ALL FROM PUBLIC`, identical `EXECUTE` grants).

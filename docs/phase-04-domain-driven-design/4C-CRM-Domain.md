@@ -611,13 +611,19 @@ class ContactsMergeService:
     Merges two Contact aggregates: primary (kept) and secondary (merged into primary).
 
     Merge rules:
-    - All Activities, Tasks, Notes, Appointments, and Deals referencing secondary
-      are re-pointed to primary (via domain events, not direct mutation).
+    - Mutable child aggregates referencing secondary — Deals, Tasks, Notes, and
+      Appointments — are re-pointed to primary.
+    - Activities and LeadScoreRecords referencing secondary are NOT re-pointed —
+      see the Physical Implementation Note below; they remain attached to the
+      Contact identity under which they were originally recorded, and the
+      survivor's unified history is assembled by following merge lineage at
+      read time.
     - Fields from secondary fill nulls in primary; primary wins on conflicts.
     - secondary.LeadStatus is applied to primary if secondary is further along
       the LeadStatus state machine than primary.
-    - secondary is then set to ContactStatus.MERGED (a terminal status distinct
-      from ACTIVE or CONVERTED).
+    - secondary is then marked as merged-away — a terminal identity state
+      distinct from ACTIVE or CONVERTED, and distinct from GDPR-erasure/soft-
+      deletion (see the Physical Implementation Note below).
     - ContactsMerged event carries both IDs and the merge mapping.
     """
     def merge(
@@ -627,6 +633,8 @@ class ContactsMergeService:
         unit_of_work: UnitOfWork,
     ) -> Contact: ...
 ```
+
+**Physical Implementation Note (Phase 5D.2 / Phase 6G, 2026-08-28):** Phase 5D's executed schema makes `crm.activities` and `crm.lead_score_records` append-only (`REVOKE UPDATE, DELETE` for every application role, `022_5D.sql`/`023_5D.sql`) — a direct consequence of DDR-4C-002's own immutability requirement applied at the physical layer. Re-pointing either table's rows during merge is therefore physically impossible without contradicting that same immutability guarantee, and the CRM + Leads API design (`6G-CRM-Leads-APIs.md` §10) resolves the tension by **not** re-pointing them: only Deals, Tasks, Notes, and Appointments — the four mutable child aggregates — are physically repointed to the survivor (`crm.fn_merge_contacts()`, `093_5D2.sql`). Activities and LeadScoreRecords remain physically attached to the Contact identity under which they were originally recorded; the survivor's unified Activity timeline and LeadScore history are assembled by following the merge lineage pointer at read time, not by rewriting the historical rows. A new, identifier-only marker Activity (no Contact PII — see below) is recorded on the survivor at merge time so the merge event itself is visible in the audit-grade timeline. The "terminal identity state" for a merged-away secondary is represented physically as `crm.contacts.merged_into_contact_id`/`merged_at` (both set exactly once, together, and immutable thereafter) — **this is deliberately distinct from `deleted_at`**, which remains exclusively the GDPR-erasure/soft-deletion marker (Phase 4I). A merged Contact's PII is not cleared by merging; it is folded into the survivor. The two states compose independently — a Contact may be merged away and later still be the subject of a GDPR erasure request, and erasure remains fully effective regardless of prior merge history. The merge-marker Activity's payload is deliberately PII-minimal (identifiers and provenance only — the merged Contact ids and the acting user — never the secondary's name, phone, email, address, or any other direct Contact PII), precisely because Activities are append-only and outside GDPR erasure's field-clearing scope; copying Contact PII into that payload would create a second, unerasable copy of exactly the data erasure is meant to clear.
 
 ### 6.3 LeadScoringService
 
@@ -848,7 +856,7 @@ Reuses Phase 4A §9.1 `DomainEvent` envelope. All CRM events carry `tenant_id` a
 | `contact.disqualified` | `contact_id, qualification_reason, disqualified_by` | Audit, Analytics, Campaign |
 | `contact.score_updated` | `contact_id, old_score, new_score, new_temperature, scorer_type, signal_count` | Audit, Analytics, Webhook |
 | `contact.converted` | `contact_id, converted_at, triggering_deal_id` | Audit, Analytics, Billing, Webhook |
-| `contact.merged` | `primary_id, secondary_id, field_merge_map` | Audit, Activity/Task/Deal re-pointing |
+| `contact.merged` | `primary_id, secondary_id, field_merge_map` | Audit, Task/Note/Appointment/Deal re-pointing (Activities/LeadScoreRecords are not re-pointed — see §6.2's Physical Implementation Note) |
 | `contact.dnc_flagged` | `contact_id, flagged_by` | Audit, Campaign (remove from active queues) |
 | `contact.owner_assigned` | `contact_id, old_owner, new_owner` | Audit, Notification (to new owner) |
 

@@ -107,6 +107,70 @@ regeneration corrects that. See "Reconciliation" below for details.
 | 094 | 5D.3 | `094_5D3.sql` | `093_5D2` | transactional | 7502 | `4bb74bc7dc5ffe5700744411d3ea60d368c95eedadde6daba3a318f3d128d68b` |
 | 095 | 5D.4 | `095_5D4.sql` | `094_5D3` | transactional | 5484 | `694a01d3af46d1df48c94a4e099954e450029edb06460a6f7421dd5a2d766d1b` |
 | 096 | 5B.2 | `096_5B2.sql` | `095_5D4` | transactional | 2543 | `1d79ad3aa068eccb7d3181773bae61e4157ef37eb221e8777c7597c1a975bffc` |
+| 097 | 5D.5 | `097_5D5.sql` | `096_5B2` | transactional | 13681 | `1ebb277a8551b648cec8f085edc0dae5596ad2c54b8b348f58d8323a05f13fe1` |
+
+---
+
+## Phase 6G CRM Reconciliation, Follow-up (2026-08-28) — merge marker PII removal
+
+Row 097 is a **new forward migration**, added after and on top of the
+validated 96-row Phase 6G CRM Reconciliation baseline. No row 001-096 was
+edited — `093_5D2.sql` in particular is untouched; its checksum in the
+table above is unchanged from the entry that follows this section.
+
+An independent whole-project review, performed after the Phase 6G CRM
+Reconciliation above, found a real GDPR-erasure-boundary defect in
+`093_5D2.sql`'s `crm.fn_merge_contacts()`: the merge-marker Activity it
+records on the survivor copied the secondary Contact's `full_name` and
+`phone_e164` directly into the Activity's JSONB `payload`. Because
+`crm.activities` is append-only (`REVOKE UPDATE, DELETE`, `022_5D.sql`)
+and is never touched by Contact GDPR erasure (erasure clears fields on
+`crm.contacts` only — 5D §5.1, ADR-5D-007), this created a second,
+erasure-proof copy of exactly the PII `DELETE /contacts/{id}` is supposed
+to clear. A Contact merged and later the subject of a Data Subject
+erasure request would have had their name and phone number survive,
+unerasable, inside this one Activity row.
+
+`097_5D5.sql` fixes this with a single `CREATE OR REPLACE FUNCTION
+crm.fn_merge_contacts(...)`, identical to `093_5D2.sql`'s version in
+every respect — guards (self/tenant/erased/already-merged), deterministic
+lock ordering, lead-status ranking, tag/custom-field union and cap
+enforcement, the four mutable-child repoints (`crm.deals`/`tasks`/
+`notes`/`appointments`), the secondary's `merged_into_contact_id`/
+`merged_at` assignment, `SECURITY DEFINER` hardening (`search_path`
+including `public`, `REVOKE ALL FROM PUBLIC`, identical `EXECUTE` grants
+to `app_api`/`app_worker`/`app_platform_admin`) — **except** the marker
+Activity's `payload` now carries identifiers/provenance only: `event`,
+`primary_contact_id` (newly added), `secondary_contact_id`, `merged_by`.
+No Contact name, phone, email, address, custom-field value, or
+qualification reason is written into this payload.
+
+Live-validated (disposable local PostgreSQL 18, fresh-DB `001_5B ->
+097_5D5` and existing-DB `096_5B2 -> 097_5D5`, both exit code 0, single
+head `097_5D5`): a full merge regression pass — valid same-tenant merge;
+all four mutable children still repointed; `crm.activities` and
+`crm.lead_score_records` still physically unchanged (attached to the
+secondary's id, untouched); the marker Activity is created; its payload's
+key set is confirmed to be exactly `{event, merged_by,
+primary_contact_id, secondary_contact_id}` via `jsonb_object_keys` —
+`payload ? 'secondary_full_name'` and `payload ? 'secondary_phone_e164'`
+both return `false`, and a direct text-search of the serialized payload
+for the test fixture's actual name (`"Sensitive Secondary Name"`) and
+phone digits confirms neither string appears anywhere in it; GDPR
+erasure of the now-merged secondary still succeeds unobstructed
+afterward, and the (already PII-free) marker payload is unaffected by
+that erasure, confirming no Contact PII survives solely because a prior
+merge copied it; cross-tenant merge still rejected; a genuine
+two-connection concurrent merge race reproduces the identical pre-fix
+outcome (one success, one real `MERGE_SECONDARY_ALREADY_MERGED`
+exception).
+
+**Reconciled totals after this amendment:** 97/97 `migrations/*.sql`
+files, 97/97 `alembic/versions/*.py` files, single linear chain, single
+head `097_5D5`.
+
+**Consumer:** `docs/phase-06-api-design/6G-CRM-Leads-APIs.md` (Revision 3)
+§10, §34, §36.
 
 ---
 
