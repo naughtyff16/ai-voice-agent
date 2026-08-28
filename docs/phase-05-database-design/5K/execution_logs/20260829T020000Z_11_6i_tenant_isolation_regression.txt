@@ -1,0 +1,45 @@
+﻿=== T7.1: as Org A, list workflows -> should see only Org A rows ===
+SET
+                  id                  |               name               
+--------------------------------------+----------------------------------
+ 5bb56536-20cd-48b0-a560-81dde75bf0d3 | C4 fixture 5bb56536
+ 10000000-0000-7000-8000-000000000001 | Fixture Workflow A1
+ 10000000-0000-7000-8000-000000000002 | Fixture Workflow A2 (to archive)
+(3 rows)
+
+=== T7.2: switch to Org B -> must see 0 of Org As rows, only own ===
+SET
+                  id                  |        name         
+--------------------------------------+---------------------
+ 10000000-0000-7000-8000-00000000000b | Fixture Workflow B1
+(1 row)
+
+=== T7.3: Org B queries node_execution_claims -> must see 0 rows (all fixtures are Org A) ===
+ count 
+-------
+     0
+(1 row)
+
+=== T7.4: Org B queries workflow_executions -> must see 0 of Org As executions ===
+ count 
+-------
+     0
+(1 row)
+
+=== T7.5: no tenant context set at all -> RLS fails closed to zero rows, not all rows ===
+SET
+ count 
+-------
+     0
+(1 row)
+
+ count 
+-------
+     0
+(1 row)
+
+ count 
+-------
+     0
+(1 row)
+

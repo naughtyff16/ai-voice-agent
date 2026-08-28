@@ -1,0 +1,48 @@
+﻿SET
+=== T6.1: app_platform_admin UPDATE workflow_definitions (arbitrary status/published_version_id) -> must be DENIED ===
+psql.exe : psql:C:/Users/Dell/pgval16/test_06_admin_bypass_and_immutability.sql:4: ERROR:  permission denied for table 
+workflow_definitions
+At line:2 char:1
++ psql.exe -h 127.0.0.1 -p 5433 -U app_platform_admin -d voice_agent_pg ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (psql:C:/Users/D...low_definitions:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+=== T6.2: app_platform_admin DELETE workflow_versions -> must be DENIED ===
+psql:C:/Users/Dell/pgval16/test_06_admin_bypass_and_immutability.sql:7: ERROR:  permission denied for table 
+workflow_versions
+=== T6.3: app_platform_admin UPDATE workflow_versions.organization_id (reassign to another tenant) -> must be DENIED (privilege) ===
+psql:C:/Users/Dell/pgval16/test_06_admin_bypass_and_immutability.sql:10: ERROR:  permission denied for table 
+workflow_versions
+=== T6.4: app_platform_admin UPDATE workflow_versions.workflow_definition_id (reassign to another workflow) -> must be DENIED (privilege) ===
+=== T6.5: app_platform_admin DELETE workflow_executions (ACTIVE or otherwise) -> must be DENIED ===
+psql:C:/Users/Dell/pgval16/test_06_admin_bypass_and_immutability.sql:13: ERROR:  permission denied for table 
+workflow_versions
+psql:C:/Users/Dell/pgval16/test_06_admin_bypass_and_immutability.sql:16: ERROR:  permission denied for table 
+workflow_executions
+=== T6.6: app_platform_admin UPDATE workflow_executions (checkpoint fields) -> must be DENIED ===
+=== T6.7: app_platform_admin INSERT workflow_definitions -> must be DENIED ===
+psql:C:/Users/Dell/pgval16/test_06_admin_bypass_and_immutability.sql:19: ERROR:  permission denied for table 
+workflow_executions
+psql:C:/Users/Dell/pgval16/test_06_admin_bypass_and_immutability.sql:23: ERROR:  permission denied for table 
+workflow_definitions
+=== T6.8: app_platform_admin SELECT still works (legitimate diagnostic read path) ===
+ count 
+-------
+     3
+(1 row)
+
+ count 
+-------
+    10
+(1 row)
+
+ count 
+-------
+     7
+(1 row)
+
+=== T6.9: app_platform_admin UPDATE prompt_versions (identity gap sibling fix) -> must be DENIED ===
+psql:C:/Users/Dell/pgval16/test_06_admin_bypass_and_immutability.sql:33: ERROR:  permission denied for table 
+prompt_versions
+=== T6.10: as postgres SUPERUSER (bypasses grants+RLS), attempt to reassign workflow_versions.workflow_definition_id -> TRIGGER must still reject it ===

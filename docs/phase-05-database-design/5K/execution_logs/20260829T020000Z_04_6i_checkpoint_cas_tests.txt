@@ -1,0 +1,79 @@
+﻿SET
+--- T2.0: current state before checkpointing ---
+                  id                  |            started_at            | status | checkpoint_seq 
+--------------------------------------+----------------------------------+--------+----------------
+ 01a04a1d-4c60-72e8-8ae9-e92c14a563af | 2026-08-29 02:13:49.210898+05:30 | ACTIVE |              0
+(1 row)
+
+--- T2.1: checkpoint seq=1 -> APPLIED ---
+ outcome 
+---------
+ APPLIED
+(1 row)
+
+--- T2.2: checkpoint seq=2 -> APPLIED ---
+ outcome 
+---------
+ APPLIED
+(1 row)
+
+--- T2.3: DELAYED seq=1 arrives AFTER seq=2 already applied -> STALE_CHECKPOINT, no-op ---
+     outcome      
+------------------
+ STALE_CHECKPOINT
+(1 row)
+
+--- T2.4: verify state STILL reflects turn2, not the stale turn1 replay ---
+                  id                  |           current_node_id            |          slots           | checkpoint_seq 
+--------------------------------------+--------------------------------------+--------------------------+----------------
+ 01a04a1d-4c60-72e8-8ae9-e92c14a563af | 40000000-0000-7000-8000-000000000002 | {"caller_name": "turn2"} |              2
+(1 row)
+
+--- T2.5: duplicate delivery of seq=2 (already applied) -> STALE_CHECKPOINT, idempotent no-op ---
+     outcome      
+------------------
+ STALE_CHECKPOINT
+(1 row)
+
+--- T2.6: complete the execution ---
+ outcome 
+---------
+ APPLIED
+(1 row)
+
+--- T2.7: checkpoint seq=3 AFTER completion -> EXECUTION_TERMINAL, no-op ---
+      outcome       
+--------------------
+ EXECUTION_TERMINAL
+(1 row)
+
+--- T2.8: complete again (already COMPLETED) -> EXECUTION_TERMINAL, no-op ---
+      outcome       
+--------------------
+ EXECUTION_TERMINAL
+(1 row)
+
+--- T2.9: checkpoint on nonexistent execution -> NOT_FOUND ---
+  outcome  
+-----------
+ NOT_FOUND
+(1 row)
+
+--- T2.10: cross-tenant checkpoint attempt (org B claims org A execution) -> exception ---
+SET
+  outcome  
+-----------
+ NOT_FOUND
+(1 row)
+
+--- T2.11: attempt a direct raw UPDATE on workflow_executions as app_api (should FAIL - privilege revoked) ---
+SET
+psql.exe : psql:C:/Users/Dell/pgval16/test_02_checkpoint.sql:73: ERROR:  permission denied for table 
+workflow_executions
+At line:2 char:1
++ psql.exe -h 127.0.0.1 -p 5433 -U app_api -d voice_agent_pg16_fresh -f ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (psql:C:/Users/D...flow_executions:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+--- T2.12: attempt to move checkpoint_seq BACKWARD via a hypothetical direct write path (simulated as postgres superuser bypassing grants, to prove the TRIGGER itself rejects it, not just the grant) ---

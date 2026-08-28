@@ -1,0 +1,31 @@
+﻿SET
+--- T1.1: fresh start -> STARTED ---
+             execution_id             |       execution_started_at       | outcome 
+--------------------------------------+----------------------------------+---------
+ 01a04a1d-4c60-72e8-8ae9-e92c14a563af | 2026-08-29 02:13:49.210898+05:30 | STARTED
+(1 row)
+
+--- T1.2: duplicate start, same version -> REPLAYED_EXISTING ---
+             execution_id             |       execution_started_at       |      outcome      
+--------------------------------------+----------------------------------+-------------------
+ 01a04a1d-4c60-72e8-8ae9-e92c14a563af | 2026-08-29 02:13:49.210898+05:30 | REPLAYED_EXISTING
+(1 row)
+
+--- T1.3: duplicate start, different version -> VERSION_CONFLICT ---
+             execution_id             |       execution_started_at       |     outcome      
+--------------------------------------+----------------------------------+------------------
+ 01a04a1d-4c60-72e8-8ae9-e92c14a563af | 2026-08-29 02:13:49.210898+05:30 | VERSION_CONFLICT
+(1 row)
+
+--- T1.4: start against ARCHIVED workflow definition -> exception expected ---
+UPDATE 1
+psql.exe : psql:C:/Users/Dell/pgval16/test_01_start_execution.sql:32: ERROR:  fn_start_workflow_execution: the 
+WorkflowDefinition owning workflow_version 20000000-0000-7000-8000-000000000002 is ARCHIVED; no new execution may 
+start against it
+At line:2 char:1
++ psql.exe -h 127.0.0.1 -p 5433 -U app_api -d voice_agent_pg16_fresh -f ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (psql:C:/Users/D...tart against it:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+CONTEXT:  PL/pgSQL function fn_start_workflow_execution(uuid,uuid,uuid,timestamp with time zone) line 34 at RAISE

@@ -1,0 +1,9 @@
+SET
+ERROR:  workflow_versions fields are immutable. version_id: 20000000-0000-7000-8000-000000000001
+CONTEXT:  PL/pgSQL function workflow.prevent_wf_version_mutation() line 9 at RAISE
+SET
+ERROR:  workflow_versions fields are immutable. version_id: 20000000-0000-7000-8000-000000000001
+CONTEXT:  PL/pgSQL function workflow.prevent_wf_version_mutation() line 9 at RAISE
+SET
+ERROR:  prompt_versions fields are immutable. version_id: 70000000-0000-7000-8000-000000000001
+CONTEXT:  PL/pgSQL function prompt.prevent_pv_mutation() line 10 at RAISE

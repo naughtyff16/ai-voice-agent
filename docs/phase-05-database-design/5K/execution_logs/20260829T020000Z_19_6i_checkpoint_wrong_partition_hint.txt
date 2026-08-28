@@ -1,0 +1,6 @@
+SET
+  outcome  
+-----------
+ NOT_FOUND
+(1 row)
+

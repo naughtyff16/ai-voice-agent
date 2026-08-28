@@ -1,0 +1,91 @@
+﻿SET
+=== T5.1: fresh claim -> claimed=TRUE ===
+=== T5.2: second worker tries to claim the SAME identity while lease is valid -> claimed=FALSE, NOT_CLAIMABLE_CLAIMED ===
+ claimed |               claim_id               | claim_state | downstream_ref |        reason         
+---------+--------------------------------------+-------------+----------------+-----------------------
+ f       | 01a04a20-c26f-74c4-9eee-ee7474b46734 | CLAIMED     |                | NOT_CLAIMABLE_CLAIMED
+(1 row)
+
+=== T5.3: begin submission as the rightful claim holder -> began=TRUE ===
+ began | reason 
+-------+--------
+ t     | 
+(1 row)
+
+=== T5.4: a DIFFERENT worker attempts to claim the SAME identity now that it is SUBMITTING -> must NEVER be reclaimable, regardless of lease staleness ===
+ claimed |               claim_id               | claim_state | downstream_ref |          reason          
+---------+--------------------------------------+-------------+----------------+--------------------------
+ f       | 01a04a20-c26f-74c4-9eee-ee7474b46734 | SUBMITTING  |                | NOT_CLAIMABLE_SUBMITTING
+(1 row)
+
+=== T5.5: original worker records SUCCEEDED with a downstream_ref ===
+ fn_record_node_succeeded 
+--------------------------
+ t
+(1 row)
+
+=== T5.6: a THIRD claim attempt on the SAME identity after SUCCEEDED -> claimed=FALSE, NOT_CLAIMABLE_SUCCEEDED, caller can read back downstream_ref instead of re-invoking ===
+ claimed |               claim_id               | claim_state |     downstream_ref     |         reason          
+---------+--------------------------------------+-------------+------------------------+-------------------------
+ f       | 01a04a20-c26f-74c4-9eee-ee7474b46734 | SUCCEEDED   | tool_executions:abc123 | NOT_CLAIMABLE_SUCCEEDED
+(1 row)
+
+=== T5.7: a DIFFERENT node_id in the SAME turn (target_checkpoint_seq=1) is independently claimable ===
+=== T5.8: this second claim, begin submission, then AMBIGUOUS (timeout) ===
+ began | reason 
+-------+--------
+ t     | 
+(1 row)
+
+ fn_record_node_ambiguous 
+--------------------------
+ t
+(1 row)
+
+=== T5.9: reclaim attempt on the now-AMBIGUOUS claim -> must NEVER auto-reclaim ===
+ claimed |               claim_id               | claim_state | downstream_ref |         reason          
+---------+--------------------------------------+-------------+----------------+-------------------------
+ f       | 01a04a20-c27c-794e-9850-50e8c9be403e | AMBIGUOUS   |                | NOT_CLAIMABLE_AMBIGUOUS
+(1 row)
+
+=== T5.10: a THIRD node (crash before submit) -> claim, then FAILED (proven pre-submission local abort) -> retry allowed ===
+ fn_record_node_failed 
+-----------------------
+ t
+(1 row)
+
+=== T5.11: retry of the FAILED claim -> claimed=TRUE (safe to retry, side effect never began) ===
+ claimed |               claim_id               | claim_state | downstream_ref | reason 
+---------+--------------------------------------+-------------+----------------+--------
+ t       | 01a04a20-c27f-7bf5-a4cd-cdaecf4437b4 | CLAIMED     |                | 
+(1 row)
+
+=== T5.12: expired-lease CLAIMED (never reached SUBMITTING) IS safely reclaimable -> simulate by claiming with a 5s lease, waiting past it ===
+ claimed |               claim_id               | claim_state | downstream_ref | reason 
+---------+--------------------------------------+-------------+----------------+--------
+ t       | 01a04a20-c282-77ce-9760-6073ce885be2 | CLAIMED     |                | 
+(1 row)
+
+ pg_sleep 
+----------
+ 
+(1 row)
+
+ claimed |               claim_id               | claim_state | downstream_ref | reason 
+---------+--------------------------------------+-------------+----------------+--------
+ t       | 01a04a20-c282-77ce-9760-6073ce885be2 | CLAIMED     |                | 
+(1 row)
+
+=== T5.13: cross-tenant claim attempt (session=A, but the identity belongs to org A already; try forging org B argument while session is A) -> exception ===
+=== T5.14: direct DML on node_execution_claims as app_api -> must be denied (no grant beyond SELECT) ===
+psql.exe : psql:C:/Users/Dell/pgval16/test_05_node_claims.sql:88: ERROR:  fn_claim_node_execution: organization_id 
+00000000-0000-7000-8000-00000000000b does not match current tenant context
+At line:2 char:1
++ psql.exe -h 127.0.0.1 -p 5433 -U app_api -d voice_agent_pg16_fresh -f ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (psql:C:/Users/D... tenant context:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+CONTEXT:  PL/pgSQL function fn_claim_node_execution(uuid,uuid,timestamp with time zone,bigint,uuid,text,text,integer) 
+line 7 at RAISE
+psql:C:/Users/Dell/pgval16/test_05_node_claims.sql:92: ERROR:  permission denied for table node_execution_claims

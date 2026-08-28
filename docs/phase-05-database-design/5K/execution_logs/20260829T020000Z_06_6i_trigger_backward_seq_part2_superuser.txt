@@ -1,0 +1,2 @@
+ERROR:  workflow_executions.checkpoint_seq cannot move backward (old=5, new=2). execution_id: 01a04a1e-dbab-7fa9-a6a7-a72d2a20b5fc
+CONTEXT:  PL/pgSQL function workflow.prevent_execution_mutation() line 16 at RAISE

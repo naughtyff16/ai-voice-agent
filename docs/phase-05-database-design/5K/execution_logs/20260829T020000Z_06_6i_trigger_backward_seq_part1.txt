@@ -1,0 +1,9 @@
+﻿SET
+=== T4.1: start a fresh execution for trigger-level testing ===
+=== T4.2: checkpoint to seq=5 ===
+ outcome 
+---------
+ APPLIED
+(1 row)
+
+=== T4.3: as SUPERUSER (bypasses ALL grants+RLS), attempt raw UPDATE setting checkpoint_seq BACKWARD to 2 -> must be rejected by the TRIGGER itself, not by privilege ===

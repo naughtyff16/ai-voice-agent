@@ -1,0 +1,16 @@
+﻿=== T3.1: forged organization_id argument (session=A, arg=B) -> exception ===
+SET
+psql.exe : psql:C:/Users/Dell/pgval16/test_03_trigger_and_forgery.sql:6: ERROR:  fn_checkpoint_workflow_execution: 
+organization_id 00000000-0000-7000-8000-00000000000b does not match current tenant context
+At line:2 char:1
++ psql.exe -h 127.0.0.1 -p 5433 -U app_api -d voice_agent_pg16_fresh -f ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (psql:C:/Users/D... tenant context:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+CONTEXT:  PL/pgSQL function fn_checkpoint_workflow_execution(uuid,uuid,timestamp with time 
+zone,bigint,uuid,jsonb,jsonb,jsonb) line 8 at RAISE
+=== T3.2: forged organization_id on fn_start_workflow_execution (session=A, arg=B) -> exception ===
+psql:C:/Users/Dell/pgval16/test_03_trigger_and_forgery.sql:13: ERROR:  fn_start_workflow_execution: organization_id 
+00000000-0000-7000-8000-00000000000b does not match current tenant context
+CONTEXT:  PL/pgSQL function fn_start_workflow_execution(uuid,uuid,uuid,timestamp with time zone) line 9 at RAISE
