@@ -1,0 +1,22 @@
+=== app_api INSERT workflow_versions ===
+SET
+ERROR:  permission denied for table workflow_versions
+=== app_worker INSERT workflow_versions ===
+SET
+ERROR:  permission denied for table workflow_versions
+=== app_platform_admin INSERT workflow_versions ===
+SET
+ERROR:  permission denied for table workflow_versions
+=== app_api raw UPDATE status=PUBLISHED ===
+SET
+ERROR:  permission denied for table workflow_definitions
+=== app_api raw UPDATE published_version_id ===
+SET
+ERROR:  permission denied for table workflow_definitions
+=== app_platform_admin EXECUTE fn_publish_workflow (never granted) ===
+SET
+ERROR:  permission denied for function fn_publish_workflow
+=== app_api guarded publish with NULL precondition (direct) ===
+SET
+ERROR:  fn_publish_workflow: p_expected_updated_at is required — publish always requires the exact-draft concurrency precondition (INV-6I-PUB-04/05), never an unconditional bypass
+CONTEXT:  PL/pgSQL function fn_publish_workflow(uuid,uuid,uuid,timestamp with time zone) line 39 at RAISE

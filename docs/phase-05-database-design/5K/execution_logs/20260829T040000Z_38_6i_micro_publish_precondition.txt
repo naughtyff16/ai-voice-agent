@@ -1,0 +1,56 @@
+SET
+=== M2.0: current updated_at for WF A2 ===
+=== M2.1: NULL precondition -> REJECTED (exception) ===
+psql:C:/Users/Dell/pgval16/test_micro_02_publish_precondition.sql:10: ERROR:  fn_publish_workflow: p_expected_updated_at is required — publish always requires the exact-draft concurrency precondition (INV-6I-PUB-04/05), never an unconditional bypass
+CONTEXT:  PL/pgSQL function fn_publish_workflow(uuid,uuid,uuid,timestamp with time zone) line 39 at RAISE
+=== M2.2: verify NO version was created by the NULL attempt ===
+ count 
+-------
+     0
+(1 row)
+
+ status | published_version_id 
+--------+----------------------
+ DRAFT  | 
+(1 row)
+
+=== M2.3: STALE precondition -> PRECONDITION_FAILED ===
+ version_id | version_number | published_at |       outcome       
+------------+----------------+--------------+---------------------
+            |                |              | PRECONDITION_FAILED
+(1 row)
+
+=== M2.4: verify still no version created ===
+ count 
+-------
+     0
+(1 row)
+
+=== M2.5: CORRECT precondition -> PUBLISHED ===
+              version_id              | version_number |           published_at           |  outcome  
+--------------------------------------+----------------+----------------------------------+-----------
+ 01a04bfb-6455-7ff5-853a-3a87fa18ddb4 |              1 | 2026-08-29 10:56:01.557348+05:30 | PUBLISHED
+(1 row)
+
+=== M2.6: verify exactly one version now exists, published_version_id set ===
+ count 
+-------
+     1
+(1 row)
+
+  status   |         published_version_id         
+-----------+--------------------------------------
+ PUBLISHED | 01a04bfb-6455-7ff5-853a-3a87fa18ddb4
+(1 row)
+
+=== M2.7: re-publish using the NOW-STALE old precondition (updated_at changed after M2.5) -> PRECONDITION_FAILED ===
+ version_id | version_number | published_at |       outcome       
+------------+----------------+--------------+---------------------
+            |                |              | PRECONDITION_FAILED
+(1 row)
+
+ count 
+-------
+     1
+(1 row)
+

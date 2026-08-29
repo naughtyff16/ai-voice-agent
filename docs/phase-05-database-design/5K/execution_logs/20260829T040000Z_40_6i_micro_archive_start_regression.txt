@@ -1,0 +1,30 @@
+
+=== Race A: StartExecution locks first, Archive waits, execution stays valid ===
+outcomes: {'start': (UUID('01a04bfd-1179-7bca-b7db-dbffc4ad815b'), 'STARTED'), 'archive_wait': 0.48627686500549316, 'archive': 'ARCHIVED'}
+[PASS] RaceA: StartExecution succeeded {'start': (UUID('01a04bfd-1179-7bca-b7db-dbffc4ad815b'), 'STARTED'), 'archive_wait': 0.48627686500549316, 'archive': 'ARCHIVED'}
+[PASS] RaceA: Archive measurably waited waited 0.49s
+[PASS] RaceA: Archive succeeded after commit {'start': (UUID('01a04bfd-1179-7bca-b7db-dbffc4ad815b'), 'STARTED'), 'archive_wait': 0.48627686500549316, 'archive': 'ARCHIVED'}
+[PASS] RaceA: execution remains ACTIVE 
+
+=== Race B: Archive already committed; StartExecution rejected ===
+[PASS] RaceB: rejected fn_start_workflow_execution: the WorkflowDefinition owning workflow_version 01a04bfd-112a-72db-a193-935626aee1e6 is ARCHIVED; no new execution may sta
+
+=== Duplicate StartExecution semantics (same/different version) ===
+publish v2 outcome: PUBLISHED
+[PASS] Same session + same version -> REPLAYED_EXISTING (UUID('01a04bfd-14a0-7722-94f3-f30492f30254'), 'STARTED'), (UUID('01a04bfd-14a0-7722-94f3-f30492f30254'), 'REPLAYED_EXISTING')
+
+=== Cross-tenant version start denied ===
+[PASS] Cross-tenant version start denied fn_start_workflow_execution: workflow_version 01a04bfd-147e-7f45-9a6d-6dbd5fa05924 not found for tenant 00000000-0000-7000-8000-00000000000b
+CONTEXT: 
+
+
+==== SUMMARY ====
+PASS: RaceA: StartExecution succeeded
+PASS: RaceA: Archive measurably waited
+PASS: RaceA: Archive succeeded after commit
+PASS: RaceA: execution remains ACTIVE
+PASS: RaceB: rejected
+PASS: Same session + same version -> REPLAYED_EXISTING
+PASS: Cross-tenant version start denied
+
+7/7 PASS

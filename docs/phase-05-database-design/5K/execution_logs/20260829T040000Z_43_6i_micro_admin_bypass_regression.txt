@@ -1,0 +1,26 @@
+=== admin UPDATE workflow_executions ===
+SET
+ERROR:  permission denied for table workflow_executions
+=== admin DELETE workflow_executions ===
+SET
+ERROR:  permission denied for table workflow_executions
+=== admin DELETE workflow_versions ===
+SET
+ERROR:  permission denied for table workflow_versions
+=== admin DELETE node_execution_claims ===
+SET
+ERROR:  permission denied for table node_execution_claims
+=== admin legitimate SELECT still works ===
+SET
+ count 
+-------
+     6
+(1 row)
+
+=== superuser: identity reassignment still rejected by trigger ===
+ERROR:  syntax error at or near "LIMIT"
+LINE 1: ...efinition_id='10000000-0000-7000-8000-000000000001' LIMIT 1;
+                                                               ^
+SET
+ERROR:  workflow_versions fields are immutable. version_id: 01a04bfb-33a9-7679-8547-47808383b4f4
+CONTEXT:  PL/pgSQL function workflow.prevent_wf_version_mutation() line 9 at RAISE

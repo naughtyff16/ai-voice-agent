@@ -1,0 +1,32 @@
+SET
+ org_b_sees_of_a_workflows 
+---------------------------
+                         0
+(1 row)
+
+ org_b_sees_of_claims 
+----------------------
+                    0
+(1 row)
+
+ org_b_sees_of_executions 
+--------------------------
+                        0
+(1 row)
+
+SET
+ no_tenant_definitions 
+-----------------------
+                     0
+(1 row)
+
+ no_tenant_executions 
+----------------------
+                    0
+(1 row)
+
+ no_tenant_claims 
+------------------
+                0
+(1 row)
+

@@ -1,0 +1,16 @@
+               function_name               | is_security_definer |                   search_path_config                   | public_can_execute |            execute_grantees             
+-------------------------------------------+---------------------+--------------------------------------------------------+--------------------+-----------------------------------------
+ prompt.fn_prompt_set_active               | t                   | search_path=prompt, organization, pg_temp              | f                  | app_api, app_worker, app_platform_admin
+ workflow.fn_archive_workflow              | t                   | search_path=workflow, organization, pg_catalog         | f                  | app_api
+ workflow.fn_begin_node_submission         | t                   | search_path=workflow, organization, pg_catalog         | f                  | app_api, app_worker
+ workflow.fn_checkpoint_workflow_execution | t                   | search_path=workflow, organization, pg_catalog         | f                  | app_api, app_worker
+ workflow.fn_claim_node_execution          | t                   | search_path=workflow, organization, public, pg_catalog | f                  | app_api, app_worker
+ workflow.fn_complete_workflow_execution   | t                   | search_path=workflow, organization, pg_catalog         | f                  | app_api, app_worker
+ workflow.fn_fail_workflow_execution       | t                   | search_path=workflow, organization, pg_catalog         | f                  | app_api, app_worker
+ workflow.fn_publish_workflow              | t                   | search_path=workflow, organization, public, pg_catalog | f                  | app_api
+ workflow.fn_record_node_ambiguous         | t                   | search_path=workflow, organization, pg_catalog         | f                  | app_api, app_worker
+ workflow.fn_record_node_failed            | t                   | search_path=workflow, organization, pg_catalog         | f                  | app_api, app_worker
+ workflow.fn_record_node_succeeded         | t                   | search_path=workflow, organization, pg_catalog         | f                  | app_api, app_worker
+ workflow.fn_start_workflow_execution      | t                   | search_path=workflow, organization, public, pg_catalog | f                  | app_api, app_worker, app_platform_admin
+(12 rows)
+

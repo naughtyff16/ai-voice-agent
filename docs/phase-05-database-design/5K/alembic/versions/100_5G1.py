@@ -88,10 +88,48 @@ class of ambiguity 099_5C1.sql's own header comment documents for
 fn_claim_dispatch_for_provider_submission), fixed with the same
 `#variable_conflict use_column` pragma.
 
+Phase 6I FINAL MICRO-REMEDIATION pass (same day, third pass over this
+file), closing two further defects an independent review of the FINAL
+pass' own new capabilities found:
+
+  Blocker A (side-effect state machine) — fn_record_node_failed()
+  (DROP + CREATE, BOOLEAN -> TABLE(recorded, reason) return-type change)
+  no longer accepts SUBMITTING -> FAILED for an ordinary runtime worker.
+  FAILED is a reclaimable state, so permitting SUBMITTING -> FAILED let a
+  worker that mis-recorded an uncertain or actually-successful
+  post-submission outcome as "failed" make an already-in-flight or
+  already-succeeded external side effect automatically retryable —
+  defeating the entire durable SUBMITTING boundary. Only CLAIMED ->
+  FAILED (a provable pre-submission local abort) is legal now; a
+  SUBMITTING -> FAILED attempt is rejected with a distinguishable reason
+  (NOT_FAILABLE_AFTER_SUBMISSION) instead of an ambiguous boolean FALSE.
+  An uncertain post-submission outcome must go to
+  fn_record_node_ambiguous() instead — unaffected, still a hard stop.
+
+  Blocker B (publish precondition) — fn_publish_workflow()'s
+  p_expected_updated_at is no longer optional (`DEFAULT NULL` removed)
+  and is explicitly rejected (RAISE EXCEPTION) if an authorized caller
+  passes a literal NULL anyway — the removed default alone would not
+  stop that, since PostgreSQL never NOT-NULL-constrains function
+  parameters the way table columns are constrained. There is no longer
+  any unconditional runtime publish route: every call must supply the
+  row's actual current updated_at or the call is rejected outright.
+
+Also reviewed and resolved without a silent product decision: whether
+app_platform_admin's EXECUTE grant on fn_start_workflow_execution (which
+traces to the original, frozen 041_5G.sql — not introduced or altered by
+any 6I remediation pass) should be revoked on least-privilege grounds.
+Left UNCHANGED — flagged as a genuine product-policy question in the
+accompanying report rather than decided unilaterally, since (unlike
+every other REVOKE in this file) no invariant is bypassed by this grant:
+the function is already fully tenant/archive/version-safe for any
+caller, so removing it would be a business-policy restriction on what a
+platform admin's role is permitted to do, not a security-bypass closure.
+
 Source: docs/phase-06-api-design/6I-Workflow-APIs.md, Phase 6I Blocker
-Remediation pass (both passes). No table/schema/bounded context is added
-beyond what these seven findings require; migrations 001-099 are not
-edited, renumbered, or reordered.
+Remediation pass (all three passes). No table/schema/bounded context is
+added beyond what these nine findings require; migrations 001-099 are
+not edited, renumbered, or reordered.
 
 Revision ID: 100_5G1
 Revises: '099_5C1'
@@ -128,9 +166,11 @@ def downgrade() -> None:
         "workflow/fn_archive_workflow would need to be dropped and the "
         "original 039_5G.sql fn_workflow_publish() restored; the INSERT/"
         "UPDATE grants on workflow_versions/workflow_definitions would "
-        "need to be reverted to their pre-100_5G1 shape; and the "
+        "need to be reverted to their pre-100_5G1 shape; the "
         "immutability/archived-terminal trigger functions would need "
-        "reverting/dropping — an operational runbook note, not an "
-        "Alembic-managed downgrade, matching every other revision in "
+        "reverting/dropping; and fn_record_node_failed would need "
+        "reverting to its earlier BOOLEAN-returning, "
+        "SUBMITTING-permitting shape — an operational runbook note, not "
+        "an Alembic-managed downgrade, matching every other revision in "
         "this package)."
     )

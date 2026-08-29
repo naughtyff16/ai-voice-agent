@@ -1542,12 +1542,87 @@ Identical to §63.11: 6J (`WEBHOOK`/`API_CALL` execution controls), ADR-5G-010 (
 
 ### 64.11 Remaining Blockers
 
-**NONE.**
+**NONE.** *(Superseded — §65 found two more before any external sign-off. See below.)*
 
 ### 64.12 Final Verdict
 
-**APPROVED — PHASE 6I READY TO FREEZE**
+~~**APPROVED — PHASE 6I READY TO FREEZE**~~ *(Retracted — see §65. A third, independent adversarial pass over this pass' own new capabilities found two further defects the same day, before this verdict was ever acted on. Struck through and kept for audit trail, not silently replaced, per the identical discipline §61/§36 already apply twice in this document.)*
 
 ---
 
-**STOP — Phase 6I complete (including both the 2026-08-29 Blocker Remediation pass, §63, and the same-day FINAL Blocker Remediation pass, §64). Phase 6J not started.**
+## 65. Phase 6I FINAL MICRO-REMEDIATION (2026-08-29) — SUBMITTING Hard-Stop Closure, Mandatory Exact-Draft Publish Precondition
+
+A third, independent adversarial review — of §64's own new capabilities, the same day, before any external sign-off — found exactly two further defects, both closed here in the same migration file (`100_5G1.sql`, amended in place a third time, per its own header's stated policy), live-validated on genuine PostgreSQL 16.10. One additional least-privilege question was reviewed and is reported as an open product-policy decision rather than resolved unilaterally.
+
+### 65.1 Blocker A — SUBMITTING Could Still Be Turned Into a Retryable FAILED (closes INV-6I-SE-07/08/09/10)
+
+**The gap:** `fn_record_node_failed()`'s guard, `claim_state IN ('CLAIMED','SUBMITTING')`, permitted an ordinary worker to move a `SUBMITTING` claim — an external side effect that may already be in flight, or may have already succeeded — directly to `FAILED`. `FAILED` is a reclaimable state (`fn_claim_node_execution`'s own reclaim predicate explicitly allows re-claiming it). A worker that misinterprets a lost response, a timeout, or a crash-recovery guess as "definitely failed" — when the true outcome is actually uncertain, or was actually a success — could therefore make an already-in-flight or already-succeeded external side effect **automatically retryable**, defeating the entire reason the durable `SUBMITTING` boundary exists.
+
+**The fix:** `fn_record_node_failed()` (DROP + CREATE, `BOOLEAN → TABLE(recorded, reason)` — the same return-type-change precedent used twice already in this file) now accepts **only** `CLAIMED → FAILED`. `SUBMITTING → FAILED` is rejected with a distinguishable `reason = 'NOT_FAILABLE_AFTER_SUBMISSION'`, never an ambiguous bare `FALSE` that could also mean "wrong claim holder" or "row doesn't exist." `fn_record_node_succeeded()`/`fn_record_node_ambiguous()` are untouched — an uncertain post-submission outcome has exactly one legal ordinary-worker destination now: `fn_record_node_ambiguous()`, still an unconditional hard stop, unaffected by this pass. No new reconciliation subsystem is introduced — per the governing task's own explicit instruction, `SUBMITTING`/`AMBIGUOUS` remain hard-stop states pending a future, separately-designed trusted-reconciliation capability (still `NON-BLOCKING`, §54/§63.11/§64.10, unchanged).
+
+**Live evidence:** `CLAIMED → FAILED` allowed and safely reclaimable; wrong-claim-holder distinguished (`NOT_CLAIM_HOLDER`); `SUBMITTING → FAILED` rejected (`NOT_FAILABLE_AFTER_SUBMISSION`), the row verified to remain `SUBMITTING`, and a subsequent claim attempt still correctly returns `NOT_CLAIMABLE_SUBMITTING`; `SUBMITTING → AMBIGUOUS` still allowed and still an unreclaimable hard stop; `SUBMITTING → SUCCEEDED` still allowed, terminal, no later reclaim.
+
+### 65.2 Blocker B — Exact-Draft Publish Precondition Was Optional (closes INV-6I-PUB-04/05/06)
+
+**The gap:** `fn_publish_workflow(..., p_expected_updated_at TIMESTAMPTZ DEFAULT NULL)` treated `NULL` as "skip the precondition check" — meaning a caller (correctly or incorrectly) omitting the argument published with **zero** concurrency protection, silently contradicting this document's own stated invariant ("Publish must snapshot the exact draft the caller intended") from inside the very function meant to enforce it.
+
+**The fix:** the parameter loses its default (mandatory at the SQL call-signature level) **and** gains an explicit, defensive `IF p_expected_updated_at IS NULL THEN RAISE EXCEPTION` guard inside the function body — removing a default alone does not stop an authorized caller from passing a literal `NULL` explicitly, since PostgreSQL never `NOT NULL`-constrains function parameters the way table columns are constrained. There is no longer any unconditional runtime publish route. `POST /workflows/{id}/publish`'s own `If-Match` requirement (§8.2/§16/§52, unchanged) is what the API layer resolves into this now-mandatory value.
+
+**Live evidence:** `NULL` precondition → exception, zero versions created, definition unchanged; stale precondition → `PRECONDITION_FAILED`, zero versions created; correct precondition → `PUBLISHED`; a **second** publish attempt reusing the now-consumed, now-stale precondition → `PRECONDITION_FAILED` again, still exactly one version (no silent duplicate publish). The concurrent-publish regression additionally demonstrates the documented consequence of making the precondition mandatory (§20 of the governing task): two publishers racing with the *same*, shared (pre-race) precondition value can no longer both succeed — only the winner of `fn_publish_workflow()`'s own `FOR UPDATE` lock race publishes; the loser's now-stale-relative-to-the-winner's-own-commit precondition correctly yields `PRECONDITION_FAILED`. This is a deliberate, documented behavior change from §64's own optional-precondition version (where both concurrent publishers could succeed with sequential version numbers) — mandatory preconditions make two mutually-unaware concurrent publishes of the same base draft impossible by construction, which is precisely what optimistic concurrency control is for.
+
+### 65.3 `app_platform_admin` / `fn_start_workflow_execution` — Reviewed, Not Silently Decided
+
+**`USER DECISION REQUIRED`**
+
+1. **Exact decision:** whether to revoke `app_platform_admin`'s `EXECUTE` grant on `workflow.fn_start_workflow_execution`, restricting live `WorkflowExecution` creation to `app_api`/`app_worker` only.
+2. **Available options:** (a) **Preserve** the grant as-is (the default applied here — nothing changed); (b) **Revoke** it, matching the narrower `app_api`-only posture this remediation series gave `fn_publish_workflow`/`fn_archive_workflow`.
+3. **Technical consequences:** none either way — `fn_start_workflow_execution()` is already fully tenant-safe, archive-safe, and version-safe for any caller (§63.7/§64.2); no invariant is bypassed by either choice, unlike every other privilege change this remediation series has made.
+4. **Security/correctness consequences:** none either way, for the identical reason — this is a pure least-privilege/role-scope question, not a vulnerability. The grant traces to the original, frozen `041_5G.sql` (Phase 5, approved before any 6I work existed) — it was never introduced or altered by this remediation series.
+5. **Recommendation:** revoke it, for consistency with the narrower posture already established for `fn_publish_workflow`/`fn_archive_workflow` in this same file (§64.1) — "no approved capability in 4E/6I has a platform admin directly create live conversational state" is the same reasoning already applied there. This is offered as a recommendation, not a decision: whether platform admins should be able to directly start a live `WorkflowExecution` (e.g., for a support/break-glass scenario 5B's own break-glass model might otherwise cover through a different, purpose-built mechanism) is a product-policy question no frozen document answers either way, and this pass declines to answer it unilaterally.
+
+**Not a freeze blocker** — per the governing task's own explicit framing, this question does not block approval either way, since the function's safety does not depend on which roles may call it.
+
+### 65.4 Full Regression
+
+The entire regression suite from both prior remediation passes — 9 concurrency scenarios, 7 Archive/StartExecution race scenarios, 10 side-effect tenant/identity scenarios, 7 publish-privilege scenarios, 6 admin-bypass scenarios, 6 tenant-isolation scenarios, and the full 12-function `SECURITY DEFINER` inventory — was re-run against the FINAL MICRO-REMEDIATION migration with **zero regressions**.
+
+### 65.5 Final Invariants Added
+
+| Invariant | Status |
+|---|---|
+| INV-6I-SE-07 (`FAILED` retryable only if recorded before `SUBMITTING`) | ✅ Closed — `fn_record_node_failed()` now enforces `CLAIMED`-only |
+| INV-6I-SE-08 (no ordinary worker converts `SUBMITTING` into a retryable state) | ✅ Closed |
+| INV-6I-SE-09 (uncertain post-submission outcomes become `AMBIGUOUS`, never blindly retried) | ✅ Closed (unaffected — already true, now the *only* path) |
+| INV-6I-SE-10 (lease expiry never proves a `SUBMITTING` side effect is safe to repeat) | ✅ Closed (unchanged from §63/§64 — reconfirmed, not weakened) |
+| INV-6I-PUB-04 (every publication requires an exact-draft precondition) | ✅ Closed — no default, mandatory |
+| INV-6I-PUB-05 (the function rejects `NULL` preconditions) | ✅ Closed — explicit `RAISE EXCEPTION` |
+| INV-6I-PUB-06 (a stale precondition creates no `WorkflowVersion`, no partial publication) | ✅ Closed — live-proven, zero versions on both `NULL` and stale paths |
+
+### 65.6 Documentation Reconciled (this pass)
+
+- `docs/phase-05-database-design/5K/migrations/100_5G1.sql` — amended in place a third time.
+- `docs/phase-05-database-design/5K/alembic/versions/100_5G1.py` — docstring and `downgrade()` message updated.
+- `docs/phase-05-database-design/5K/MIGRATION_MANIFEST.md` — row 100 checksum/size updated; new top-of-log section.
+- `docs/phase-05-database-design/5K/validation/6I_FINAL_MICRO_REMEDIATION_VALIDATION_REPORT.md` — new.
+- `docs/phase-05-database-design/5G-Workflow-Prompt-Memory-Schema.md` — §30 amendment note extended with the side-effect failure rule and the mandatory-precondition rule (see that document).
+- `docs/phase-06-api-design/6I-Workflow-APIs.md` (this document) — §64.11/§64.12 struck through and marked superseded (not silently replaced); this §65 added.
+
+No 6A-6H document was touched.
+
+### 65.7 Remaining Dependencies (unaffected)
+
+Identical to §63.11/§64.10: 6J (`WEBHOOK`/`API_CALL`), ADR-5G-010 (prompt-version pinning, Phase 9), `AMBIGUOUS`-claim reconciliation process/UI (still not designed — a future capability, not a regression), 6K/6L/6M consumption of Workflow events, Campaign ACL tool binding. Plus the one newly-flagged, explicitly non-blocking product-policy question: §65.3.
+
+### 65.8 Remaining Blockers
+
+**NONE.**
+
+### 65.9 Final Verdict
+
+**APPROVED — PHASE 6I READY TO FREEZE**
+
+(One non-blocking `USER DECISION REQUIRED` item remains open per §65.3 — it does not gate this verdict, per the governing task's own explicit instruction that a pure least-privilege/role-scope question, where the function itself is already fully safe for any caller, is not a freeze blocker.)
+
+---
+
+**STOP — Phase 6I complete (including the 2026-08-29 Blocker Remediation pass §63, the same-day FINAL Blocker Remediation pass §64, and the same-day FINAL MICRO-REMEDIATION pass §65). Phase 6J not started.**

@@ -1,0 +1,33 @@
+SET
+=== R1: fresh execution + valid claim for regression baseline ===
+=== R2: valid claim succeeds ===
+=== R3: wrong tenant claim denied ===
+psql:C:/Users/Dell/pgval16/test_regression_side_effect_security.sql:11: ERROR:  fn_claim_node_execution: organization_id 00000000-0000-7000-8000-00000000000b does not match current tenant context
+CONTEXT:  PL/pgSQL function fn_claim_node_execution(uuid,uuid,timestamp with time zone,bigint,uuid,text,text,integer) line 10 at RAISE
+=== R4: wrong started_at denied ===
+psql:C:/Users/Dell/pgval16/test_regression_side_effect_security.sql:14: ERROR:  fn_claim_node_execution: workflow_execution 01a04bfd-7f8d-7f5e-871b-1b818d767f46 (started_at 1999-01-01 00:00:00+05:30) not found for tenant 00000000-0000-7000-8000-00000000000a — or the identity does not match a real execution
+CONTEXT:  PL/pgSQL function fn_claim_node_execution(uuid,uuid,timestamp with time zone,bigint,uuid,text,text,integer) line 44 at RAISE
+=== R5: wrong checkpoint sequence denied ===
+psql:C:/Users/Dell/pgval16/test_regression_side_effect_security.sql:17: ERROR:  fn_claim_node_execution: target_checkpoint_seq 99 does not match the execution's real current checkpoint_seq+1 (1)
+CONTEXT:  PL/pgSQL function fn_claim_node_execution(uuid,uuid,timestamp with time zone,bigint,uuid,text,text,integer) line 50 at RAISE
+=== R6: terminal execution claim denied ===
+ fn_complete_workflow_execution 
+--------------------------------
+ APPLIED
+(1 row)
+
+psql:C:/Users/Dell/pgval16/test_regression_side_effect_security.sql:21: ERROR:  fn_claim_node_execution: workflow_execution 01a04bfd-7f8d-7f5e-871b-1b818d767f46 is not ACTIVE (status=COMPLETED) — no new side-effect claim may be created against a terminal execution
+CONTEXT:  PL/pgSQL function fn_claim_node_execution(uuid,uuid,timestamp with time zone,bigint,uuid,text,text,integer) line 47 at RAISE
+=== R7: cross-tenant begin/success/ambiguous/failed all denied ===
+psql:C:/Users/Dell/pgval16/test_regression_side_effect_security.sql:24: ERROR:  fn_begin_node_submission: organization_id 00000000-0000-7000-8000-00000000000b does not match current tenant context
+CONTEXT:  PL/pgSQL function fn_begin_node_submission(uuid,uuid,text) line 5 at RAISE
+psql:C:/Users/Dell/pgval16/test_regression_side_effect_security.sql:25: ERROR:  fn_record_node_succeeded: organization_id 00000000-0000-7000-8000-00000000000b does not match current tenant context
+CONTEXT:  PL/pgSQL function fn_record_node_succeeded(uuid,uuid,text,text) line 5 at RAISE
+psql:C:/Users/Dell/pgval16/test_regression_side_effect_security.sql:26: ERROR:  fn_record_node_ambiguous: organization_id 00000000-0000-7000-8000-00000000000b does not match current tenant context
+CONTEXT:  PL/pgSQL function fn_record_node_ambiguous(uuid,uuid,text,text) line 5 at RAISE
+psql:C:/Users/Dell/pgval16/test_regression_side_effect_security.sql:27: ERROR:  fn_record_node_failed: organization_id 00000000-0000-7000-8000-00000000000b does not match current tenant context
+CONTEXT:  PL/pgSQL function fn_record_node_failed(uuid,uuid,text,text) line 8 at RAISE
+=== R8: direct table DML denied ===
+psql:C:/Users/Dell/pgval16/test_regression_side_effect_security.sql:30: ERROR:  permission denied for table node_execution_claims
+psql:C:/Users/Dell/pgval16/test_regression_side_effect_security.sql:31: ERROR:  permission denied for table node_execution_claims
+psql:C:/Users/Dell/pgval16/test_regression_side_effect_security.sql:32: ERROR:  permission denied for table node_execution_claims

@@ -1,0 +1,38 @@
+
+=== C1: concurrent duplicate node-execution claim (two connections) ===
+outcomes: {'B': (True, UUID('01a04bfc-6f3f-7c96-99a2-a22ee6bfa7d2'), 'CLAIMED', None), 'A': (False, UUID('01a04bfc-6f3f-7c96-99a2-a22ee6bfa7d2'), 'CLAIMED', 'NOT_CLAIMABLE_CLAIMED')}
+[PASS] C1: exactly one of two concurrent claimants won {'B': (True, UUID('01a04bfc-6f3f-7c96-99a2-a22ee6bfa7d2'), 'CLAIMED', None), 'A': (False, UUID('01a04bfc-6f3f-7c96-99a2-a22ee6bfa7d2'), 'CLAIMED', 'NOT_CLAIMABLE_CLAIMED')}
+[PASS] C1: the other told NOT_CLAIMABLE_CLAIMED {'B': (True, UUID('01a04bfc-6f3f-7c96-99a2-a22ee6bfa7d2'), 'CLAIMED', None), 'A': (False, UUID('01a04bfc-6f3f-7c96-99a2-a22ee6bfa7d2'), 'CLAIMED', 'NOT_CLAIMABLE_CLAIMED')}
+
+=== C2: out-of-order checkpoint commit ===
+outcomes: {'B': 'APPLIED', 'A': 'STALE_CHECKPOINT'}
+[PASS] C2: fast seq=2 APPLIED {'B': 'APPLIED', 'A': 'STALE_CHECKPOINT'}
+[PASS] C2: delayed seq=1 STALE_CHECKPOINT {'B': 'APPLIED', 'A': 'STALE_CHECKPOINT'}
+
+=== C3: concurrent StartExecution ===
+outcomes: {'C': (UUID('01a04bfc-71e9-7531-b4a8-a8daab0b0167'), 'STARTED'), 'D': (UUID('01a04bfc-71e9-7531-b4a8-a8daab0b0167'), 'REPLAYED_EXISTING')}
+[PASS] C3: single execution id {'C': (UUID('01a04bfc-71e9-7531-b4a8-a8daab0b0167'), 'STARTED'), 'D': (UUID('01a04bfc-71e9-7531-b4a8-a8daab0b0167'), 'REPLAYED_EXISTING')}
+[PASS] C3: one STARTED, one REPLAYED_EXISTING {'C': (UUID('01a04bfc-71e9-7531-b4a8-a8daab0b0167'), 'STARTED'), 'D': (UUID('01a04bfc-71e9-7531-b4a8-a8daab0b0167'), 'REPLAYED_EXISTING')}
+
+=== C4: Archive first via fn_archive_workflow; queued draft update fails ===
+B result: {'rowcount': 0}
+[PASS] C4: queued draft UPDATE affects 0 rows {'rowcount': 0}
+[PASS] C4: final state ARCHIVED, draft_graph unchanged ('ARCHIVED', {})
+
+=== D1: two concurrent publishers of the SAME workflow ===
+outcomes: {'A': (1, 'PUBLISHED'), 'B': (None, 'PRECONDITION_FAILED')}
+[PASS] D1: exactly one publisher succeeds when both share the same (now-stale-after-first-commit) precondition {'A': (1, 'PUBLISHED'), 'B': (None, 'PRECONDITION_FAILED')}
+
+
+==== SUMMARY ====
+PASS: C1: exactly one of two concurrent claimants won
+PASS: C1: the other told NOT_CLAIMABLE_CLAIMED
+PASS: C2: fast seq=2 APPLIED
+PASS: C2: delayed seq=1 STALE_CHECKPOINT
+PASS: C3: single execution id
+PASS: C3: one STARTED, one REPLAYED_EXISTING
+PASS: C4: queued draft UPDATE affects 0 rows
+PASS: C4: final state ARCHIVED, draft_graph unchanged
+PASS: D1: exactly one publisher succeeds when both share the same (now-stale-after-first-commit) precondition
+
+9/9 PASS

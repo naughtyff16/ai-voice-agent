@@ -53,6 +53,35 @@
 -- reasoning to why `099_5C1.sql` itself absorbed six remediation passes
 -- in place before ever being frozen.
 --
+-- FINAL MICRO-REMEDIATION pass (same day, third pass over this file, same
+-- never-applied-to-production policy as above): an independent review of
+-- the FINAL Blocker Remediation pass' own new capabilities found two more
+-- defects, both closed here:
+--   Blocker A (side-effect state machine) — fn_record_node_failed()
+--     still permitted SUBMITTING -> FAILED for an ordinary worker. FAILED
+--     is a reclaimable state (fn_claim_node_execution's own reclaim
+--     predicate explicitly allows re-claiming it), so a worker that
+--     mis-records an uncertain or actually-successful post-SUBMITTING
+--     outcome as FAILED (rather than the correct AMBIGUOUS) could make an
+--     already-in-flight or already-succeeded external side effect
+--     automatically retryable — defeating the entire point of the
+--     durable SUBMITTING boundary Part A exists to enforce. Fixed:
+--     fn_record_node_failed() now accepts ONLY CLAIMED -> FAILED;
+--     SUBMITTING -> FAILED is rejected with a distinguishable reason
+--     (NOT_FAILABLE_AFTER_SUBMISSION), never silently or ambiguously.
+--   Blocker B (publish precondition) — fn_publish_workflow()'s
+--     `p_expected_updated_at TIMESTAMPTZ DEFAULT NULL` let a caller
+--     bypass the exact-draft concurrency precondition entirely simply by
+--     omitting the argument, contradicting 6I's own stated invariant
+--     ("Publish must snapshot the exact draft the caller intended") from
+--     inside the very function meant to enforce it. Fixed: the parameter
+--     is now mandatory (no default) with an explicit, defensive
+--     `IS NULL` guard inside the function body (a removed default alone
+--     does not stop an explicit NULL call, since PostgreSQL never
+--     NOT-NULL-constrains function parameters the way table columns are
+--     constrained) — no unconditional runtime publish route exists any
+--     longer.
+--
 -- SCOPE DISCIPLINE: this remains a controlled, additive amendment to the
 -- `workflow` schema, plus two narrowly-scoped identity-immutability
 -- trigger hardenings (one in `workflow`, one in `prompt`) and privilege
@@ -531,31 +560,64 @@ GRANT EXECUTE ON FUNCTION workflow.fn_record_node_ambiguous(UUID,UUID,TEXT,TEXT)
 
 
 -- -----------------------------------------------------------------
--- fn_record_node_failed: legal from CLAIMED (local pre-submission
--- abort — the side effect was never attempted) or SUBMITTING (only
--- when the outcome is DEFINITELY a rejection, never a timeout/
--- ambiguous response — those go to fn_record_node_ambiguous instead).
--- Safe to retry — fn_claim_node_execution permits reclaiming FAILED.
+-- fn_record_node_failed: FINAL MICRO-REMEDIATION PASS (2026-08-29) —
+-- Blocker A. legal ONLY from CLAIMED (a local, pre-submission abort —
+-- the side effect was PROVABLY never attempted, since SUBMITTING has
+-- not yet been reached). Previously also accepted SUBMITTING, which
+-- was a genuine, live-exploitable defect: FAILED is a reclaimable state
+-- (fn_claim_node_execution's own reclaim predicate explicitly allows
+-- re-claiming a FAILED row), so an ordinary worker calling this
+-- function from SUBMITTING — e.g. after misinterpreting a timeout, a
+-- lost response, or a crash-recovery guess as "definitely failed" —
+-- could turn an uncertain, possibly-already-succeeded external side
+-- effect into an automatically retryable one, defeating the entire
+-- durable SUBMITTING boundary Part A exists to enforce (INV-6I-SE-07/
+-- 08, §64 of 6I-Workflow-APIs.md — Final Micro-Remediation). A
+-- SUBMITTING side effect whose true outcome is uncertain now has
+-- exactly one legal destination: fn_record_node_ambiguous() (a hard
+-- stop, never auto-reclaimed) — never this function. A SUBMITTING side
+-- effect whose true outcome is DEFINITELY known to have succeeded has
+-- exactly one legal destination: fn_record_node_succeeded(). There is
+-- no longer any ordinary-worker path from SUBMITTING to a reclaimable
+-- state at all.
+--
+-- Return-type change (BOOLEAN -> TABLE) requires DROP + CREATE —
+-- identical precedent to every other signature change in this file
+-- (fn_start_workflow_execution) and in 099_5C1.sql
+-- (fn_reconcile_dispatch_outcome). The upgrade lets the caller
+-- distinguish "recorded" from the specific reason it wasn't, rather
+-- than a single ambiguous FALSE that could mean "wrong claim holder",
+-- "row doesn't exist", or (now) "rejected — already past SUBMITTING" —
+-- per the governing task's own explicit instruction not to return a
+-- misleading generic failure for the new rejection case.
 -- -----------------------------------------------------------------
-CREATE OR REPLACE FUNCTION workflow.fn_record_node_failed(
+DROP FUNCTION IF EXISTS workflow.fn_record_node_failed(UUID,UUID,TEXT,TEXT);
+
+CREATE FUNCTION workflow.fn_record_node_failed(
   p_claim_id        UUID,
   p_organization_id UUID,
   p_worker_id       TEXT,
   p_error           TEXT DEFAULT NULL
 )
-RETURNS BOOLEAN
+RETURNS TABLE(recorded BOOLEAN, reason TEXT)
+-- reason (on recorded=FALSE): NOT_FOUND | NOT_CLAIM_HOLDER |
+--   NOT_FAILABLE_AFTER_SUBMISSION | INVALID_STATE_TRANSITION_FROM_<state>
 LANGUAGE plpgsql
 SECURITY DEFINER
--- `organization` added — same missing-tenant-check defect, fixed
--- identically.
 SET search_path = workflow, organization, pg_catalog
 AS $$
-DECLARE v_rows INTEGER;
+#variable_conflict use_column
+DECLARE
+  v_rows INTEGER;
+  v_row  workflow.node_execution_claims%ROWTYPE;
 BEGIN
   IF p_organization_id IS DISTINCT FROM organization.current_tenant_id() THEN
     RAISE EXCEPTION 'fn_record_node_failed: organization_id % does not match current tenant context', p_organization_id;
   END IF;
 
+  -- ONLY CLAIMED -> FAILED is legal for an ordinary worker (Blocker A
+  -- fix — SUBMITTING removed from this predicate, deliberately, the
+  -- entire point of this pass).
   UPDATE workflow.node_execution_claims
   SET claim_state = 'FAILED',
       last_error  = LEFT(COALESCE(p_error, ''), 2000),
@@ -563,15 +625,52 @@ BEGIN
       claim_expires_at = NULL
   WHERE id = p_claim_id
     AND organization_id = p_organization_id
-    AND claim_state IN ('CLAIMED','SUBMITTING')
+    AND claim_state = 'CLAIMED'
     AND claimed_by = p_worker_id;
   GET DIAGNOSTICS v_rows = ROW_COUNT;
-  RETURN v_rows > 0;
+
+  IF v_rows > 0 THEN
+    RETURN QUERY SELECT TRUE, NULL::TEXT;
+    RETURN;
+  END IF;
+
+  -- Distinguish the rejection reason rather than return one ambiguous
+  -- FALSE — per this pass' own explicit instruction (§7 of the
+  -- governing task).
+  SELECT * INTO v_row FROM workflow.node_execution_claims
+    WHERE id = p_claim_id AND organization_id = p_organization_id;
+
+  IF NOT FOUND THEN
+    RETURN QUERY SELECT FALSE, 'NOT_FOUND'::TEXT;
+  ELSIF v_row.claimed_by IS DISTINCT FROM p_worker_id THEN
+    RETURN QUERY SELECT FALSE, 'NOT_CLAIM_HOLDER'::TEXT;
+  ELSIF v_row.claim_state = 'SUBMITTING' THEN
+    -- The specific, named rejection this pass exists to enforce: once
+    -- SUBMITTING has committed, this function can never move the row
+    -- to a reclaimable state, regardless of what the caller believes
+    -- happened. fn_record_node_ambiguous() is the only legal path from
+    -- here for an uncertain outcome.
+    RETURN QUERY SELECT FALSE, 'NOT_FAILABLE_AFTER_SUBMISSION'::TEXT;
+  ELSE
+    RETURN QUERY SELECT FALSE, ('INVALID_STATE_TRANSITION_FROM_' || v_row.claim_state)::TEXT;
+  END IF;
 END;
 $$;
 
 REVOKE ALL ON FUNCTION workflow.fn_record_node_failed(UUID,UUID,TEXT,TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION workflow.fn_record_node_failed(UUID,UUID,TEXT,TEXT) TO app_api, app_worker;
+
+COMMENT ON FUNCTION workflow.fn_record_node_failed(UUID,UUID,TEXT,TEXT) IS
+  'Revised by 100_5G1.sql FINAL MICRO-REMEDIATION pass (2026-08-29, '
+  'Blocker A). Legal ONLY from CLAIMED — SUBMITTING -> FAILED is no '
+  'longer permitted for any ordinary runtime worker (it previously was, '
+  'which let an uncertain or actually-successful post-submission outcome '
+  'be turned into a reclaimable, automatically-retryable state, '
+  'defeating the SUBMITTING durable boundary). An uncertain post-'
+  'submission outcome must go to fn_record_node_ambiguous() instead. '
+  'Returns TABLE(recorded, reason) instead of a bare BOOLEAN so the '
+  'caller can distinguish NOT_FAILABLE_AFTER_SUBMISSION from '
+  'NOT_CLAIM_HOLDER/NOT_FOUND rather than one ambiguous FALSE.';
 
 
 -- =================================================================
@@ -1197,17 +1296,30 @@ DROP FUNCTION IF EXISTS workflow.fn_workflow_publish(UUID, UUID, UUID);
 -- published_version_id/status anywhere in the approved flow.
 --
 -- `p_expected_updated_at`: the exact-draft precondition (6I §8/ADR-6I-08
--- / INV-6I-PUB-03). This is the same information a weak `hash(id,
--- updated_at)` API-layer ETag already carries (id is fixed by
+-- / INV-6I-PUB-03/04/05/06). This is the same information a weak
+-- `hash(id, updated_at)` API-layer ETag already carries (id is fixed by
 -- p_workflow_id; updated_at is therefore the only free variable an ETag
 -- match actually verifies) — the function is not asked to recompute an
 -- API-layer hash formula, only to compare the one underlying value that
 -- formula depends on, resolved fresh under the row lock below (never
 -- trusting a client-generated hash as authoritative by itself, per 6I
--- §8's explicit instruction). NULL bypasses the precondition entirely
--- (a caller that genuinely does not want optimistic-concurrency
--- protection may omit it) — the API layer, per 6I §52, always supplies
--- it in the approved flow.
+-- §8's explicit instruction).
+--
+-- FINAL MICRO-REMEDIATION PASS (2026-08-29), Blocker B: this parameter
+-- is now MANDATORY — no `DEFAULT NULL`, and an explicit `IS NULL` guard
+-- inside the function body below RAISEs regardless (a caller can still
+-- pass a literal NULL even with no default, since PostgreSQL function
+-- parameters are never NOT-NULL-constrained the way table columns are —
+-- omitting the default alone does not, by itself, stop an explicit NULL
+-- call). Previously, `DEFAULT NULL` combined with "NULL bypasses the
+-- precondition entirely" meant any caller could publish with zero
+-- concurrency protection simply by omitting the argument — silently
+-- contradicting 6I's own stated invariant ("Publish must snapshot the
+-- exact draft the caller intended") from inside the very function meant
+-- to enforce it. There is no longer an unconditional runtime publish
+-- route: every call must supply the row's actual current `updated_at`,
+-- resolved by the caller from its own prior read (or the API layer's
+-- own `If-Match` header, §16), or the call is rejected outright.
 --
 -- `FOR UPDATE` (not FOR SHARE) on workflow_definitions: this is the
 -- publish-side counterpart to fn_start_workflow_execution's FOR SHARE —
@@ -1221,7 +1333,7 @@ CREATE FUNCTION workflow.fn_publish_workflow(
   p_organization_id      UUID,
   p_workflow_id          UUID,
   p_published_by         UUID,
-  p_expected_updated_at  TIMESTAMPTZ DEFAULT NULL
+  p_expected_updated_at  TIMESTAMPTZ
 )
 RETURNS TABLE(version_id UUID, version_number INTEGER, published_at TIMESTAMPTZ, outcome TEXT)
 -- outcome: PUBLISHED | PRECONDITION_FAILED | ARCHIVED | NOT_FOUND
@@ -1255,6 +1367,19 @@ BEGIN
   IF p_published_by IS NULL THEN
     RAISE EXCEPTION 'fn_publish_workflow: p_published_by is required';
   END IF;
+  -- Blocker B (FINAL MICRO-REMEDIATION pass): defensive, explicit guard
+  -- against an authorized caller passing a literal NULL — the removed
+  -- DEFAULT alone does not stop this, since PostgreSQL never implicitly
+  -- rejects a NULL argument at the call boundary the way a NOT NULL
+  -- table column would. Raised as an exception (a caller/programming
+  -- error — the API layer is REQUIRED to always resolve and supply the
+  -- real current updated_at, §16), deliberately distinct from the
+  -- PRECONDITION_FAILED *outcome* returned for a genuine, present-but-
+  -- stale value below (a normal, expected business condition, not a
+  -- caller bug).
+  IF p_expected_updated_at IS NULL THEN
+    RAISE EXCEPTION 'fn_publish_workflow: p_expected_updated_at is required — publish always requires the exact-draft concurrency precondition (INV-6I-PUB-04/05), never an unconditional bypass';
+  END IF;
 
   -- THE serialization point — every publisher, every concurrent
   -- StartExecution (FOR SHARE), and Archive (plain UPDATE) all
@@ -1274,7 +1399,11 @@ BEGIN
     RETURN;
   END IF;
 
-  IF p_expected_updated_at IS NOT NULL AND v_wfd.updated_at IS DISTINCT FROM p_expected_updated_at THEN
+  -- p_expected_updated_at is guaranteed NOT NULL at this point (guarded
+  -- above) — every remaining path is a genuine, present value compared
+  -- against the row's real current updated_at, resolved fresh under the
+  -- FOR UPDATE lock just taken.
+  IF v_wfd.updated_at IS DISTINCT FROM p_expected_updated_at THEN
     RETURN QUERY SELECT NULL::UUID, NULL::INTEGER, NULL::TIMESTAMPTZ, 'PRECONDITION_FAILED'::TEXT;
     RETURN;
   END IF;
@@ -1317,14 +1446,17 @@ REVOKE ALL ON FUNCTION workflow.fn_publish_workflow(UUID, UUID, UUID, TIMESTAMPT
 GRANT EXECUTE ON FUNCTION workflow.fn_publish_workflow(UUID, UUID, UUID, TIMESTAMPTZ) TO app_api;
 
 COMMENT ON FUNCTION workflow.fn_publish_workflow(UUID, UUID, UUID, TIMESTAMPTZ) IS
-  '100_5G1.sql FINAL pass — the sole guarded path to create a '
-  'WorkflowVersion and move a WorkflowDefinition to PUBLISHED. Replaces '
-  'the dropped 039_5G.sql fn_workflow_publish() and the raw-INSERT-then-'
-  'call pattern it depended on. Owns the whole durable publish '
-  'transaction: row lock, ARCHIVED rejection, exact-draft precondition, '
-  'version-number allocation, snapshot, insert, and definition update — '
-  'all inside one transaction, closing every publish-concurrency race '
-  '6I §36 analyzes.';
+  '100_5G1.sql FINAL pass, MANDATORY-precondition revision by the FINAL '
+  'MICRO-REMEDIATION pass (2026-08-29, Blocker B) — the sole guarded '
+  'path to create a WorkflowVersion and move a WorkflowDefinition to '
+  'PUBLISHED. Replaces the dropped 039_5G.sql fn_workflow_publish() and '
+  'the raw-INSERT-then-call pattern it depended on. Owns the whole '
+  'durable publish transaction: row lock, ARCHIVED rejection, MANDATORY '
+  'exact-draft precondition (p_expected_updated_at has no default and '
+  'is explicitly rejected if NULL — no unconditional publish route '
+  'exists), version-number allocation, snapshot, insert, and definition '
+  'update — all inside one transaction, closing every publish-'
+  'concurrency race 6I §36 analyzes.';
 
 
 -- -----------------------------------------------------------------

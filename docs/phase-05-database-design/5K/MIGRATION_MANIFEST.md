@@ -110,7 +110,102 @@ regeneration corrects that. See "Reconciliation" below for details.
 | 097 | 5D.5 | `097_5D5.sql` | `096_5B2` | transactional | 13681 | `1ebb277a8551b648cec8f085edc0dae5596ad2c54b8b348f58d8323a05f13fe1` |
 | 098 | 5E.1 | `098_5E1.sql` | `097_5D5` | transactional | 16943 | `aad468ae59b50bf0a3b8c29e99b248268198ed8a5c3f3fb896b69d0911b7afd6` |
 | 099 | 5C.1 | `099_5C1.sql` | `098_5E1` | transactional | 63844 | `3dcf9b245b1a352069d3ff70da2a5af625f968c4ec728adc70ae0265f623310f` |
-| 100 | 5G.1 | `100_5G1.sql` | `099_5C1` | transactional | 70329 | `a054a41df8e1f2a7061ae8e4e08dbbf2957a46eec85aa27472786fc92ae13197` |
+| 100 | 5G.1 | `100_5G1.sql` | `099_5C1` | transactional | 78282 | `d38d2e2cc873eb158a5febbfeff051969041abcd54e7e95ad156c9d7ec04da84` |
+
+---
+
+## Phase 6I FINAL MICRO-REMEDIATION (2026-08-29) — SUBMITTING hard-stop closure, mandatory exact-draft publish precondition, PostgreSQL 16 live-validated
+
+`100_5G1.sql` is amended in place a third time — same revision policy as
+its own header states and as `099_5C1.sql`'s own six-pass precedent
+establishes: never applied to any real/production database, so there is
+no frozen version to preserve. SHA-256/size in the table above are
+updated to the file's current contents; `revision`/`down_revision`
+unchanged.
+
+**Trigger:** an independent review of the FINAL Blocker Remediation
+pass' own new capabilities found two further defects — Blocker A
+(`fn_record_node_failed()` still permitted `SUBMITTING -> FAILED` for an
+ordinary worker, and `FAILED` is a reclaimable state, so an uncertain or
+actually-successful post-submission outcome could be turned into an
+automatically-retryable one, defeating the durable `SUBMITTING`
+boundary) and Blocker B (`fn_publish_workflow()`'s
+`p_expected_updated_at TIMESTAMPTZ DEFAULT NULL` let a caller bypass the
+exact-draft concurrency precondition entirely by omitting the argument).
+
+**What this pass changes:**
+
+- **Blocker A:** `fn_record_node_failed()` (`DROP` + `CREATE`, `BOOLEAN`
+  → `TABLE(recorded, reason)` return-type change) now accepts **only**
+  `CLAIMED -> FAILED`. A `SUBMITTING -> FAILED` attempt is rejected with
+  a distinguishable `reason = 'NOT_FAILABLE_AFTER_SUBMISSION'` (never a
+  bare, ambiguous `FALSE`) and the row remains `SUBMITTING`, unmoved. An
+  uncertain post-submission outcome has exactly one legal ordinary-worker
+  destination now: `fn_record_node_ambiguous()` (unchanged, still a hard
+  stop). `fn_record_node_succeeded()`/`fn_record_node_ambiguous()`
+  themselves are untouched by this pass.
+- **Blocker B:** `fn_publish_workflow()`'s `p_expected_updated_at` loses
+  its `DEFAULT NULL` and gains an explicit, defensive `IS NULL` guard
+  (`RAISE EXCEPTION`) inside the function body — a removed default alone
+  does not stop an authorized caller from passing a literal `NULL`,
+  since PostgreSQL never `NOT NULL`-constrains function parameters the
+  way table columns are constrained. No unconditional runtime publish
+  route exists any longer; every publish requires the row's real current
+  `updated_at`.
+
+**Reviewed, not silently decided:** `app_platform_admin`'s `EXECUTE`
+grant on `fn_start_workflow_execution` — traced to the original, frozen
+`041_5G.sql`, never introduced or altered by any 6I remediation pass —
+was left **unchanged**. Unlike every other privilege change in this
+migration, revoking it would not close an invariant bypass (the function
+is already fully tenant/archive/version-safe for any caller); it would
+be a business-policy restriction on platform-admin's role scope, which
+this pass declines to decide unilaterally. Flagged explicitly in
+`6I-Workflow-APIs.md` as an open, non-blocking product-policy question.
+
+**PostgreSQL 16 validation (live, this pass — same disposable-instance
+approach, torn down at the end of this batch):**
+
+- Fresh (`voice_agent_pg16_finalfresh3`, full `001_5B → … → 100_5G1`):
+  **PASS, exit 0**, single head `100_5G1`.
+  `execution_logs/20260829T040000Z_46_..._48_*.txt`.
+- Incremental (`voice_agent_pg16_incremental3`, pinned at `099_5C1`, then
+  `100_5G1` alone): **PASS, exit 0** for both steps.
+  `..._49_*.txt`, `..._50_*.txt`.
+- `alembic history`: single linear 100-entry chain, no branch. `..._51_*.txt`.
+- `downgrade()`: raises `NotImplementedError` (message updated for this
+  pass' own additions); database remains at `100_5G1` afterward.
+  `..._52_*.txt`.
+
+**Functional and regression test evidence (all against genuine
+PostgreSQL 16.10):**
+
+| Area | Evidence file | Result |
+|---|---|---|
+| `CLAIMED -> FAILED` allowed, safely reclaimable; wrong-holder distinguished | `..._37_*.txt` | PASS |
+| `SUBMITTING -> FAILED` rejected (`NOT_FAILABLE_AFTER_SUBMISSION`), row stays `SUBMITTING`, still `NOT_CLAIMABLE_SUBMITTING` afterward | `..._37_*.txt` | PASS |
+| `SUBMITTING -> AMBIGUOUS` still allowed, still a hard stop | `..._37_*.txt` | PASS |
+| `SUBMITTING -> SUCCEEDED` still allowed, terminal, no reclaim | `..._37_*.txt` | PASS |
+| `NULL` publish precondition → exception, zero versions created | `..._38_*.txt` | PASS |
+| Stale publish precondition → `PRECONDITION_FAILED`, zero versions created | `..._38_*.txt` | PASS |
+| Correct publish precondition → `PUBLISHED` | `..._38_*.txt` | PASS |
+| Re-publish with the now-stale prior precondition → `PRECONDITION_FAILED`, no extra version | `..._38_*.txt` | PASS |
+| Full concurrency regression (duplicate claim, out-of-order checkpoint, simultaneous StartExecution, Archive-vs-draft, concurrent publish with shared precondition) — 9/9, zero regressions | `..._39_*.txt` | PASS |
+| Archive/StartExecution race regression (Race A/B, duplicate/version-conflict semantics, cross-tenant) — 7/7 | `..._40_*.txt` | PASS |
+| Side-effect tenant/identity security regression (wrong tenant/started_at/checkpoint-seq/terminal, cross-tenant on all 4 previously-fixed functions, direct DML) — 10/10 | `..._41_*.txt` | PASS |
+| Publish privilege regression across all 3 roles (raw INSERT/UPDATE denied, admin `EXECUTE` denied, `NULL`-precondition direct call denied) — 7/7 | `..._42_*.txt` | PASS |
+| Admin bypass regression (`workflow_executions`/`workflow_versions`/`node_execution_claims` UPDATE/DELETE denied; legitimate SELECT; superuser identity-reassignment still trigger-rejected) — 6/6 | `..._43_*.txt` | PASS |
+| Full `SECURITY DEFINER` inventory (all 12 functions) | `..._45_*.txt` | `fn_record_node_failed` grantee list unchanged (`app_api, app_worker`); `fn_start_workflow_execution` still shows `app_platform_admin` (left unchanged, per the flagged review above) |
+| Tenant isolation regression | `..._44_*.txt` | 6/6 PASS |
+
+**Reconciled totals after this amendment:** 100/100 `migrations/*.sql`
+files, 100/100 `alembic/versions/*.py` files, single linear Alembic
+chain, single head `100_5G1` (unchanged revision id — content amended in
+place a third time).
+
+**Consumer:** `docs/phase-06-api-design/6I-Workflow-APIs.md` (Phase 6I
+FINAL MICRO-REMEDIATION pass) — closes INV-6I-SE-07/08/09/10 and
+INV-6I-PUB-04/05/06 with live evidence.
 
 ---
 

@@ -1,0 +1,89 @@
+SET
+=== M1.0: publish WF A1 (nodes: 0001=TOOL_CALL, 0002=TRANSFER) ===
+--- TEST 9: CLAIMED -> FAILED (safe pre-submission failure) ---
+=== M1.1: fn_record_node_failed from CLAIMED -> ALLOWED (recorded=true) ===
+ recorded | reason 
+----------+--------
+ t        | 
+(1 row)
+
+=== M1.2: verify state is FAILED, then reclaim succeeds (safe retry) ===
+ claim_state 
+-------------
+ FAILED
+(1 row)
+
+ claimed |               claim_id               | claim_state | downstream_ref | reason 
+---------+--------------------------------------+-------------+----------------+--------
+ t       | 01a04bfb-33ca-78d1-bfd5-d5931f559da6 | CLAIMED     |                | 
+(1 row)
+
+=== M1.8: wrong worker_id (not claim holder) on a DIFFERENT node in the same execution/turn ===
+ recorded |      reason      
+----------+------------------
+ f        | NOT_CLAIM_HOLDER
+(1 row)
+
+--- TEST 10: SUBMITTING -> FAILED must be REJECTED (fresh execution) ---
+ began | reason 
+-------+--------
+ t     | 
+(1 row)
+
+=== M1.3: attempt fn_record_node_failed from SUBMITTING -> REJECTED, distinguishable reason ===
+ recorded |            reason             
+----------+-------------------------------
+ f        | NOT_FAILABLE_AFTER_SUBMISSION
+(1 row)
+
+=== M1.4: verify the row is STILL SUBMITTING (not moved to FAILED) ===
+ claim_state 
+-------------
+ SUBMITTING
+(1 row)
+
+=== M1.5: a subsequent claim attempt still returns NOT_CLAIMABLE_SUBMITTING ===
+ claimed |               claim_id               | claim_state | downstream_ref |          reason          
+---------+--------------------------------------+-------------+----------------+--------------------------
+ f       | 01a04bfb-33d5-7495-8c20-20581228aa90 | SUBMITTING  |                | NOT_CLAIMABLE_SUBMITTING
+(1 row)
+
+--- TEST 11: SUBMITTING -> AMBIGUOUS still ALLOWED; no lease-expiry escape hatch ---
+ fn_record_node_ambiguous 
+--------------------------
+ t
+(1 row)
+
+ claim_state 
+-------------
+ AMBIGUOUS
+(1 row)
+
+=== M1.6: reclaim after AMBIGUOUS still denied ===
+ claimed |               claim_id               | claim_state | downstream_ref |         reason          
+---------+--------------------------------------+-------------+----------------+-------------------------
+ f       | 01a04bfb-33d5-7495-8c20-20581228aa90 | AMBIGUOUS   |                | NOT_CLAIMABLE_AMBIGUOUS
+(1 row)
+
+--- TEST 12: SUBMITTING -> SUCCEEDED, terminal, no later reclaim (fresh execution) ---
+ began | reason 
+-------+--------
+ t     | 
+(1 row)
+
+ fn_record_node_succeeded 
+--------------------------
+ t
+(1 row)
+
+ claim_state 
+-------------
+ SUCCEEDED
+(1 row)
+
+=== M1.7: reclaim after SUCCEEDED denied ===
+ claimed |               claim_id               | claim_state | downstream_ref |         reason          
+---------+--------------------------------------+-------------+----------------+-------------------------
+ f       | 01a04bfb-33dd-7a85-89e1-e1b3984764f3 | SUCCEEDED   | ref-xyz        | NOT_CLAIMABLE_SUCCEEDED
+(1 row)
+
