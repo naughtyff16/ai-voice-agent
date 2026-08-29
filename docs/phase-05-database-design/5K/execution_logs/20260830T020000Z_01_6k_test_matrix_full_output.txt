@@ -1,0 +1,368 @@
+Timing is off.
+Pager usage is off.
+=== T0: FIXTURE SETUP (as app_platform_admin / app_worker) ===
+SET
+INSERT 0 2
+INSERT 0 1
+INSERT 0 2
+INSERT 0 2
+RESET
+=== T1: app_api CANNOT create a commercial pricing agreement (DB-grant denial) ===
+SET
+(expect: permission denied for function fn_create_commercial_pricing_agreement)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_test_matrix.sql:40: ERROR:  permission denied for function fn_create_commercial_pricing_agreement
+RESET
+=== T2: app_api CANNOT INSERT directly into commercial_pricing_agreements ===
+SET
+SET
+(expect: permission denied for table commercial_pricing_agreements)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_test_matrix.sql:47: ERROR:  permission denied for table commercial_pricing_agreements
+RESET
+=== T3: app_worker CAN create + draft-version + activate (legitimate path) ===
+SET
+agreement_id: 01a04f3d-2d8b-721e-9141-418ec985c49c
+v1_id: 01a04f3d-2d92-766a-baca-ca548fdc439b
+ fn_activate_commercial_pricing_agreement_version 
+--------------------------------------------------
+ 
+(1 row)
+
+                  id                  | status | effective_from | effective_to | base_price_override_amount 
+--------------------------------------+--------+----------------+--------------+----------------------------
+ 01a04f3d-2d92-766a-baca-ca548fdc439b | ACTIVE | 2026-01-01     |              |                 75000.0000
+(1 row)
+
+RESET
+=== T4: app_api CANNOT lower its own rate via raw UPDATE on an ACTIVE version (immutability) ===
+SET
+SET
+(expect: permission denied for table commercial_pricing_agreement_versions -- app_api has SELECT only)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_test_matrix.sql:72: ERROR:  permission denied for table commercial_pricing_agreement_versions
+RESET
+=== T5: app_platform_admin ALSO cannot rewrite a financial field once ACTIVE (trigger, not just grant) ===
+SET
+(expect: RAISE EXCEPTION billing: commercial_pricing_agreement_version ... is ACTIVE and financially/contractually immutable)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_test_matrix.sql:78: ERROR:  billing: commercial_pricing_agreement_version 01a04f3d-2d92-766a-baca-ca548fdc439b is ACTIVE and financially/contractually immutable
+CONTEXT:  PL/pgSQL function fn_cpav_immutability() line 17 at RAISE
+RESET
+=== T6: metric row cannot be INSERTed into an ACTIVE version (task #11 -- INSERT, not just UPDATE/DELETE) ===
+SET
+(expect: RAISE EXCEPTION billing: commercial_pricing_metrics rows may only be inserted/changed while the parent version is DRAFT)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_test_matrix.sql:85: ERROR:  billing: commercial_pricing_metrics rows may only be inserted/changed while the parent version is DRAFT (parent status = ACTIVE)
+CONTEXT:  PL/pgSQL function fn_cpm_parent_draft_guard() line 7 at RAISE
+(expect: same exception, UPDATE path)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_test_matrix.sql:87: ERROR:  billing: commercial_pricing_metrics rows may only be inserted/changed while the parent version is DRAFT (parent status = ACTIVE)
+CONTEXT:  PL/pgSQL function fn_cpm_parent_draft_guard() line 7 at RAISE
+(expect: same exception, DELETE path)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_test_matrix.sql:89: ERROR:  billing: commercial_pricing_metrics rows may only be inserted/changed while the parent version is DRAFT (parent status = ACTIVE)
+CONTEXT:  PL/pgSQL function fn_cpm_parent_draft_guard() line 7 at RAISE
+RESET
+=== T7: parent agreement organization_id/base_plan_id are immutable ===
+SET
+(expect: RAISE EXCEPTION billing: commercial_pricing_agreements.organization_id is immutable)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_test_matrix.sql:95: ERROR:  billing: commercial_pricing_agreements.organization_id is immutable
+CONTEXT:  PL/pgSQL function fn_cpa_identity_immutable() line 4 at RAISE
+RESET
+=== T8: cross-org composite-FK rejection -- billing_period cannot pin an agreement version belonging to a different org ===
+SET
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_test_matrix.sql:102: error: no rows returned for \gset
+INSERT 0 0
+(expect: insert or update on table "billing_periods" violates foreign key constraint "fk_bp_cpav" -- org_b period cannot reference org_a agreement version)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_test_matrix.sql:105: ERROR:  syntax error at or near ":"
+LINE 2: VALUES ('22222222-2222-2222-2222-222222222222', :'t8_sub_b_i...
+                                                        ^
+RESET
+=== T9: plan-version consistency trigger -- agreement version anchored to v1 cannot be pinned on a period pointing at v2 ===
+SET
+INSERT 0 1
+(expect: RAISE EXCEPTION billing: billing_periods row's plan_version_id ... does not match ... base_plan_version_id)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_test_matrix.sql:115: ERROR:  billing: billing_periods row's plan_version_id (44444444-4444-4444-4444-444444444442) does not match its pinned commercial_pricing_agreement_version's base_plan_version_id (44444444-4444-4444-4444-444444444441)
+CONTEXT:  PL/pgSQL function fn_bp_agreement_plan_consistency() line 11 at RAISE
+(expect: SUCCESS -- v1 plan_version matches v1 agreement pin)
+                  id                  |           plan_version_id            | commercial_pricing_agreement_version_id 
+--------------------------------------+--------------------------------------+-----------------------------------------
+ 55555555-5555-5555-5555-555555555551 | 44444444-4444-4444-4444-444444444441 | 01a04f3d-2d92-766a-baca-ca548fdc439b
+(1 row)
+
+INSERT 0 1
+RESET
+=== T10: future-dated version CANNOT prematurely supersede a still-current ACTIVE version ===
+SET
+(expect: RAISE EXCEPTION ... effective_from (2099-01-01) is in the future and an existing ACTIVE version ... would be prematurely superseded)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_test_matrix.sql:130: ERROR:  billing: cannot activate version 01a04f3d-2db6-7b04-bd80-808e3f566df0 now — its effective_from (2099-01-01) is in the future and an existing ACTIVE version (01a04f3d-2d92-766a-baca-ca548fdc439b) would be prematurely superseded; retry once effective_from has arrived
+CONTEXT:  PL/pgSQL function fn_activate_commercial_pricing_agreement_version(uuid,uuid) line 31 at RAISE
+(confirm v1 is UNCHANGED -- still ACTIVE, not superseded)
+                  id                  | status | effective_to 
+--------------------------------------+--------+--------------
+ 01a04f3d-2d92-766a-baca-ca548fdc439b | ACTIVE | 
+(1 row)
+
+RESET
+=== T11: a brand-new agreement's FIRST version MAY be future-dated with no prior ACTIVE to disrupt ===
+SET
+(expect: SUCCESS -- no prior ACTIVE version for org B, future date is fine)
+ fn_activate_commercial_pricing_agreement_version 
+--------------------------------------------------
+ 
+(1 row)
+
+ id | status | effective_from 
+----+--------+----------------
+(0 rows)
+
+RESET
+=== T12: SUPERSEDE boundary is exact (half-open, no gap/overlap) via an on-time renegotiation ===
+SET
+ fn_activate_commercial_pricing_agreement_version 
+--------------------------------------------------
+ 
+(1 row)
+
+(expect: v1 SUPERSEDED, effective_to == v3 effective_from exactly; v3 ACTIVE)
+                  id                  |   status   | effective_from | effective_to 
+--------------------------------------+------------+----------------+--------------
+ 01a04f3d-2d92-766a-baca-ca548fdc439b | SUPERSEDED | 2026-01-01     | 2026-08-30
+ 01a04f3d-2dbc-7601-917b-7b9d434a5036 | ACTIVE     | 2026-08-30     | 
+(2 rows)
+
+RESET
+=== T13: HISTORICAL resolution of a SUPERSEDED version still works (task #14 -- no artificial ACTIVE-only restriction) ===
+(the period created in T9 is still pinned to t3_v1_id, which is now SUPERSEDED -- the FK/read path must still resolve it fine)
+                  id                  |           plan_version_id            | pinned_agreement_version_status | base_price_override_amount 
+--------------------------------------+--------------------------------------+---------------------------------+----------------------------
+ 55555555-5555-5555-5555-555555555551 | 44444444-4444-4444-4444-444444444441 | SUPERSEDED                      |                 75000.0000
+(1 row)
+
+=== T14: RLS tenant isolation -- Org B cannot read Org A's agreement/version/metrics ===
+SET
+SET
+(expect: 0 rows for all three)
+ org_a_agreements_visible_to_b 
+-------------------------------
+                             0
+(1 row)
+
+ org_a_versions_visible_to_b 
+-----------------------------
+                           0
+(1 row)
+
+ org_a_metrics_visible_to_b 
+----------------------------
+                          0
+(1 row)
+
+RESET
+=== T15: pricing resolution -- Org A (agreement) vs Org B (no agreement, falls back to plan) ===
+SET
+SET
+(Org A CALL_MINUTES effective overage rate -- expect 3.0000, from the now-ACTIVE v3, which has no CALL_MINUTES override -> should fall back to plan's 2.0000, since only v1 had the CALL_MINUTES override and v1 is now SUPERSEDED)
+ effective_overage_rate | unit_price_source 
+------------------------+-------------------
+                 2.0000 | PLAN
+(1 row)
+
+RESET
+=== T16: payment_attempts -- local row insertable BEFORE any provider_transaction_id exists (the confirmed NOT NULL bug, fixed) ===
+SET
+INSERT 0 1
+INSERT 0 1
+RESET
+SET
+UPDATE 1
+RESET
+SET
+(expect: SUCCESS -- INSERT with provider_transaction_id = NULL)
+INSERT 0 1
+(expect: SUCCESS -- a SECOND concurrent INITIATED attempt, also NULL provider_transaction_id, does NOT collide with the first -- confirms NULL-distinctness)
+INSERT 0 1
+(now the provider responds -- reconcile the FIRST attempt via fn_link_payment_provider_transaction, NOT a raw UPDATE -- app_worker has no UPDATE grant on payment_attempts, by design)
+ fn_link_payment_provider_transaction 
+--------------------------------------
+ 
+(1 row)
+
+(confirm linked)
+                  id                  | status  | provider_transaction_id 
+--------------------------------------+---------+-------------------------
+ 88888888-8888-8888-8888-888888888881 | PENDING | pay_live_test_001
+(1 row)
+
+(expect: FAILS -- a second row cannot reuse the same real provider_transaction_id once one exists -- uq_pa_provider_tx)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_test_matrix.sql:219: ERROR:  duplicate key value violates unique constraint "uq_pa_provider_tx"
+DETAIL:  Key (payment_provider, provider_transaction_id)=(RAZORPAY, pay_live_test_001) already exists.
+CONTEXT:  SQL statement "UPDATE billing.payment_attempts
+  SET provider_transaction_id = p_provider_transaction_id,
+      status = p_new_status,
+      payment_method_kind = COALESCE(p_payment_method_kind, payment_method_kind)
+  WHERE id = p_payment_attempt_id"
+PL/pgSQL function fn_link_payment_provider_transaction(uuid,uuid,text,text,text) line 24 at SQL statement
+(idempotent re-link with the SAME value on the SAME attempt -- expect SUCCESS, no error)
+ fn_link_payment_provider_transaction 
+--------------------------------------
+ 
+(1 row)
+
+(expect: FAILS -- attempting to relink the SAME attempt to a DIFFERENT provider_transaction_id)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_test_matrix.sql:223: ERROR:  billing: payment_attempt 88888888-8888-8888-8888-888888888881 is already linked to a different provider_transaction_id
+CONTEXT:  PL/pgSQL function fn_link_payment_provider_transaction(uuid,uuid,text,text,text) line 15 at RAISE
+RESET
+=== T17: payment_method_kind persists a governed value only (via fn_link, no raw UPDATE grant exists) ===
+SET
+ fn_link_payment_provider_transaction 
+--------------------------------------
+ 
+(1 row)
+
+                  id                  | payment_method_kind 
+--------------------------------------+---------------------
+ 88888888-8888-8888-8888-888888888881 | UPI
+(1 row)
+
+(expect: FAILS -- ungoverned value rejected by chk_pa_method_kind)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_test_matrix.sql:231: ERROR:  new row for relation "payment_attempts" violates check constraint "chk_pa_method_kind"
+DETAIL:  Failing row contains (88888888-8888-8888-8888-888888888881, 11111111-1111-1111-1111-111111111111, 77777777-7777-7777-7777-777777777771, RAZORPAY, pay_live_test_001, null, null, PENDING, 90860.0000, INR, null, null, 2026-08-30 02:06:44.615484+05:30, null, 2026-08-30 02:06:44.615484+05:30, BITCOIN).
+CONTEXT:  SQL statement "UPDATE billing.payment_attempts
+  SET provider_transaction_id = p_provider_transaction_id,
+      status = p_new_status,
+      payment_method_kind = COALESCE(p_payment_method_kind, payment_method_kind)
+  WHERE id = p_payment_attempt_id"
+PL/pgSQL function fn_link_payment_provider_transaction(uuid,uuid,text,text,text) line 24 at SQL statement
+RESET
+=== T18: payment_webhook_receipts -- atomic ON CONFLICT dedup (mirrors 6J 24.3 exactly) ===
+SET
+SET
+(first delivery -- expect 1 row RETURNING id)
+                  id                  
+--------------------------------------
+ 01a04f3d-2dd2-7acf-9f52-52decb95ca57
+(1 row)
+
+INSERT 0 1
+(duplicate delivery of the SAME event -- expect 0 rows RETURNING, i.e. no second insert)
+ id 
+----
+(0 rows)
+
+INSERT 0 0
+RESET
+=== T19: payment_webhook_receipts state machine -- terminal idempotency + illegal transition rejection ===
+SET
+ fn_process_payment_webhook_receipt 
+------------------------------------
+ t
+(1 row)
+
+ fn_process_payment_webhook_receipt 
+------------------------------------
+ t
+(1 row)
+
+(expect: TRUE, idempotent no-op -- already PROCESSED with same status)
+ fn_process_payment_webhook_receipt 
+------------------------------------
+ t
+(1 row)
+
+(expect: RAISE EXCEPTION -- terminal state, cannot move PROCESSED -> FAILED)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_test_matrix.sql:255: ERROR:  billing: payment_webhook_receipt 01a04f3d-2dd2-7acf-9f52-52decb95ca57 is terminal (PROCESSED) — cannot transition to FAILED
+CONTEXT:  PL/pgSQL function fn_process_payment_webhook_receipt(uuid,text,uuid,uuid,text) line 25 at RAISE
+RESET
+=== T20: usage_events -- LLM_PROMPT_TOKENS vs LLM_COMPLETION_TOKENS collision, FIXED via metric-suffixed source_event_id ===
+SET
+SET
+(WITHOUT the fix -- same source_event_id for both metrics -- the SECOND insert is silently dropped: demonstrating the bug first)
+      metric       | quantity 
+-------------------+----------
+ LLM_PROMPT_TOKENS | 500.0000
+(1 row)
+
+INSERT 0 1
+ metric | quantity 
+--------+----------
+(0 rows)
+
+INSERT 0 0
+(confirm: only ONE row exists for this source_event_id -- the bug, reproduced)
+      metric       | quantity 
+-------------------+----------
+ LLM_PROMPT_TOKENS | 500.0000
+(1 row)
+
+(WITH the fix -- metric-suffixed source_event_id -- BOTH rows persist)
+      metric       | quantity 
+-------------------+----------
+ LLM_PROMPT_TOKENS | 500.0000
+(1 row)
+
+INSERT 0 1
+        metric         | quantity 
+-----------------------+----------
+ LLM_COMPLETION_TOKENS | 300.0000
+(1 row)
+
+INSERT 0 1
+(confirm: BOTH rows exist)
+        metric         | quantity 
+-----------------------+----------
+ LLM_COMPLETION_TOKENS | 300.0000
+ LLM_PROMPT_TOKENS     | 500.0000
+(2 rows)
+
+(replay safety -- re-delivering the exact same fixed-scheme event twice produces no duplicate)
+ metric | quantity 
+--------+----------
+(0 rows)
+
+INSERT 0 0
+ should_be_1 
+-------------
+           1
+(1 row)
+
+RESET
+=== T21: quota semantics -- hard_limit is a real stop regardless of priced overage (fixed conflation) ===
+SET
+INSERT 0 1
+(overage_allowed is now simply hard_limit IS NULL -- for a metric WITH a hard_limit and no pricing at all, overage_allowed = false, a true stop)
+        metric        | hard_limit | overage_allowed 
+----------------------+------------+-----------------
+ ACTIVE_PHONE_NUMBERS |    10.0000 | f
+(1 row)
+
+RESET
+=== T22: late-usage adjustment -- full provenance, never mutates the finalized invoice ===
+SET
+                  id                  |  adjustment_type  | amount_amount |     late_usage_billing_period_id     | late_usage_metric |                                                                                                     late_usage_provenance                                                                                                     
+--------------------------------------+-------------------+---------------+--------------------------------------+-------------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ 01a04f3d-2df0-7dc4-8d37-37f3325e4278 | MANUAL_CORRECTION |      245.5000 | 55555555-5555-5555-5555-555555555551 | CALL_MINUTES      | {"quantity": "81.8333", "unit_price": {"amount": "3.0000", "currency": "INR"}, "plan_version_id": "44444444-4444-4444-4444-444444444441", "usage_event_ids": ["evt-late-1"], "commercial_pricing_agreement_version_id": null}
+(1 row)
+
+(confirm: the ORIGINAL invoice total is UNCHANGED by the adjustment)
+ total_due_amount 
+------------------
+       90860.0000
+(1 row)
+
+RESET
+=== T23: invoice_lines provenance -- contradictory combination rejected ===
+SET
+(expect: FAILS -- unit_price_source=AGREEMENT but commercial_pricing_agreement_version_id is NULL)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_test_matrix.sql:313: ERROR:  new row for relation "invoice_lines" violates check constraint "chk_il_pricing_provenance"
+(expect: SUCCESS -- consistent combination)
+                  id                  | unit_price_source | commercial_pricing_agreement_version_id 
+--------------------------------------+-------------------+-----------------------------------------
+ 01a04f3d-2df5-7336-a83f-3f2713fd6eca | AGREEMENT         | 01a04f3d-2dbc-7601-917b-7b9d434a5036
+(1 row)
+
+INSERT 0 1
+RESET
+=== T24: SECURITY DEFINER inventory for every NEW function in 102_5H2 ===
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_test_matrix.sql:336: ERROR:  role "PUBLIC" does not exist
+=== T25: confirm fn_update_payment_status (057_5H.sql, frozen) has exactly ONE overload -- 102_5H2 did not accidentally duplicate/shadow it ===
+         proname          |                                                                        args                                                                         
+--------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------
+ fn_update_payment_status | p_organization_id uuid, p_payment_attempt_id uuid, p_new_status text, p_provider_webhook_event_id text, p_failure_code text, p_failure_message text
+(1 row)
+
+=== DONE ===

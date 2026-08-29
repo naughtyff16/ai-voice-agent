@@ -1,0 +1,8 @@
+Pager usage is off.
+=== T8-ADMIN: composite FK (not just RLS-in-trigger) independently rejects cross-org pin, even for a BYPASSRLS admin role ===
+SET
+(expect: FK violation on fk_bp_cpav -- (org_a-version-id, org_b) does not exist in the parent unique index)
+ERROR:  insert or update on table "billing_periods" violates foreign key constraint "fk_bp_cpav"
+DETAIL:  Key (commercial_pricing_agreement_version_id, organization_id)=(01a04f3d-2d92-766a-baca-ca548fdc439b, 22222222-2222-2222-2222-222222222222) is not present in table "commercial_pricing_agreement_versions".
+RESET
+=== DONE ===
