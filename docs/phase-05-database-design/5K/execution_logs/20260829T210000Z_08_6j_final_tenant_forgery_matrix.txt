@@ -1,0 +1,148 @@
+=== TEST 1: legit create for OrgA while tenant=OrgA -> expect SUCCESS ===
+BEGIN
+SET
+                conn_a                
+--------------------------------------
+ 01a04e29-1e25-78cf-adf8-f8a5ac92f23b
+(1 row)
+
+COMMIT
+=== TEST 2: FORGED create for OrgB while tenant=OrgA -> expect EXCEPTION, NO ROW ===
+BEGIN
+SET
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_valid_logs/test_tenant_forgery.sql:19: ERROR:  integrations: caller tenant context does not match the requested organization
+CONTEXT:  PL/pgSQL function fn_create_integration_connection(uuid,uuid,text,text,jsonb) line 8 at RAISE
+ROLLBACK
+=== verify: OrgB has zero connections (as app_platform_admin, bypasses RLS) ===
+You are now connected to database "voice_agent_6j_fresh" as user "app_platform_admin".
+ orgb_connection_count 
+-----------------------
+                     0
+(1 row)
+
+You are now connected to database "voice_agent_6j_fresh" as user "app_api".
+=== TEST 3: NO tenant context at all -> expect EXCEPTION ===
+BEGIN
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_valid_logs/test_tenant_forgery.sql:32: ERROR:  integrations: caller tenant context does not match the requested organization
+CONTEXT:  PL/pgSQL function fn_create_integration_connection(uuid,uuid,text,text,jsonb) line 8 at RAISE
+ROLLBACK
+=== capture OrgA connection id for further tests ===
+You are now connected to database "voice_agent_6j_fresh" as user "app_platform_admin".
+01a04e29-1e25-78cf-adf8-f8a5ac92f23b
+You are now connected to database "voice_agent_6j_fresh" as user "app_api".
+=== TEST 4: legit activate for OrgA while tenant=OrgA -> expect SUCCESS ===
+BEGIN
+SET
+ activate_ok 
+-------------
+ 
+(1 row)
+
+COMMIT
+=== TEST 5: FORGED activate: tenant=OrgB claiming OrgA org_id + OrgA resource -> expect EXCEPTION ===
+BEGIN
+SET
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_valid_logs/test_tenant_forgery.sql:56: ERROR:  integrations: caller tenant context does not match the requested organization
+CONTEXT:  PL/pgSQL function fn_activate_integration_connection(uuid,uuid,text,text,text,uuid) line 6 at RAISE
+ROLLBACK
+=== verify: OrgA connection status unchanged (still ACTIVE from test 4, not further modified) ===
+You are now connected to database "voice_agent_6j_fresh" as user "app_platform_admin".
+ status |      credential_ref      
+--------+--------------------------
+ ACTIVE | secret_manager://a1-real
+(1 row)
+
+You are now connected to database "voice_agent_6j_fresh" as user "app_api".
+=== TEST 6: MISMATCHED resource: tenant=OrgA, p_organization_id=OrgA (correct), but resource belongs to OrgA anyway (need a real OrgB resource+wrong org combo) ===
+You are now connected to database "voice_agent_6j_fresh" as user "app_platform_admin".
+INSERT 0 1
+You are now connected to database "voice_agent_6j_fresh" as user "app_api".
+BEGIN
+SET
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_valid_logs/test_tenant_forgery.sql:74: ERROR:  integrations: connection not found for this organization
+CONTEXT:  PL/pgSQL function fn_activate_integration_connection(uuid,uuid,text,text,text,uuid) line 18 at RAISE
+ROLLBACK
+You are now connected to database "voice_agent_6j_fresh" as user "app_platform_admin".
+   status   
+------------
+ CONNECTING
+(1 row)
+
+You are now connected to database "voice_agent_6j_fresh" as user "app_api".
+=== TEST 7: plugin create -- legit vs forged ===
+BEGIN
+SET
+            plugin_inst_a             
+--------------------------------------
+ 01a04e29-1fb5-7ded-b3d5-d5002bdc44a6
+(1 row)
+
+COMMIT
+BEGIN
+SET
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_valid_logs/test_tenant_forgery.sql:94: ERROR:  plugins: caller tenant context does not match the requested organization
+CONTEXT:  PL/pgSQL function fn_create_plugin_installation(uuid,uuid,uuid,jsonb,text,uuid) line 9 at RAISE
+ROLLBACK
+You are now connected to database "voice_agent_6j_fresh" as user "app_platform_admin".
+ orgb_plugin_installs 
+----------------------
+                    0
+(1 row)
+
+You are now connected to database "voice_agent_6j_fresh" as user "app_api".
+=== TEST 8: fn_activate_plugin forged (widened grant function) ===
+BEGIN
+SET
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_valid_logs/test_tenant_forgery.sql:108: ERROR:  plugins: caller tenant context does not match the requested organization
+CONTEXT:  PL/pgSQL function fn_activate_plugin(uuid,uuid,text[]) line 8 at RAISE
+ROLLBACK
+You are now connected to database "voice_agent_6j_fresh" as user "app_platform_admin".
+  status   
+-----------
+ INSTALLED
+(1 row)
+
+You are now connected to database "voice_agent_6j_fresh" as user "app_api".
+=== TEST 9: legit fn_activate_plugin for OrgA ===
+BEGIN
+SET
+ activate_plugin_ok 
+--------------------
+ 
+(1 row)
+
+COMMIT
+=== TEST 10: webhook endpoint create (ordinary INSERT, app_api-granted) + fn_rotate_webhook_secret forged ===
+BEGIN
+SET
+INSERT 0 1
+COMMIT
+BEGIN
+SET
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_valid_logs/test_tenant_forgery.sql:135: ERROR:  webhooks: caller tenant context does not match the requested organization
+CONTEXT:  PL/pgSQL function fn_rotate_webhook_secret(uuid,uuid,text,integer) line 6 at RAISE
+ROLLBACK
+You are now connected to database "voice_agent_6j_fresh" as user "app_platform_admin".
+    signing_secret_ref    | previous_signing_secret_ref 
+--------------------------+-----------------------------
+ secret_manager://whsec-a | 
+(1 row)
+
+You are now connected to database "voice_agent_6j_fresh" as user "app_api".
+=== TEST 11: legit fn_rotate_webhook_secret for OrgA ===
+BEGIN
+SET
+ rotate_ok 
+-----------
+ 
+(1 row)
+
+COMMIT
+You are now connected to database "voice_agent_6j_fresh" as user "app_platform_admin".
+     signing_secret_ref      | previous_signing_secret_ref | grace_active 
+-----------------------------+-----------------------------+--------------
+ secret_manager://whsec-a-v2 | secret_manager://whsec-a    | t
+(1 row)
+
+You are now connected to database "voice_agent_6j_fresh" as user "app_api".
+=== ALL TENANT-FORGERY TESTS COMPLETE ===

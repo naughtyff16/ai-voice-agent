@@ -1,0 +1,154 @@
+=== RLS STATUS on all 6J-relevant tenant tables ===
+    schema    |           table            | rls_enabled | rls_forced 
+--------------+----------------------------+-------------+------------
+ integrations | integration_connections    | t           | t
+ integrations | integration_definitions    | f           | f
+ integrations | integration_health         | t           | t
+ integrations | oauth_attempts             | t           | t
+ plugins      | plugin_executions          | t           | t
+ plugins      | plugin_installations       | t           | t
+ plugins      | plugin_versions            | f           | f
+ plugins      | plugins                    | f           | f
+ webhooks     | inbound_webhook_events     | t           | t
+ webhooks     | webhook_deliveries_2026_08 | f           | f
+ webhooks     | webhook_deliveries_2026_09 | f           | f
+ webhooks     | webhook_deliveries_2026_10 | f           | f
+ webhooks     | webhook_deliveries_2026_11 | f           | f
+ webhooks     | webhook_deliveries_default | f           | f
+ webhooks     | webhook_endpoints          | t           | t
+(15 rows)
+
+=== RLS ordinary-SELECT isolation test (as app_api, no BYPASSRLS) ===
+BEGIN
+SET
+ visible_rows_when_tenant_is_orgc 
+----------------------------------
+                                2
+(1 row)
+
+COMMIT
+BEGIN
+SET
+ visible_rows_when_tenant_is_orga 
+----------------------------------
+                                1
+(1 row)
+
+COMMIT
+BEGIN
+ visible_rows_with_no_tenant_context 
+-------------------------------------
+                                   0
+(1 row)
+
+COMMIT
+=== RLS direct INSERT/UPDATE/DELETE denial (app_api lacks these grants on guarded tables) ===
+BEGIN
+SET
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_valid_logs/test_rls_privileges.sql:26: ERROR:  permission denied for table integration_connections
+ROLLBACK
+BEGIN
+SET
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_valid_logs/test_rls_privileges.sql:30: ERROR:  permission denied for table integration_connections
+ROLLBACK
+=== PRIVILEGE MATRIX: EXECUTE on all 6J functions, per role ===
+                 proname                  |    schema    | app_api | app_worker | app_platform_admin | app_readonly | app_migration | PUBLIC 
+------------------------------------------+--------------+---------+------------+--------------------+--------------+---------------+--------
+ fn_activate_integration_connection       | integrations | t       | t          | t                  | f            | f             | f
+ fn_create_integration_connection         | integrations | t       | t          | t                  | f            | f             | f
+ fn_degrade_integration_connection        | integrations | t       | t          | t                  | f            | f             | f
+ fn_disconnect_integration_connection     | integrations | t       | t          | t                  | f            | f             | f
+ fn_fail_integration_connection           | integrations | t       | t          | t                  | f            | f             | f
+ fn_fail_oauth_callback_state             | integrations | t       | f          | t                  | f            | f             | f
+ fn_ic_terminal_guard                     | integrations | f       | f          | f                  | f            | f             | f
+ fn_id_slug_immutable                     | integrations | f       | f          | f                  | f            | f             | f
+ fn_integrations_anonymize_org            | integrations | f       | f          | t                  | f            | f             | f
+ fn_record_integration_sync_result        | integrations | t       | t          | t                  | f            | f             | f
+ fn_record_oauth_exchange_failure         | integrations | t       | f          | t                  | f            | f             | f
+ fn_redeem_oauth_attempt                  | integrations | t       | t          | t                  | f            | f             | f
+ fn_redeem_oauth_callback_state           | integrations | t       | f          | t                  | f            | f             | f
+ fn_rotate_integration_credential         | integrations | t       | t          | t                  | f            | f             | f
+ fn_update_integration_connection_config  | integrations | t       | t          | t                  | f            | f             | f
+ fn_activate_plugin                       | plugins      | t       | t          | t                  | f            | f             | f
+ fn_create_plugin_installation            | plugins      | t       | t          | t                  | f            | f             | f
+ fn_pi_terminal_guard                     | plugins      | f       | f          | f                  | f            | f             | f
+ fn_pi_version_immutable                  | plugins      | f       | f          | f                  | f            | f             | f
+ fn_plug_slug_immutable                   | plugins      | f       | f          | f                  | f            | f             | f
+ fn_pv_manifest_immutable                 | plugins      | f       | f          | f                  | f            | f             | f
+ fn_reactivate_plugin_installation        | plugins      | t       | t          | t                  | f            | f             | f
+ fn_rotate_plugin_installation_credential | plugins      | t       | t          | t                  | f            | f             | f
+ fn_suspend_plugin_installation           | plugins      | t       | t          | t                  | f            | f             | f
+ fn_uninstall_plugin                      | plugins      | t       | t          | t                  | f            | f             | f
+ fn_update_plugin_installation_config     | plugins      | t       | t          | t                  | f            | f             | f
+ fn_upgrade_plugin                        | plugins      | t       | t          | t                  | f            | f             | f
+ fn_claim_delivery                        | webhooks     | f       | t          | t                  | f            | f             | f
+ fn_delivery_failed                       | webhooks     | f       | t          | t                  | f            | f             | f
+ fn_delivery_succeeded                    | webhooks     | f       | t          | t                  | f            | f             | f
+ fn_replay_webhook_delivery               | webhooks     | t       | t          | t                  | f            | f             | f
+ fn_rotate_webhook_secret                 | webhooks     | t       | t          | t                  | f            | f             | f
+ fn_update_inbound_event_status           | webhooks     | f       | t          | t                  | f            | f             | f
+ fn_wd_identity_immutable                 | webhooks     | f       | f          | f                  | f            | f             | f
+(34 rows)
+
+=== SECURITY DEFINER INVENTORY: owner, prosecdef, search_path, PUBLIC EXECUTE ===
+    schema    |                 proname                  |   owner   | owner_bypassrls | security_definer |                search_path_setting                 | public_can_execute 
+--------------+------------------------------------------+-----------+-----------------+------------------+----------------------------------------------------+--------------------
+ integrations | fn_activate_integration_connection       | testsuper | t               | t                | search_path=integrations, organization, pg_catalog | f
+ integrations | fn_create_integration_connection         | testsuper | t               | t                | search_path=integrations, organization, pg_catalog | f
+ integrations | fn_degrade_integration_connection        | testsuper | t               | t                | search_path=integrations, organization, pg_catalog | f
+ integrations | fn_disconnect_integration_connection     | testsuper | t               | t                | search_path=integrations, organization, pg_catalog | f
+ integrations | fn_fail_integration_connection           | testsuper | t               | t                | search_path=integrations, organization, pg_catalog | f
+ integrations | fn_fail_oauth_callback_state             | testsuper | t               | t                | search_path=integrations, pg_catalog               | f
+ integrations | fn_ic_terminal_guard                     | testsuper | t               | t                | search_path=integrations, pg_catalog               | f
+ integrations | fn_id_slug_immutable                     | testsuper | t               | t                | search_path=integrations, pg_catalog               | f
+ integrations | fn_integrations_anonymize_org            | testsuper | t               | t                | search_path=integrations, pg_catalog               | f
+ integrations | fn_record_integration_sync_result        | testsuper | t               | t                | search_path=integrations, organization, pg_catalog | f
+ integrations | fn_record_oauth_exchange_failure         | testsuper | t               | t                | search_path=integrations, pg_catalog               | f
+ integrations | fn_redeem_oauth_attempt                  | testsuper | t               | t                | search_path=integrations, organization, pg_catalog | f
+ integrations | fn_redeem_oauth_callback_state           | testsuper | t               | t                | search_path=integrations, pg_catalog               | f
+ integrations | fn_rotate_integration_credential         | testsuper | t               | t                | search_path=integrations, organization, pg_catalog | f
+ integrations | fn_update_integration_connection_config  | testsuper | t               | t                | search_path=integrations, organization, pg_catalog | f
+ plugins      | fn_activate_plugin                       | testsuper | t               | t                | search_path=plugins, organization, pg_catalog      | f
+ plugins      | fn_create_plugin_installation            | testsuper | t               | t                | search_path=plugins, organization, pg_catalog      | f
+ plugins      | fn_pi_terminal_guard                     | testsuper | t               | t                | search_path=plugins, pg_catalog                    | f
+ plugins      | fn_pi_version_immutable                  | testsuper | t               | t                | search_path=plugins, pg_catalog                    | f
+ plugins      | fn_plug_slug_immutable                   | testsuper | t               | t                | search_path=plugins, pg_catalog                    | f
+ plugins      | fn_pv_manifest_immutable                 | testsuper | t               | t                | search_path=plugins, pg_catalog                    | f
+ plugins      | fn_reactivate_plugin_installation        | testsuper | t               | t                | search_path=plugins, organization, pg_catalog      | f
+ plugins      | fn_rotate_plugin_installation_credential | testsuper | t               | t                | search_path=plugins, organization, pg_catalog      | f
+ plugins      | fn_suspend_plugin_installation           | testsuper | t               | t                | search_path=plugins, organization, pg_catalog      | f
+ plugins      | fn_uninstall_plugin                      | testsuper | t               | t                | search_path=plugins, organization, pg_catalog      | f
+ plugins      | fn_update_plugin_installation_config     | testsuper | t               | t                | search_path=plugins, organization, pg_catalog      | f
+ plugins      | fn_upgrade_plugin                        | testsuper | t               | t                | search_path=plugins, organization, pg_catalog      | f
+ webhooks     | fn_claim_delivery                        | testsuper | t               | t                | search_path=webhooks, pg_catalog                   | f
+ webhooks     | fn_delivery_failed                       | testsuper | t               | t                | search_path=webhooks, pg_catalog                   | f
+ webhooks     | fn_delivery_succeeded                    | testsuper | t               | t                | search_path=webhooks, pg_catalog                   | f
+ webhooks     | fn_replay_webhook_delivery               | testsuper | t               | t                | search_path=webhooks, organization, pg_catalog     | f
+ webhooks     | fn_rotate_webhook_secret                 | testsuper | t               | t                | search_path=webhooks, organization, pg_catalog     | f
+ webhooks     | fn_update_inbound_event_status           | testsuper | t               | t                | search_path=webhooks, pg_catalog                   | f
+ webhooks     | fn_wd_identity_immutable                 | testsuper | t               | t                | search_path=webhooks, pg_catalog                   | f
+(34 rows)
+
+=== gen_uuid_v7 fix confirmation ===
+   proname   |      search_path_setting       
+-------------+--------------------------------
+ gen_uuid_v7 | search_path=public, pg_catalog
+(1 row)
+
+=== table-level grants on 6J tables, per role ===
+ table_schema |       table_name        | grantee |      privileges      
+--------------+-------------------------+---------+----------------------
+ integrations | integration_connections | app_api | SELECT
+ integrations | integration_definitions | app_api | SELECT
+ integrations | integration_health      | app_api | SELECT
+ integrations | oauth_attempts          | app_api | INSERT,SELECT
+ plugins      | plugin_executions       | app_api | INSERT,SELECT
+ plugins      | plugin_installations    | app_api | SELECT
+ plugins      | plugin_versions         | app_api | SELECT
+ plugins      | plugins                 | app_api | SELECT
+ webhooks     | inbound_webhook_events  | app_api | INSERT,SELECT
+ webhooks     | webhook_deliveries      | app_api | INSERT,SELECT
+ webhooks     | webhook_endpoints       | app_api | INSERT,SELECT,UPDATE
+(11 rows)
+
+=== ALL RLS/PRIVILEGE/INVENTORY CHECKS COMPLETE ===

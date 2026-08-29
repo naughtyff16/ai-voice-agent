@@ -1,0 +1,57 @@
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+INFO  [alembic.runtime.migration] Running downgrade 101_5I1 -> 100_5G1, Phase 5I.1 — wraps controlled amendment migration 101_5I1.sql.
+Traceback (most recent call last):
+  File "<frozen runpy>", line 203, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "C:\Users\Dell\AppData\Local\Programs\Python\Python313\Lib\site-packages\alembic\__main__.py", line 4, in <module>
+    main(prog="alembic")
+    ~~~~^^^^^^^^^^^^^^^^
+  File "C:\Users\Dell\AppData\Local\Programs\Python\Python313\Lib\site-packages\alembic\config.py", line 1039, in main
+    CommandLine(prog=prog).main(argv=argv)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\Dell\AppData\Local\Programs\Python\Python313\Lib\site-packages\alembic\config.py", line 1029, in main
+    self.run_cmd(cfg, options)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Dell\AppData\Local\Programs\Python\Python313\Lib\site-packages\alembic\config.py", line 963, in run_cmd
+    fn(
+    ~~^
+        config,
+        ^^^^^^^
+        *[getattr(options, k, None) for k in positional],
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        **{k: getattr(options, k, None) for k in kwarg},
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\Dell\AppData\Local\Programs\Python\Python313\Lib\site-packages\alembic\command.py", line 534, in downgrade
+    script.run_env()
+    ~~~~~~~~~~~~~~^^
+  File "C:\Users\Dell\AppData\Local\Programs\Python\Python313\Lib\site-packages\alembic\script\base.py", line 550, in run_env
+    util.load_python_file(self.dir, "env.py")
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Dell\AppData\Local\Programs\Python\Python313\Lib\site-packages\alembic\util\pyfiles.py", line 114, in load_python_file
+    module = load_module_py(module_id, path)
+  File "C:\Users\Dell\AppData\Local\Programs\Python\Python313\Lib\site-packages\alembic\util\pyfiles.py", line 132, in load_module_py
+    spec.loader.exec_module(module)  # type: ignore
+    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "<frozen importlib._bootstrap_external>", line 1023, in exec_module
+  File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+  File "D:\Chunk_Mates\ai-voice-agent\docs\phase-05-database-design\5K\alembic\env.py", line 124, in <module>
+    run_migrations_online()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\Chunk_Mates\ai-voice-agent\docs\phase-05-database-design\5K\alembic\env.py", line 118, in run_migrations_online
+    context.run_migrations()
+    ~~~~~~~~~~~~~~~~~~~~~~^^
+  File "<string>", line 8, in run_migrations
+  File "C:\Users\Dell\AppData\Local\Programs\Python\Python313\Lib\site-packages\alembic\runtime\environment.py", line 967, in run_migrations
+    self.get_context().run_migrations(**kw)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Dell\AppData\Local\Programs\Python\Python313\Lib\site-packages\alembic\runtime\migration.py", line 621, in run_migrations
+    step.migration_fn(**kw)
+    ~~~~~~~~~~~~~~~~~^^^^^^
+  File "D:\Chunk_Mates\ai-voice-agent\docs\phase-05-database-design\5K\alembic\versions\101_5I1.py", line 75, in downgrade
+    raise NotImplementedError(
+    ...<35 lines>...
+    )
+NotImplementedError: Migration 101_5I1 is part of the frozen, forward-only 5K SQL package (5K/migrations/101_5I1.sql). No rollback DDL exists for it and none is authored here, to avoid creating schema changes outside the canonical migration files. To revert, restore from a database backup taken before this revision was applied. (This revision only adds new objects, widens EXECUTE grants, and CREATE-OR-REPLACEs pre-existing function bodies with an additive guard clause — it narrows nothing and drops nothing — so a manual reversal is also low-risk if no rows have been written to the new columns yet: REVOKE the 5 widened grants; DROP FUNCTION integrations.fn_activate_integration_connection, integrations.fn_fail_integration_connection, integrations.fn_degrade_integration_connection, integrations.fn_disconnect_integration_connection, integrations.fn_update_integration_connection_config, integrations.fn_record_integration_sync_result, integrations.fn_redeem_oauth_callback_state, integrations.fn_fail_oauth_callback_state, integrations.fn_record_oauth_exchange_failure, plugins.fn_suspend_plugin_installation, plugins.fn_reactivate_plugin_installation, plugins.fn_update_plugin_installation_config, plugins.fn_rotate_plugin_installation_credential, webhooks.fn_rotate_webhook_secret; ALTER TABLE integrations.oauth_attempts DROP COLUMN connection_id, DROP COLUMN failure_reason, DROP COLUMN exchange_failed_at; ALTER TABLE webhooks.webhook_endpoints DROP COLUMN previous_signing_secret_ref, DROP COLUMN previous_secret_expires_at; restore fn_create_integration_connection, fn_rotate_integration_credential, fn_redeem_oauth_attempt, fn_create_plugin_installation, fn_activate_plugin, fn_uninstall_plugin, fn_upgrade_plugin, fn_replay_webhook_delivery to their 059-066 bodies (CREATE OR REPLACE with those files' exact text) — but this is an operational runbook note, not an Alembic-managed downgrade.)

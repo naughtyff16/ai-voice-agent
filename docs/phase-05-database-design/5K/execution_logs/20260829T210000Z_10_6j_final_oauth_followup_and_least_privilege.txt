@@ -1,0 +1,49 @@
+=== Verification re-check (with tenant context this time) for OA-4/OA-7/OA-10 ===
+BEGIN
+SET
+                     label                      |  status  
+------------------------------------------------+----------
+ OA-4 recheck: state-cross-provider-test status | REDEEMED
+(1 row)
+
+                 label                  | status | failure_reason 
+----------------------------------------+--------+----------------
+ OA-7 recheck: state-denial-test status | FAILED | access_denied
+(1 row)
+
+                 label                 |  status  | exchange_failed |       failure_reason        
+---------------------------------------+----------+-----------------+-----------------------------
+ OA-10 recheck: state-provider-a-valid | REDEEMED | t               | token endpoint returned 500
+(1 row)
+
+COMMIT
+=== TEST OA-6-retry: genuine expiry via wall-clock wait ===
+BEGIN
+SET
+INSERT 0 1
+COMMIT
+ pg_sleep 
+----------
+ 
+(1 row)
+
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_valid_logs/test_oauth_followup.sql:22: ERROR:  integrations: OAuth attempt 00000000-0000-7000-8000-00000000900e has expired
+CONTEXT:  PL/pgSQL function fn_redeem_oauth_callback_state(text,uuid) line 32 at RAISE
+BEGIN
+SET
+               label               | status  
+-----------------------------------+---------
+ OA-6 recheck: expiry-retry status | PENDING
+(1 row)
+
+COMMIT
+=== TEST OA-14: fn_redeem_oauth_callback_state EXECUTE denied to app_worker (least privilege, remediation §7) ===
+You are now connected to database "voice_agent_6j_fresh" as user "app_worker".
+ worker_can_execute_expect_false 
+---------------------------------
+ f
+(1 row)
+
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_valid_logs/test_oauth_followup.sql:31: ERROR:  permission denied for function fn_redeem_oauth_callback_state
+You are now connected to database "voice_agent_6j_fresh" as user "app_api".
+=== ALL OAUTH FOLLOWUP TESTS COMPLETE ===

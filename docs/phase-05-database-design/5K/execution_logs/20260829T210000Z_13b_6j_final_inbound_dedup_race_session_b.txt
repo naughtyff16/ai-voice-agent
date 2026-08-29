@@ -1,0 +1,13 @@
+BEGIN
+SET
+ pg_sleep 
+----------
+ 
+(1 row)
+
+ id 
+----
+(0 rows)
+
+INSERT 0 0
+COMMIT

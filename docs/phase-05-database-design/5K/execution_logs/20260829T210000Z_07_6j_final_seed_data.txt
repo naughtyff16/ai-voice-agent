@@ -1,0 +1,9 @@
+INSERT 0 2
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+    result     
+---------------
+ seed complete
+(1 row)
+

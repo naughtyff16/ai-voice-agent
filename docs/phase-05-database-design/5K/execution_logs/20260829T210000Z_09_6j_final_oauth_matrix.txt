@@ -1,0 +1,98 @@
+=== SETUP: two oauth_attempts, provider A and provider B, for OrgA ===
+BEGIN
+SET
+INSERT 0 1
+COMMIT
+=== TEST OA-1: valid state through CORRECT provider -> expect redemption SUCCESS ===
+           oauth_attempt_id           |           organization_id            |            definition_id             |            connection_id             | code_verifier |        redirect_uri        | requested_scopes 
+--------------------------------------+--------------------------------------+--------------------------------------+--------------------------------------+---------------+----------------------------+------------------
+ 00000000-0000-7000-8000-000000009001 | 00000000-0000-7000-8000-0000000000a1 | 00000000-0000-7000-8000-00000000d001 | 01a04e29-1e25-78cf-adf8-f8a5ac92f23b | verifier1     | https://app.example.com/cb | {api}
+(1 row)
+
+=== TEST OA-2: replay of already-redeemed state -> expect REJECTED ===
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_valid_logs/test_oauth.sql:27: ERROR:  integrations: OAuth attempt 00000000-0000-7000-8000-000000009001 already redeemed
+CONTEXT:  PL/pgSQL function fn_redeem_oauth_callback_state(text,uuid) line 25 at RAISE
+=== TEST OA-3: unknown state -> expect REJECTED ===
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_valid_logs/test_oauth.sql:30: ERROR:  integrations: OAuth attempt not found
+CONTEXT:  PL/pgSQL function fn_redeem_oauth_callback_state(text,uuid) line 15 at RAISE
+=== SETUP: fresh attempt for wrong-provider test ===
+BEGIN
+SET
+INSERT 0 1
+COMMIT
+=== TEST OA-4: state issued for provider d001 presented at WRONG provider route (d002) -> expect REJECTED, state remains PENDING/usable ===
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_valid_logs/test_oauth.sql:44: ERROR:  integrations: OAuth attempt was not issued for the expected provider
+CONTEXT:  PL/pgSQL function fn_redeem_oauth_callback_state(text,uuid) line 21 at RAISE
+=== verify state is STILL PENDING (not consumed by the wrong-provider attempt) ===
+ status 
+--------
+(0 rows)
+
+=== TEST OA-5: same state through the CORRECT provider route -> expect SUCCESS ===
+           oauth_attempt_id           |           organization_id            |            definition_id             | connection_id | code_verifier |        redirect_uri        | requested_scopes 
+--------------------------------------+--------------------------------------+--------------------------------------+---------------+---------------+----------------------------+------------------
+ 00000000-0000-7000-8000-000000009002 | 00000000-0000-7000-8000-0000000000a1 | 00000000-0000-7000-8000-00000000d001 |               | verifier2     | https://app.example.com/cb | {api}
+(1 row)
+
+=== SETUP: expired attempt ===
+BEGIN
+SET
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_valid_logs/test_oauth.sql:60: ERROR:  new row for relation "oauth_attempts" violates check constraint "chk_oa_expires"
+ROLLBACK
+=== TEST OA-6: expired state -> expect REJECTED + row correctly transitioned to EXPIRED ===
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_valid_logs/test_oauth.sql:64: ERROR:  integrations: OAuth attempt not found
+CONTEXT:  PL/pgSQL function fn_redeem_oauth_callback_state(text,uuid) line 15 at RAISE
+ status 
+--------
+(0 rows)
+
+=== SETUP: attempt for denial-path test ===
+BEGIN
+SET
+INSERT 0 1
+COMMIT
+=== TEST OA-7: provider denial (pre-redemption) -> fn_fail_oauth_callback_state -> expect PENDING->FAILED ===
+     fn_fail_oauth_callback_state     
+--------------------------------------
+ 00000000-0000-7000-8000-000000009004
+(1 row)
+
+ status | failure_reason 
+--------+----------------
+(0 rows)
+
+=== TEST OA-8: idempotent second fail call on already-FAILED -> expect no-op success, same id ===
+     fn_fail_oauth_callback_state     
+--------------------------------------
+ 00000000-0000-7000-8000-000000009004
+(1 row)
+
+=== TEST OA-9: THE CONTRADICTION FIX -- fail an already-REDEEMED attempt -> expect REJECTED (use exchange-failure fn instead) ===
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_valid_logs/test_oauth.sql:86: ERROR:  integrations: OAuth attempt 00000000-0000-7000-8000-000000009001 already redeemed — use fn_record_oauth_exchange_failure for a post-redemption token-exchange failure instead
+CONTEXT:  PL/pgSQL function fn_fail_oauth_callback_state(text,uuid,text) line 22 at RAISE
+=== TEST OA-10: post-redemption exchange failure on the REDEEMED state -> expect SUCCESS, status STAYS REDEEMED ===
+   fn_record_oauth_exchange_failure   
+--------------------------------------
+ 00000000-0000-7000-8000-000000009001
+(1 row)
+
+ status | exchange_failed | failure_reason 
+--------+-----------------+----------------
+(0 rows)
+
+=== TEST OA-11: idempotent second exchange-failure call -> expect no-op, same id, exchange_failed_at unchanged ===
+   fn_record_oauth_exchange_failure   
+--------------------------------------
+ 00000000-0000-7000-8000-000000009001
+(1 row)
+
+=== TEST OA-12: exchange-failure called on a PENDING (never redeemed) attempt -> expect REJECTED ===
+BEGIN
+SET
+INSERT 0 1
+COMMIT
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_valid_logs/test_oauth.sql:105: ERROR:  integrations: exchange failure can only be recorded for a REDEEMED attempt (current status PENDING)
+CONTEXT:  PL/pgSQL function fn_record_oauth_exchange_failure(text,text) line 16 at RAISE
+=== TEST OA-13: concurrent double redemption -- session A begins, holds lock, session B attempts same state ===
+(See separate concurrency test file for the true two-connection race; single-session serialized check here.)
+=== ALL OAUTH TESTS COMPLETE ===

@@ -1,0 +1,284 @@
+=== INTEGRATION CONNECTION LIFECYCLE MATRIX ===
+--- fresh CONNECTING connection for lifecycle testing ---
+BEGIN
+SET
+               lc_conn                
+--------------------------------------
+ 01a04e2c-87e1-77b0-8f5b-5bdd13f51776
+(1 row)
+
+COMMIT
+BEGIN
+SET
+COMMIT
+01a04e2c-87e1-77b0-8f5b-5bdd13f51776
+--- LEGAL: CONNECTING -> FAILED ---
+BEGIN
+SET
+ fn_fail_integration_connection 
+--------------------------------
+ 
+(1 row)
+
+ status | has_disconnected_at 
+--------+---------------------
+ FAILED | t
+(1 row)
+
+COMMIT
+--- ILLEGAL: FAILED -> ACTIVE (fn_activate on a FAILED connection) -> expect REJECTED ---
+BEGIN
+SET
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_valid_logs/test_lifecycle.sql:28: ERROR:  integrations: cannot activate connection from status FAILED
+CONTEXT:  PL/pgSQL function fn_activate_integration_connection(uuid,uuid,text,text,text,uuid) line 21 at RAISE
+ROLLBACK
+--- ILLEGAL: FAILED -> DEGRADED -> expect REJECTED ---
+BEGIN
+SET
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_valid_logs/test_lifecycle.sql:34: ERROR:  integrations: connection can only degrade from ACTIVE (current status FAILED)
+CONTEXT:  PL/pgSQL function fn_degrade_integration_connection(uuid,uuid,text) line 21 at RAISE
+ROLLBACK
+--- ILLEGAL: FAILED -> FAILED again (fn_fail on already-FAILED) -> expect IDEMPOTENT no-op, not error ---
+BEGIN
+SET
+ fn_fail_integration_connection 
+--------------------------------
+ 
+(1 row)
+
+COMMIT
+--- IDEMPOTENT: disconnect an already-FAILED (terminal) connection -> expect no-op success, not error ---
+BEGIN
+SET
+ fn_disconnect_integration_connection 
+--------------------------------------
+ 
+(1 row)
+
+COMMIT
+--- TERMINAL GUARD (pre-existing trigger, unmodified): raw UPDATE on FAILED row attempting a status change directly -> expect REJECTED by trg_ic_terminal_guard ---
+You are now connected to database "voice_agent_6j_fresh" as user "app_platform_admin".
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_valid_logs/test_lifecycle.sql:51: ERROR:  integrations: connection 01a04e2c-87e1-77b0-8f5b-5bdd13f51776 is in terminal state FAILED — create a new connection
+CONTEXT:  PL/pgSQL function fn_ic_terminal_guard() line 4 at RAISE
+You are now connected to database "voice_agent_6j_fresh" as user "app_api".
+--- LEGAL full happy path on a second connection: CONNECTING -> ACTIVE -> DEGRADED -> ACTIVE -> DISCONNECTED ---
+BEGIN
+SET
+               hp_conn                
+--------------------------------------
+ 01a04e2c-884d-75fd-bfd9-d9f09fe35cff
+(1 row)
+
+COMMIT
+BEGIN
+SET
+COMMIT
+BEGIN
+SET
+ fn_activate_integration_connection 
+------------------------------------
+ 
+(1 row)
+
+ status 
+--------
+ ACTIVE
+(1 row)
+
+COMMIT
+BEGIN
+SET
+ fn_degrade_integration_connection 
+-----------------------------------
+ 
+(1 row)
+
+  status  | last_sync_error 
+----------+-----------------
+ DEGRADED | sync failures
+(1 row)
+
+COMMIT
+BEGIN
+SET
+ fn_activate_integration_connection 
+------------------------------------
+ 
+(1 row)
+
+ status | last_sync_error 
+--------+-----------------
+ ACTIVE | 
+(1 row)
+
+COMMIT
+BEGIN
+SET
+ fn_disconnect_integration_connection 
+--------------------------------------
+ 
+(1 row)
+
+    status    
+--------------
+ DISCONNECTED
+(1 row)
+
+COMMIT
+--- ILLEGAL: DISCONNECTED -> ACTIVE -> expect REJECTED ---
+BEGIN
+SET
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_valid_logs/test_lifecycle.sql:94: ERROR:  integrations: cannot activate connection from status DISCONNECTED
+CONTEXT:  PL/pgSQL function fn_activate_integration_connection(uuid,uuid,text,text,text,uuid) line 21 at RAISE
+ROLLBACK
+=== PLUGIN INSTALLATION LIFECYCLE MATRIX ===
+BEGIN
+SET
+               pl_inst                
+--------------------------------------
+ 01a04e2c-8864-7902-98b3-b319c7ef7e2e
+(1 row)
+
+COMMIT
+BEGIN
+SET
+COMMIT
+--- LEGAL: INSTALLED -> ACTIVE ---
+BEGIN
+SET
+ fn_activate_plugin 
+--------------------
+ 
+(1 row)
+
+ status |   enabled_capabilities   
+--------+--------------------------
+ ACTIVE | {workflow.action.notify}
+(1 row)
+
+COMMIT
+--- LEGAL: ACTIVE -> SUSPENDED ---
+BEGIN
+SET
+ fn_suspend_plugin_installation 
+--------------------------------
+ 
+(1 row)
+
+  status   | has_suspended_at 
+-----------+------------------
+ SUSPENDED | t
+(1 row)
+
+COMMIT
+--- LEGAL: SUSPENDED -> ACTIVE, capabilities PRESERVED (not reset) ---
+BEGIN
+SET
+ fn_reactivate_plugin_installation 
+-----------------------------------
+ 
+(1 row)
+
+ status |   enabled_capabilities   
+--------+--------------------------
+ ACTIVE | {workflow.action.notify}
+(1 row)
+
+COMMIT
+--- capability outside manifest rejected ---
+BEGIN
+SET
+ fn_suspend_plugin_installation 
+--------------------------------
+ 
+(1 row)
+
+COMMIT
+BEGIN
+SET
+ fn_reactivate_plugin_installation 
+-----------------------------------
+ 
+(1 row)
+
+COMMIT
+BEGIN
+SET
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_valid_logs/test_lifecycle.sql:142: ERROR:  plugins: cannot activate from status ACTIVE
+CONTEXT:  PL/pgSQL function fn_activate_plugin(uuid,uuid,text[]) line 24 at RAISE
+ROLLBACK
+--- VERSION UPGRADE: pin V1 -> upgrade to V2 -> capabilities reset -> status INSTALLED (not ACTIVE) ---
+BEGIN
+SET
+ fn_upgrade_plugin 
+-------------------
+ 
+(1 row)
+
+  status   | enabled_capabilities |          plugin_version_id           
+-----------+----------------------+--------------------------------------
+ INSTALLED | {}                   | 00000000-0000-7000-8000-00000000e102
+(1 row)
+
+COMMIT
+--- old capability (V1 manifest) now rejected against V2 manifest ---
+BEGIN
+SET
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_valid_logs/test_lifecycle.sql:155: ERROR:  plugins: capability workflow.action.notify is not in the plugin version manifest
+CONTEXT:  PL/pgSQL function fn_activate_plugin(uuid,uuid,text[]) line 38 at RAISE
+ROLLBACK
+--- new V2 capability accepted ---
+BEGIN
+SET
+ fn_activate_plugin 
+--------------------
+ 
+(1 row)
+
+ status |    enabled_capabilities     
+--------+-----------------------------
+ ACTIVE | {workflow.action.notify_v2}
+(1 row)
+
+COMMIT
+--- LEGAL: ACTIVE -> UNINSTALLED ---
+BEGIN
+SET
+ fn_uninstall_plugin 
+---------------------
+ 
+(1 row)
+
+   status    | has_uninstalled_at 
+-------------+--------------------
+ UNINSTALLED | t
+(1 row)
+
+COMMIT
+--- ILLEGAL: UNINSTALLED -> ACTIVE -> expect REJECTED (fn_activate_plugin) ---
+BEGIN
+SET
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_valid_logs/test_lifecycle.sql:175: ERROR:  plugins: cannot activate from status UNINSTALLED
+CONTEXT:  PL/pgSQL function fn_activate_plugin(uuid,uuid,text[]) line 24 at RAISE
+ROLLBACK
+--- ILLEGAL: UNINSTALLED -> SUSPENDED -> expect REJECTED ---
+BEGIN
+SET
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_valid_logs/test_lifecycle.sql:181: ERROR:  plugins: cannot suspend from status UNINSTALLED
+CONTEXT:  PL/pgSQL function fn_suspend_plugin_installation(uuid,uuid) line 21 at RAISE
+ROLLBACK
+--- IDEMPOTENT: UNINSTALLED -> UNINSTALLED again -> expect no-op success ---
+BEGIN
+SET
+ fn_uninstall_plugin 
+---------------------
+ 
+(1 row)
+
+COMMIT
+--- TERMINAL GUARD (pre-existing trigger, unmodified): raw UPDATE attempting to move UNINSTALLED -> ACTIVE directly -> expect REJECTED ---
+You are now connected to database "voice_agent_6j_fresh" as user "app_platform_admin".
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_valid_logs/test_lifecycle.sql:192: ERROR:  plugins: installation 01a04e2c-8864-7902-98b3-b319c7ef7e2e is UNINSTALLED (terminal)
+CONTEXT:  PL/pgSQL function fn_pi_terminal_guard() line 4 at RAISE
+You are now connected to database "voice_agent_6j_fresh" as user "app_api".
+=== ALL LIFECYCLE TESTS COMPLETE ===

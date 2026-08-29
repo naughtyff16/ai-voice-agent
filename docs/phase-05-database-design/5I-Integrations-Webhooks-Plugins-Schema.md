@@ -2251,7 +2251,25 @@ All DDL and query patterns are valid PostgreSQL 15+. Key correctness items:
 
 **RLS posture:** unchanged. `oauth_attempts` and `integration_connections` keep `ENABLE + FORCE ROW LEVEL SECURITY` exactly as this document's §24/§28 originally specified. The new OAuth-bootstrap function does not bypass RLS by policy change — it relies on the pre-existing fact (confirmed against `001_5B.sql` and the live `077_5J1_VALIDATION_REPORT.md`) that `app_migration`, the role owning every `SECURITY DEFINER` function in this schema, was already created `BYPASSRLS`.
 
-**Validation status:** SQL was authored and manually traced against the byte-for-byte contents of the actually-applied `059_5I.sql`-`066_5I.sql` and `001_5B.sql` files in the same pass that wrote it. It was **not** executed against a live PostgreSQL instance (disclosed environment limitation — see `5K/MIGRATION_MANIFEST.md`'s "Phase 6J Remediation Pass" section for the full explanation). This document's own §37 Validation Report above, and its "STATUS: APPROVED FOR FREEZE" line, describe the **059-066 baseline only** and are unaffected by and do not extend to `101_5I1` — `101_5I1` carries its own, separately disclosed, not-yet-live-validated status and must not be read as already covered by the v1.1 approval above it.
+**Validation status (superseded by §39 below — this paragraph is the original, pre-live-validation record, kept for history):** at the time this section was first written, `101_5I1.sql` had been authored and manually traced against source but not executed against a live PostgreSQL instance. §39 records the subsequent live-validation pass that closed this gap.
+
+---
+
+## 39. Live Validation — Phase 5I.1 (2026-08-29, same-day follow-up)
+
+A second remediation pass (independent review of §38's first-pass `101_5I1.sql`) found three further P0 defects and, during its own live testing, one additional major platform-wide-impact defect. Full detail: `5K/validation/6J_FINAL_BLOCKER_REMEDIATION_VALIDATION_REPORT.md`; summary: `5K/MIGRATION_MANIFEST.md`'s "Phase 6J FINAL Blocker Remediation" section.
+
+**§38's function list is amended as follows** (all via `CREATE OR REPLACE`, same signatures, within the same `101_5I1.sql` file — no new migration number):
+
+- Every function §38 lists, plus the pre-existing `fn_redeem_oauth_attempt` (061), now additionally requires `organization.current_tenant_id() = p_organization_id` before touching any row (the SECURITY DEFINER tenant-forgery guard) — closing a P0 that affected every `app_api`-callable function taking `p_organization_id` as a parameter, including two functions §38 did not flag as needing amendment (`fn_create_integration_connection`, `fn_create_plugin_installation` — both already `app_api`-callable since 059-066, sharing the identical defect class).
+- `fn_redeem_oauth_callback_state`/`fn_fail_oauth_callback_state` gained a mandatory `p_expected_definition_id` parameter, verified against the attempt's own `definition_id` before consuming `state` — closing a cross-provider state-binding P0.
+- A new function, `fn_record_oauth_exchange_failure(state, reason)`, was added — `fn_fail_oauth_callback_state` is now scoped to pre-redemption denial only; the new function handles a post-redemption token-exchange failure without reopening `state` for reuse (`status` stays `REDEEMED`). A new `oauth_attempts.exchange_failed_at TIMESTAMPTZ NULL` column backs this.
+- `fn_redeem_oauth_callback_state`/`fn_fail_oauth_callback_state`/`fn_record_oauth_exchange_failure`'s `EXECUTE` grant was narrowed to `app_api, app_platform_admin` (no `app_worker` — no worker process handles OAuth callbacks).
+- **`public.gen_uuid_v7()` (001_5B.sql) — a pre-existing defect in the frozen 001-100 baseline, discovered live, fixed here:** no `SET search_path` of its own, so its call to the unqualified `gen_random_bytes()` (in `public`) fails when nested inside any `SECURITY DEFINER` function whose own search_path excludes `public` — live-confirmed to affect 84 of the 99 `SECURITY DEFINER` functions across the entire 001-100 baseline, this schema's own included. Fixed via `CREATE OR REPLACE FUNCTION public.gen_uuid_v7() ... SET search_path = public, pg_catalog` (not `SECURITY DEFINER`, no privilege change). **A full audit of the other 83 affected functions outside this schema is out of scope for this document and is recorded as a forward finding.**
+
+**Live validation, PostgreSQL 18.6 (engine-version deviation from the requested 16, disclosed):** fresh-database `alembic upgrade head` (full `001_5B → … → 101_5I1`, 101 revisions) — **PASS**. Incremental (`100_5G1` pinned, `101_5I1` applied alone) — **PASS**. Single head, `current == head`, linear history. `downgrade -1` correctly raises `NotImplementedError`, no partial DDL. Full adversarial matrix — tenant-forgery (11/11 across integration/plugin/webhook function families), OAuth (14/14, including the state-machine-contradiction and provider-binding fixes), integration-connection lifecycle (all legal/illegal/idempotent transitions), plugin-installation lifecycle (all legal/illegal/idempotent transitions, live-proven version-pinning capability-reset), webhook dual-secret rotation, a genuine two-process concurrency race for inbound-event dedup, RLS isolation (including the fail-closed-with-no-tenant-context guarantee), full privilege matrix (`PUBLIC EXECUTE = false` on all 34 functions), full `SECURITY DEFINER` inventory (owner/`BYPASSRLS`/`search_path`), and a targeted regression check — **all PASS**. This document's own §37 Validation Report above (`059-066` baseline) is unaffected and unmodified by any of this; `101_5I1` is now separately, fully live-validated in its own right.
+
+**Not covered by this live-validation pass:** SSRF/application-layer tests (no deployed application code exists anywhere in this repository to test against); a full re-run of every historical 001-100 test file (targeted spot-checks only); the other 83 `gen_uuid_v7`-affected functions outside this schema (forward finding, not audited here); 6I's `graph_json` node-config schema does not yet define the `plugin_installation_id`/`plugin_version_id` fields 6J's own version-pinning design targets — an explicit, disclosed cross-phase coordination item (6I is frozen, out of this schema's or 6J's authority to amend unilaterally), not silently claimed resolved.
 
 ---
 
@@ -2269,9 +2287,16 @@ STATUS: APPROVED FOR FREEZE
 PHASE 5J READY
 
 --------------------------------------------------------------------
-Phase 5I.1 controlled amendment (101_5I1.sql, §38 above, 2026-08-29):
-STATUS: SQL AUTHORED, STATICALLY TRACED AGAINST SOURCE — NOT YET
-LIVE-VALIDATED. Requires a fresh-DB alembic upgrade head run plus the
-6J §26 security test matrix before it may be represented as validated.
+Phase 5I.1 controlled amendment (101_5I1.sql, §38-39 above, 2026-08-29):
+STATUS: LIVE-VALIDATED (PostgreSQL 18.6). Fresh + incremental upgrade
+PASS, single Alembic head, full adversarial test matrix PASS
+(tenant-forgery, OAuth, integration/plugin lifecycle, webhook
+rotation, concurrency race, RLS, privileges, SECURITY DEFINER
+inventory). See §39 above and
+5K/validation/6J_FINAL_BLOCKER_REMEDIATION_VALIDATION_REPORT.md for
+full detail, including the disclosed out-of-scope items (SSRF
+application-layer tests; the 6I plugin-version-pinning cross-phase
+schema-compatibility item; the other 83 gen_uuid_v7-affected
+functions outside this schema).
 --------------------------------------------------------------------
 ```
