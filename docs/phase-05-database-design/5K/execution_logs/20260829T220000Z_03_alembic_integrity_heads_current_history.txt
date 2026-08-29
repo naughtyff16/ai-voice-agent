@@ -1,0 +1,27 @@
+=== heads ===
+101_5I1 (head)
+=== current ===
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+101_5I1 (head)
+=== history (tail) ===
+019_5D -> 020_5D, Phase 5K — wraps frozen migration 020_5D.sql.
+018_5C -> 019_5D, Phase 5K — wraps frozen migration 019_5D.sql.
+017_5C -> 018_5C, Phase 5K — wraps frozen migration 018_5C.sql.
+016_5C -> 017_5C, Phase 5K — wraps frozen migration 017_5C.sql.
+015_5C -> 016_5C, Phase 5K — wraps frozen migration 016_5C.sql.
+014_5C -> 015_5C, Phase 5K — wraps frozen migration 015_5C.sql.
+013_5C -> 014_5C, Phase 5K — wraps frozen migration 014_5C.sql.
+012_5C -> 013_5C, Phase 5K — wraps frozen migration 013_5C.sql.
+011_5C -> 012_5C, Phase 5K — wraps frozen migration 012_5C.sql.
+010_5C -> 011_5C, Phase 5K — wraps frozen migration 011_5C.sql.
+009_5C -> 010_5C, Phase 5K — wraps frozen migration 010_5C.sql.
+008_5B -> 009_5C, Phase 5K — wraps frozen migration 009_5C.sql.
+007_5B -> 008_5B, Phase 5K — wraps frozen migration 008_5B.sql.
+006_5B -> 007_5B, Phase 5K — wraps frozen migration 007_5B.sql.
+005_5B -> 006_5B, Phase 5K — wraps frozen migration 006_5B.sql.
+004_5B -> 005_5B, Phase 5K — wraps frozen migration 005_5B.sql.
+003_5B -> 004_5B, Phase 5K — wraps frozen migration 004_5B.sql.
+002_5B -> 003_5B, Phase 5K — wraps frozen migration 003_5B.sql.
+001_5B -> 002_5B, Phase 5K — wraps frozen migration 002_5B.sql.
+<base> -> 001_5B, Phase 5K — wraps frozen migration 001_5B.sql.

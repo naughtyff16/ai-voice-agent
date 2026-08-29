@@ -1,0 +1,286 @@
+# PostgreSQL 18.6 -- Tenant-forgery + OAuth + integration-lifecycle adversarial matrix
+# Disposable cluster: .tmp_pgdata_pg18v2, port 5557, database voice_agent_pg18_fresh (fully migrated to 101_5I1 head)
+# Combined from consecutive genuine psql -f script runs against the same fresh cluster; corrected test-script mistakes
+# (malformed test UUIDs / wrong credential_ref format) are shown as they genuinely occurred, then the corrected re-run below.
+
+==================================================================
+RUN A -- initial matrix (tests 1,3,5,7 succeeded as designed; tests 2/4/6/8/9 revealed test-script
+mistakes, not product defects -- see RUN B/C below for the corrected re-runs of those same tests)
+==================================================================
+=== SETUP: seed integration_definitions (superuser, bypasses RLS) ===
+INSERT 0 2
+=== TEST 1: tenant-forgery guard BLOCKS cross-tenant create (caller=A, target org=B) -> expect ERROR ===
+BEGIN
+SET
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/07_matrix.sql:17: ERROR:  integrations: caller tenant context does not match the requested organization
+CONTEXT:  PL/pgSQL function fn_create_integration_connection(uuid,uuid,text,text,jsonb) line 8 at RAISE
+ROLLBACK
+=== TEST 2: legit same-tenant create SUCCEEDS (caller=A, target org=A) -> expect row ===
+BEGIN
+SET
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/07_matrix.sql:27: ERROR:  column "id" does not exist
+LINE 1: SELECT id, status FROM integrations.fn_create_integration_co...
+               ^
+ROLLBACK
+=== TEST 3: OAuth provider-binding mismatch -> expect ERROR (state belongs to d1, caller expects d2) ===
+BEGIN
+INSERT 0 1
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/07_matrix.sql:35: ERROR:  integrations: OAuth attempt was not issued for the expected provider
+CONTEXT:  PL/pgSQL function fn_redeem_oauth_callback_state(text,uuid) line 21 at RAISE
+ROLLBACK
+=== TEST 4: OAuth correct-provider redemption SUCCEEDS, and is single-use (2nd attempt fails) ===
+BEGIN
+INSERT 0 1
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/07_matrix.sql:43: ERROR:  column "status" does not exist
+LINE 1: SELECT status FROM integrations.fn_redeem_oauth_callback_sta...
+               ^
+--- second redemption attempt of SAME state (expect ERROR, already REDEEMED) ---
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/07_matrix.sql:45: ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ROLLBACK
+=== TEST 5: OAuth genuine wall-clock expiry -> redemption rejected ===
+BEGIN
+INSERT 0 1
+COMMIT
+ pg_sleep 
+----------
+ 
+(1 row)
+
+BEGIN
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/07_matrix.sql:56: ERROR:  integrations: OAuth attempt 01a04e54-442c-798a-91dc-dced73f8a2bf has expired
+CONTEXT:  PL/pgSQL function fn_redeem_oauth_callback_state(text,uuid) line 51 at RAISE
+ROLLBACK
+=== TEST 6: integration terminal-state coherence: FAILED -> ACTIVE must be rejected ===
+BEGIN
+SET
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/07_matrix.sql:67: ERROR:  column "id" does not exist
+LINE 2:   SELECT id FROM integrations.fn_create_integration_connecti...
+                 ^
+--- attempting FAILED -> ACTIVE via activate (expect ERROR) ---
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/07_matrix.sql:70: ERROR:  syntax error at or near ":"
+LINE 2:   '00000000-0000-0000-0000-0000000000a1'::uuid, :'id', 'cred...
+                                                        ^
+ROLLBACK
+=== TEST 7: RLS blocks cross-tenant SELECT on integration_connections (as app_api, tenant=A, query for B) ===
+BEGIN
+SET
+SET
+ should_be_zero_cross_tenant 
+-----------------------------
+                           0
+(1 row)
+
+ should_be_gt_zero_own_tenant 
+------------------------------
+                            0
+(1 row)
+
+RESET
+ROLLBACK
+=== TEST 8: webhook secret rotation grace period - both old and new secret refs coexist while unexpired ===
+BEGIN
+SET
+         proname          
+--------------------------
+ fn_rotate_webhook_secret
+(1 row)
+
+ROLLBACK
+
+==================================================================
+RUN B -- corrected test 2 (legit create), test 4 (OAuth single-use), test 6/7 (terminal-state + RLS,
+still tripped on NULL credential_ref -- test-script bug, not a product defect), test 8/9 (webhook
+rotation + privilege separation -- both PASS)
+==================================================================
+=== TEST 2: legit same-tenant create SUCCEEDS ===
+BEGIN
+SET
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/08_matrix.sql:9: ERROR:  null value in column "credential_ref" of relation "integration_connections" violates not-null constraint
+DETAIL:  Failing row contains (01a04e54-dfd7-78b3-8762-6272e2480df9, 00000000-0000-0000-0000-0000000000a1, 00000000-0000-0000-0000-0000000000d1, legit-connection, CONNECTING, null, {}, {}, null, null, null, null, null, null, null, null, 2026-08-29 21:53:00.296806+05:30, 2026-08-29 21:53:00.296806+05:30).
+CONTEXT:  SQL statement "INSERT INTO integrations.integration_connections
+    (organization_id, definition_id, display_name, credential_ref, configuration, status)
+  VALUES
+    (p_organization_id, p_definition_id, p_display_name, p_credential_ref, p_configuration, 'CONNECTING')
+  RETURNING id"
+PL/pgSQL function fn_create_integration_connection(uuid,uuid,text,text,jsonb) line 40 at SQL statement
+:conn_id
+ROLLBACK
+=== TEST 4: OAuth correct-provider redemption SUCCEEDS, single-use enforced ===
+BEGIN
+INSERT 0 1
+           oauth_attempt_id           
+--------------------------------------
+ 01a04e54-dfda-74b6-8ff9-f9b99ebba2ae
+(1 row)
+
+--- second redemption of SAME state (expect ERROR) ---
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/08_matrix.sql:20: ERROR:  integrations: OAuth attempt 01a04e54-dfda-74b6-8ff9-f9b99ebba2ae already redeemed
+CONTEXT:  PL/pgSQL function fn_redeem_oauth_callback_state(text,uuid) line 25 at RAISE
+ROLLBACK
+=== TEST 6: terminal-state coherence FAILED -> ACTIVE rejected ===
+BEGIN
+SET
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/08_matrix.sql:28: ERROR:  null value in column "credential_ref" of relation "integration_connections" violates not-null constraint
+DETAIL:  Failing row contains (01a04e54-dfe2-7a03-ba22-22575bf29a39, 00000000-0000-0000-0000-0000000000a1, 00000000-0000-0000-0000-0000000000d1, terminal-state-test, CONNECTING, null, {}, {}, null, null, null, null, null, null, null, null, 2026-08-29 21:53:00.321212+05:30, 2026-08-29 21:53:00.321212+05:30).
+CONTEXT:  SQL statement "INSERT INTO integrations.integration_connections
+    (organization_id, definition_id, display_name, credential_ref, configuration, status)
+  VALUES
+    (p_organization_id, p_definition_id, p_display_name, p_credential_ref, p_configuration, 'CONNECTING')
+  RETURNING id"
+PL/pgSQL function fn_create_integration_connection(uuid,uuid,text,text,jsonb) line 40 at SQL statement
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/08_matrix.sql:29: ERROR:  syntax error at or near ":"
+LINE 1: ...ion('00000000-0000-0000-0000-0000000000a1'::uuid, :'conn_id'...
+                                                             ^
+--- attempting FAILED -> ACTIVE via activate (expect ERROR) ---
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/08_matrix.sql:32: ERROR:  syntax error at or near ":"
+LINE 2:   '00000000-0000-0000-0000-0000000000a1'::uuid, :'conn_id', ...
+                                                        ^
+ROLLBACK
+=== TEST 7 (redo, own-tenant row present this time): RLS isolation ===
+BEGIN
+SET
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/08_matrix.sql:40: ERROR:  null value in column "credential_ref" of relation "integration_connections" violates not-null constraint
+DETAIL:  Failing row contains (01a04e54-dfe3-7da3-84d8-d8c359b069c0, 00000000-0000-0000-0000-0000000000a1, 00000000-0000-0000-0000-0000000000d1, rls-visible-row, CONNECTING, null, {}, {}, null, null, null, null, null, null, null, null, 2026-08-29 21:53:00.322669+05:30, 2026-08-29 21:53:00.322669+05:30).
+CONTEXT:  SQL statement "INSERT INTO integrations.integration_connections
+    (organization_id, definition_id, display_name, credential_ref, configuration, status)
+  VALUES
+    (p_organization_id, p_definition_id, p_display_name, p_credential_ref, p_configuration, 'CONNECTING')
+  RETURNING id"
+PL/pgSQL function fn_create_integration_connection(uuid,uuid,text,text,jsonb) line 40 at SQL statement
+ROLLBACK
+BEGIN
+SET
+SET
+ should_be_zero_cross_tenant 
+-----------------------------
+                           0
+(1 row)
+
+ should_be_gt_zero_own_tenant 
+------------------------------
+                            0
+(1 row)
+
+RESET
+ROLLBACK
+=== TEST 8: webhook dual-secret rotation grace period ===
+BEGIN
+SET
+INSERT 0 1
+     signing_secret_ref      | previous_signing_secret_ref | previous_secret_expires_at 
+-----------------------------+-----------------------------+----------------------------
+ secret_manager://webhook/v1 |                             | 
+(1 row)
+
+--- rotate with 3600s grace period ---
+ fn_rotate_webhook_secret 
+--------------------------
+ 
+(1 row)
+
+     signing_secret_ref      | previous_signing_secret_ref | grace_active 
+-----------------------------+-----------------------------+--------------
+ secret_manager://webhook/v2 | secret_manager://webhook/v1 | t
+(1 row)
+
+ROLLBACK
+=== TEST 9: privilege check - app_worker cannot call app_api-only OAuth bootstrap fn ===
+BEGIN
+ worker_can_call_should_be_false 
+---------------------------------
+ f
+(1 row)
+
+ api_can_call_should_be_true 
+-----------------------------
+ t
+(1 row)
+
+ROLLBACK
+
+==================================================================
+RUN C -- test 2/6/7 corrected credential_ref format; uniqueness-constraint collision surfaced
+(a genuine, desirable business rule -- one non-terminal connection per (org,definition) -- not a defect)
+==================================================================
+=== TEST 2: legit same-tenant create SUCCEEDS ===
+BEGIN
+SET
+conn_id: 01a04e55-126d-7e00-8551-513b7c02ad78
+COMMIT
+=== TEST 6: terminal-state coherence FAILED -> ACTIVE rejected ===
+BEGIN
+SET
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/09_matrix.sql:18: ERROR:  integrations: a non-terminal connection (id=01a04e55-126d-7e00-8551-513b7c02ad78) already exists for this (org, definition). Disconnect it first, then create a new connection.
+CONTEXT:  PL/pgSQL function fn_create_integration_connection(uuid,uuid,text,text,jsonb) line 34 at RAISE
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/09_matrix.sql:19: ERROR:  current transaction is aborted, commands ignored until end of transaction block
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/09_matrix.sql:20: ERROR:  current transaction is aborted, commands ignored until end of transaction block
+--- attempting FAILED -> ACTIVE via activate (expect ERROR) ---
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/09_matrix.sql:23: ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ROLLBACK
+=== TEST 7: RLS isolation, own-tenant row present ===
+BEGIN
+SET
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/09_matrix.sql:31: ERROR:  integrations: a non-terminal connection (id=01a04e55-126d-7e00-8551-513b7c02ad78) already exists for this (org, definition). Disconnect it first, then create a new connection.
+CONTEXT:  PL/pgSQL function fn_create_integration_connection(uuid,uuid,text,text,jsonb) line 34 at RAISE
+ROLLBACK
+BEGIN
+SET
+SET
+ should_be_zero_cross_tenant 
+-----------------------------
+                           0
+(1 row)
+
+ should_be_gt_zero_own_tenant 
+------------------------------
+                            1
+(1 row)
+
+RESET
+ROLLBACK
+
+==================================================================
+RUN D -- final corrected test 6 (FAILED->ACTIVE rejected) and NEW test 10 (DISCONNECTED->ACTIVE
+rejected), using a second plugin definition (d2) to avoid the uniqueness collision from RUN C
+==================================================================
+=== TEST 6: terminal-state coherence FAILED -> ACTIVE rejected (using definition d2 to avoid uniqueness collision) ===
+BEGIN
+SET
+ fn_fail_integration_connection 
+--------------------------------
+ 
+(1 row)
+
+ status 
+--------
+ FAILED
+(1 row)
+
+--- attempting FAILED -> ACTIVE via activate (expect ERROR) ---
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/10_matrix.sql:12: ERROR:  integrations: cannot activate connection from status FAILED
+CONTEXT:  PL/pgSQL function fn_activate_integration_connection(uuid,uuid,text,text,text,uuid) line 21 at RAISE
+--- confirm status unchanged after rejected transition ---
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/10_matrix.sql:14: ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ROLLBACK
+=== TEST 10: DISCONNECTED -> ACTIVE also rejected ===
+BEGIN
+SET
+ fn_activate_integration_connection 
+------------------------------------
+ 
+(1 row)
+
+ fn_disconnect_integration_connection 
+--------------------------------------
+ 
+(1 row)
+
+    status    
+--------------
+ DISCONNECTED
+(1 row)
+
+--- attempting DISCONNECTED -> ACTIVE (expect ERROR) ---
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/10_matrix.sql:27: ERROR:  integrations: cannot activate connection from status DISCONNECTED
+CONTEXT:  PL/pgSQL function fn_activate_integration_connection(uuid,uuid,text,text,text,uuid) line 21 at RAISE
+ROLLBACK

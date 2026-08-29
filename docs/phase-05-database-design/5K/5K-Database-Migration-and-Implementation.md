@@ -2,7 +2,7 @@
 
 ## 1. Purpose and Scope
 
-Phase 5K converts the frozen Phase 5A–5J database architecture into a complete, executable, dependency-safe, reproducible PostgreSQL 16 migration system. It does not design new schema. It sequences, packages, and operationalizes what Phase 5A–5J already approved, resolves the implementation-layer issues discovered during source reconciliation, and provides the validation machinery needed to certify the resulting database as correct.
+Phase 5K converts the frozen Phase 5A–5J database architecture into a complete, executable, dependency-safe, reproducible PostgreSQL migration system. It does not design new schema. **Authoritative database baseline (updated 2026-08-29, see §5): PostgreSQL 18.x, superseding the PostgreSQL 16 baseline this phase originally targeted and against which the original 75 migrations were first executed and certified — see §5 for the full baseline-reconciliation statement.** It sequences, packages, and operationalizes what Phase 5A–5J already approved, resolves the implementation-layer issues discovered during source reconciliation, and provides the validation machinery needed to certify the resulting database as correct.
 
 Phase 5K answers one question: given the frozen architecture, what exact 75 SQL migrations do we run, in what order, with what dependencies, with what security constraints, and how do we prove the result is correct?
 
@@ -193,14 +193,16 @@ Legend: **Txn** = executes inside a single standard transaction. **Non-Txn** = m
 
 ---
 
-## 5. Prerequisites — PostgreSQL 16 and Extensions
+## 5. Prerequisites — PostgreSQL 18 and Extensions
+
+**Baseline reconciliation (2026-08-29):** this phase originally targeted PostgreSQL 16 as its deployment baseline, and the original 75 migrations were first generated, executed, and certified against a genuinely fresh PostgreSQL 16 instance (§20/§21 below, `EXECUTION_REPORT.md`, `PG16_MIGRATION_VALIDATION_REPORT.md` — all retained unchanged as accurate historical record, since that is genuinely what ran). **PostgreSQL 18.x is now the platform's authoritative database baseline going forward** — a deliberate, one-time architecture decision made during Phase 6J's own closure (`6J-Integrations-Webhooks-Plugins-APIs.md` §63), not a per-document disclosed deviation: the platform is pre-production, PostgreSQL 18 was already the active development-environment engine in practice by that point, and continuing to declare 16 as the nominal target while every recent validation pass actually ran on 18 was drift worth resolving once, explicitly, rather than repeatedly disclosing. This is a runtime-engine-version decision only — no table, column, function, RLS policy, or migration file changes as a result of it; the 75 original migrations plus every additive migration since (076-101) are unchanged and have been re-confirmed executable on PostgreSQL 18.6 (`101_5I1.sql`'s own PostgreSQL 18.6 fresh + incremental validation, Phase 6J §60/§63).
 
 | Requirement | Details |
 |---|---|
-| PostgreSQL version | 16 (minimum). `pg_advisory_xact_lock` semantics, partitioned table indexing rules, and `NULLS NOT DISTINCT` on UNIQUE constraints all require PostgreSQL 14+; PostgreSQL 16 is the deployment target. |
-| `pgcrypto` | Installed in migration 001 (`CREATE EXTENSION IF NOT EXISTS pgcrypto`). Required for `gen_random_bytes()` (used by `gen_uuid_v7()`), and for `digest()` (used by `fn_compute_chain_hash()` in migration 072). |
-| `pg_stat_statements` | Installed in migration 001. Requires `shared_preload_libraries = 'pg_stat_statements'` in `postgresql.conf` on standalone PostgreSQL; pre-configured on Supabase. |
-| `vector` (pgvector) | Installed in migration 034 (`CREATE EXTENSION IF NOT EXISTS vector`). Required for the `vector(1536)` column type in `knowledge.document_chunks` and the HNSW index in migration 043. On standalone PostgreSQL, install the `postgresql-16-pgvector` package (or equivalent) before running migration 034. On Supabase, `vector` is pre-installed. |
+| PostgreSQL version | **18.x (authoritative baseline, since 2026-08-29).** `pg_advisory_xact_lock` semantics, partitioned table indexing rules, and `NULLS NOT DISTINCT` on UNIQUE constraints all require PostgreSQL 14+ — this phase's own migrations remain fully compatible with PostgreSQL 18 unchanged, having been re-validated there (Phase 6J §63). PostgreSQL 16 remains the version this phase's original 75/75 execution evidence was captured against (§20/§21, historical) and is fully supported as a minimum floor, but is no longer the deployment target. |
+| `pgcrypto` | Installed in migration 001 (`CREATE EXTENSION IF NOT EXISTS pgcrypto`). Required for `gen_random_bytes()` (used by `gen_uuid_v7()`), and for `digest()` (used by `fn_compute_chain_hash()` in migration 072). Confirmed installable on PostgreSQL 18.6 directly (version 1.4), not merely assumed from PostgreSQL 16 evidence. |
+| `pg_stat_statements` | Installed in migration 001. Requires `shared_preload_libraries = 'pg_stat_statements'` in `postgresql.conf` on standalone PostgreSQL; pre-configured on Supabase. Confirmed installable on PostgreSQL 18.6 directly (version 1.12). |
+| `vector` (pgvector) | Installed in migration 034 (`CREATE EXTENSION IF NOT EXISTS vector`). Required for the `vector(1536)` column type in `knowledge.document_chunks` and the HNSW index in migration 043. Confirmed installable and functional on PostgreSQL 18.6 directly (version 0.8.6 — live-tested with a real `CREATE TABLE`/`INSERT`/`<->` distance query, not merely `CREATE EXTENSION`). On standalone PostgreSQL 18, install the `postgresql-18-pgvector` package (or equivalent) before running migration 034. On Supabase, `vector` is pre-installed. |
 | `pgcrypto` for audit | `pgcrypto` is installed in migration 001, which precedes migration 072's `fn_compute_chain_hash()` by 71 migrations. No separate step is needed. |
 
 ---

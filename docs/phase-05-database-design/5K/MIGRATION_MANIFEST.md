@@ -115,6 +115,22 @@ regeneration corrects that. See "Reconciliation" below for details.
 
 ---
 
+## PostgreSQL 18 Baseline Reconciliation & Phase 6J Final Closure (2026-08-29, same day, third pass) — `101_5I1.sql` UNCHANGED, PostgreSQL 18.6 RE-VALIDATED ON A FRESH DISPOSABLE CLUSTER
+
+**No SQL changed in this pass.** Row 101's size (59973 bytes) and SHA-256 (`e23c58d8cc8e233cfb353371b606c91ecdfc90700ce03fd36046c9e43b1f0d89`) in the table above are unchanged from the second remediation pass documented below — this pass is a baseline-declaration and re-validation exercise, not a further code change. **Current head, still: `101_5I1` (Alembic revision `101_5I1`, `down_revision = "100_5G1"`).** 75 original frozen migrations (001-075) + 26 additive/amendment migrations (076-101) = 101 SQL files, 101 1:1 Alembic wrappers — reconciled count, unchanged from the manifest table above.
+
+**Database baseline declaration:** PostgreSQL 18.x is now the platform's authoritative database baseline (superseding the PostgreSQL 16 target `5K-Database-Migration-and-Implementation.md` §5 originally stated) — full reasoning and scope in `6J-Integrations-Webhooks-Plugins-APIs.md` §63 and `validation/POSTGRESQL_18_BASELINE_AND_6J_FINAL_VALIDATION_REPORT.md` §3. This is a runtime-engine-version decision only; no column, function, grant, or migration file in this manifest changes as a result.
+
+**Re-validation, fresh disposable cluster (`.tmp_pgdata_pg18v2`, port 5557, never previously used):** PostgreSQL 18.6 confirmed (`postgres`/`psql`/`pg_config --version`, `SELECT version()`). `vector` 0.8.6 / `pgcrypto` 1.4 / `pg_stat_statements` 1.12 all install cleanly and (for `vector`) function-tested correctly — no P0. Fresh `alembic upgrade head` (001_5B → 101_5I1, all 101 revisions): **PASS.** Incremental (`100_5G1` then `101_5I1`): **PASS.** Single Alembic head, `current == head`, linear history: **PASS.** Representative re-run of tenant-forgery, OAuth, integration-lifecycle, plugin-lifecycle, and webhook-rotation matrices against the same unchanged SQL: **all PASS.** SECURITY DEFINER inventory and three-class guard classification re-confirmed against all 34 `integrations`/`plugins`/`webhooks` functions: **PASS.** Full detail, every raw log cited: `validation/POSTGRESQL_18_BASELINE_AND_6J_FINAL_VALIDATION_REPORT.md`. Raw execution logs (7 files, prefix `20260829T220000Z_`): `execution_logs/`.
+
+**Two remaining named dependencies closed this pass:**
+- **`DEP-6J-06`** (sync-job history table) — closed **by explicit V1 scope decision**, not by a schema change: V1 sync remains `POST /integrations/connections/{id}/sync`, an async trigger only, backed by the two columns that already exist (`last_sync_at`, `last_sync_error`). No `integrations.integration_sync_jobs` table is added. See `6J-Integrations-Webhooks-Plugins-APIs.md` §56.
+- **`DEP-6J-12`** (6I plugin-version-pinning field-shape gap) — closed via a **small, controlled 6I compatibility amendment** (`6I-Workflow-APIs.md` §67, no `workflow.*` DDL/function/grant touched) adding a `credential_reference` field to `WebhookNodeConfig`/`ApiCallNodeConfig` matching 6J §30.2's contract exactly, with full publish/runtime validation logic specified. 6I's own `WEBHOOK`/`API_CALL` execution-block (ADR-6I-04) is explicitly **unchanged** by this — only the field-shape gap is closed.
+
+**Housekeeping:** disposable PostgreSQL data directories (`.tmp_pgdata_*`) and Python bytecode caches generated while running this pass's Alembic commands are excluded from version control via a new repository-root `.gitignore` (`.tmp_pgdata_*/`, `.tmp_valid_logs/`, `__pycache__/`) and were deleted from the working tree after evidence capture — none were ever committed.
+
+---
+
 ## Phase 6J FINAL Blocker Remediation (2026-08-29) — `101_5I1.sql`, PostgreSQL 18 LIVE-VALIDATED
 
 Row 101 (`101_5I1.sql`, Alembic revision `101_5I1`, `down_revision = "100_5G1"`) is a new, additive-only forward migration, amended in place through **two** remediation passes against `docs/phase-06-api-design/6J-Integrations-Webhooks-Plugins-APIs.md` (both 2026-08-29, same day — same "amended in place, never applied to any real/production database" policy already used for `100_5G1.sql`). No row 001-100 is edited, renumbered, or reordered. Full narrative, rationale, and per-finding detail: `validation/6J_FINAL_BLOCKER_REMEDIATION_VALIDATION_REPORT.md`. SHA-256/size in the table above reflect the final, twice-amended, live-validated content.

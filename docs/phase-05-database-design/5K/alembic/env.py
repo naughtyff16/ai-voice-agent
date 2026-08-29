@@ -82,7 +82,9 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    """Run migrations against a live PostgreSQL 16 connection.
+    """Run migrations against a live PostgreSQL connection (PostgreSQL 18.x is the
+    authoritative baseline as of 2026-08-29; PostgreSQL 16+ remains supported as a
+    floor — see 5K-Database-Migration-and-Implementation.md §5).
 
     transaction_per_migration=True: each revision (each frozen SQL
     file) commits or rolls back on its own — matching how 001-075 were

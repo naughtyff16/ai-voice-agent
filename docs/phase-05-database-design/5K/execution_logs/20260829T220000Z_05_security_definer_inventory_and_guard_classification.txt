@@ -1,0 +1,54 @@
+ total_security_definer_functions 
+----------------------------------
+                               99
+(1 row)
+
+=== gen_uuid_v7 search_path check ===
+   proname   |             proconfig              
+-------------+------------------------------------
+ gen_uuid_v7 | {"search_path=public, pg_catalog"}
+(1 row)
+
+=== gen_uuid_v7 functional test nested inside SECURITY DEFINER with restrictive search_path ===
+ERROR:  missing FROM-clause entry for table "integrations"
+LINE 2: SELECT integrations.fn_create_integration_connection IS NOT ...
+               ^
+=== tenant-forgery guard presence check across new 101_5I1 functions ===
+                          fn                          | prosecdef | has_guard 
+------------------------------------------------------+-----------+-----------
+ integrations.fn_activate_integration_connection      | t         | t
+ integrations.fn_create_integration_connection        | t         | t
+ integrations.fn_degrade_integration_connection       | t         | t
+ integrations.fn_disconnect_integration_connection    | t         | t
+ integrations.fn_fail_integration_connection          | t         | t
+ integrations.fn_fail_oauth_callback_state            | t         | f
+ integrations.fn_ic_terminal_guard                    | t         | f
+ integrations.fn_id_slug_immutable                    | t         | f
+ integrations.fn_integrations_anonymize_org           | t         | f
+ integrations.fn_record_integration_sync_result       | t         | t
+ integrations.fn_record_oauth_exchange_failure        | t         | f
+ integrations.fn_redeem_oauth_attempt                 | t         | t
+ integrations.fn_redeem_oauth_callback_state          | t         | f
+ integrations.fn_rotate_integration_credential        | t         | t
+ integrations.fn_update_integration_connection_config | t         | t
+ plugins.fn_activate_plugin                           | t         | t
+ plugins.fn_create_plugin_installation                | t         | t
+ plugins.fn_pi_terminal_guard                         | t         | f
+ plugins.fn_pi_version_immutable                      | t         | f
+ plugins.fn_plug_slug_immutable                       | t         | f
+ plugins.fn_pv_manifest_immutable                     | t         | f
+ plugins.fn_reactivate_plugin_installation            | t         | t
+ plugins.fn_rotate_plugin_installation_credential     | t         | t
+ plugins.fn_suspend_plugin_installation               | t         | t
+ plugins.fn_uninstall_plugin                          | t         | t
+ plugins.fn_update_plugin_installation_config         | t         | t
+ plugins.fn_upgrade_plugin                            | t         | t
+ webhooks.fn_claim_delivery                           | t         | f
+ webhooks.fn_delivery_failed                          | t         | f
+ webhooks.fn_delivery_succeeded                       | t         | f
+ webhooks.fn_replay_webhook_delivery                  | t         | t
+ webhooks.fn_rotate_webhook_secret                    | t         | t
+ webhooks.fn_update_inbound_event_status              | t         | f
+ webhooks.fn_wd_identity_immutable                    | t         | f
+(34 rows)
+

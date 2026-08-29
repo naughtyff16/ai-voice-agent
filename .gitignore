@@ -1,0 +1,12 @@
+# Disposable PostgreSQL data directories created for live migration/adversarial
+# validation testing (Phase 5K/6J live-execution passes). These are throwaway
+# test artifacts, never a project deliverable, and must never be committed --
+# a PostgreSQL data directory contains thousands of internal files that would
+# bloat the repository for no reason. Curated raw evidence lives under
+# docs/phase-05-database-design/5K/execution_logs/ and .../5K/validation/ instead.
+.tmp_pgdata_*/
+.tmp_valid_logs/
+
+# Python bytecode cache left behind by running Alembic locally for validation
+__pycache__/
+*.pyc

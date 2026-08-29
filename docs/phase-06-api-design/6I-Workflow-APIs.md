@@ -294,8 +294,8 @@ Every node's `config` is validated against a **strict, `node_type`-discriminated
 | `BRANCH` | `BranchNodeConfig` | `slot_name: str`, `branches: dict[str, UUID] (≤20)`, `default_edge: UUID` | none |
 | `KNOWLEDGE_SEARCH` | `KnowledgeSearchNodeConfig` | `kb_ids: UUID[] (1–10)`, `query_template: str (≤500 chars)`, `result_slot: str`, `top_k: int (1–20)` | pinned-by-ID, live-resolved content (§21) |
 | `TOOL_CALL` | `ToolCallNodeConfig` | `tool_name: str (allow-listed, §22)`, `argument_template: dict (≤4KB serialized)`, `on_success_edge: UUID`, `on_failure_edge: UUID` | pinned-by-name, live-resolved definition (§65) |
-| `WEBHOOK` | `WebhookNodeConfig` | `url_template: str`, `method: GET\|POST`, `payload_template: dict (≤4KB)`, `timeout_ms: int (1000–10000)`, `result_slot: str` | **execution-blocked**, §23 |
-| `API_CALL` | `ApiCallNodeConfig` | `method: GET\|POST\|PUT\|PATCH`, `url_template: str`, `headers: dict[str,str] (≤10 keys, no secret values)` | **execution-blocked**, §23 |
+| `WEBHOOK` | `WebhookNodeConfig` | `url_template: str`, `method: GET\|POST`, `payload_template: dict (≤4KB)`, `timeout_ms: int (1000–10000)`, `result_slot: str`, `credential_reference: CredentialReference \| null` (§67.2, added 2026-08-29) | **execution-blocked**, §23 |
+| `API_CALL` | `ApiCallNodeConfig` | `method: GET\|POST\|PUT\|PATCH`, `url_template: str`, `headers: dict[str,str] (≤10 keys, no secret values)`, `credential_reference: CredentialReference \| null` (§67.2, added 2026-08-29) | **execution-blocked**, §23 |
 | `DELAY` | `DelayNodeConfig` | `duration_ms: int (0–5000)` | none |
 | `TRANSFER` | `TransferNodeConfig` | `number_expression: str (≤200 chars)` | logical (resolved via safe expression against slots/session) |
 | `HUMAN_TRANSFER` | `HumanTransferNodeConfig` | `queue_id: str`, `announcement_template: str (≤1000 chars)` | logical-only, `queue_id` existence not validated by 6I (6D-owned) |
@@ -348,7 +348,8 @@ No limit is stated in 4E or 5G beyond "rarely exceeds a few hundred nodes" (4E �
 | `tool_name` (TOOL_CALL) | Exists in the tenant's `ToolPermissions` allow-list (4E policy `ToolMustBePermitted`) via 6E's tool registry, in-process | `WORKFLOW_NODE_CONFIG_INVALID` |
 | `condition_expression` / all expression fields | Whitelist grammar compiles cleanly (§16) | `WORKFLOW_EXPRESSION_INVALID` |
 | `TRANSFER`/`HUMAN_TRANSFER` targets | Well-formed E.164 (TRANSFER) or non-empty `queue_id` (HUMAN_TRANSFER) — existence of the queue/number is 6D's runtime concern, not publish-time verifiable here | `WORKFLOW_NODE_CONFIG_INVALID` if malformed |
-| `WEBHOOK`/`API_CALL` nodes | See §23 — publish is **rejected outright** while these node types remain execution-blocked | `WORKFLOW_REFERENCE_NOT_READY` |
+| `WEBHOOK`/`API_CALL` nodes | See §23 — publish is **rejected outright** while these node types remain execution-blocked, regardless of `credential_reference` shape | `WORKFLOW_REFERENCE_NOT_READY` |
+| `credential_reference.plugin_installation_id`/`plugin_version_id` (§67.2, when a `WEBHOOK`/`API_CALL` node carries a `credential_source: "plugin_installation"` reference) | `installation.organization_id = workflow.organization_id`; `installation.status = ACTIVE`; `installation.plugin_version_id = credential_reference.plugin_version_id` (exact match — the workflow is being published against the version actually installed **right now**); `credential_reference.capability ∈ installation.enabled_capabilities`; `credential_reference.capability ∈` that version's `manifest.capabilities`. Contract-level only — see §67.3; does not by itself lift the §23 execution-block. | `PLUGIN_VERSION_PINNED_MISMATCH` (version mismatch specifically) or `WORKFLOW_REFERENCE_NOT_READY` (org/status/capability mismatch) |
 
 If a required dependency cannot be verified as safely executable, publish fails — a syntactically valid but operationally unusable `WorkflowVersion` is never created (governing task §64).
 
@@ -554,6 +555,8 @@ audit trail                                  no DB transaction held during the e
 ```
 
 Until 6J supplies the credential-reference type and the egress-control adapter implementing these controls, **no WEBHOOK/API_CALL node executes** — not because 6I chooses to gate it arbitrarily, but because no safe implementation exists in any frozen source. Marking these "implementation-ready" today would be exactly the SSRF engine the governing task warns against.
+
+**2026-08-29 compatibility amendment (§67):** 6J has since supplied the credential-reference type's exact shape and the egress-adapter's full SSRF contract (6J §30.2–§30.5) — both at the *specification* level, consistent with the fact that no application code exists anywhere in Phase 5 or Phase 6 (this remains a design-only series of documents). §67 adds the corresponding `credential_reference` field to `WebhookNodeConfig`/`ApiCallNodeConfig` (§11) and the matching publish-time/runtime validation contract (§14, §67.3), so that a future implementation phase has a fully-specified, non-ambiguous shape to build against. **This amendment does not itself lift the execution-block above** — ADR-6I-04 is unchanged, and publish is still rejected outright for any graph containing a `WEBHOOK`/`API_CALL` node (§14) regardless of how complete its `credential_reference` is, until a real egress-adapter implementation exists to invoke. Closing the *field-shape* gap (previously disclosed by 6J as `DEP-6J-12`, an unresolved cross-phase coordination item) is deliberately kept separate from — and does not imply — a decision to lift the broader execution-block, which stays out of this amendment's narrow scope.
 
 ---
 
@@ -990,7 +993,8 @@ No node config field in §11's discriminated union accepts a raw secret. `ToolCa
 | `WORKFLOW_EXECUTION_TERMINAL` | 409 | Any internal attempt to mutate a `COMPLETED`/`FAILED` execution (§39) |
 | `WORKFLOW_NODE_EXECUTION_FAILED` | — (internal directive, not an HTTP response) | Runtime node failure (§12, §22, §49) |
 | `WORKFLOW_EXTERNAL_ACTION_AMBIGUOUS` | — (internal) | A side-effecting node's outcome could not be determined (§29, §40) — reserved terminology, currently unreachable pending §30's remediation, since no node type today has an `AMBIGUOUS`-capable executor |
-| `WORKFLOW_REFERENCE_NOT_READY` | 422 | Publish-time dependency unresolved — unready KB, disallowed tool, execution-blocked WEBHOOK/API_CALL (§14, §23) |
+| `WORKFLOW_REFERENCE_NOT_READY` | 422 | Publish-time dependency unresolved — unready KB, disallowed tool, execution-blocked WEBHOOK/API_CALL (§14, §23), or a `credential_reference` whose org/status/capability checks fail (§67.3) |
+| `PLUGIN_VERSION_PINNED_MISMATCH` | 422 | A `WEBHOOK`/`API_CALL` node's pinned `credential_reference.plugin_version_id` no longer matches the referenced installation's current version — added 2026-08-29 (§67.3); same canonical code 6J §35/ADR-6J-09 defines for the identical condition on 6J's own side of this boundary, reused here rather than a synonym invented |
 | `IDEMPOTENCY_KEY_REUSE_MISMATCH` | 409 | §51 |
 | `PRECONDITION_FAILED` | 412 | `If-Match` mismatch (§8.2) |
 
@@ -1074,7 +1078,7 @@ No delete command exists for `WorkflowVersion` in 4E's catalogue, and none is ex
 | 2 | `workflow_executions` partition automation (`create_monthly_partitions()` maintenance job) | `NON-BLOCKING` | 5G §28 carry-forward, App/ops concern, no API-blocking impact |
 | 3 | `started_at` required on every execution lookup for partition pruning | `NON-BLOCKING` — documented requirement on `WorkflowExecutionRepository` | §33 |
 | 4 | `WorkflowTrigger` aggregate absence | `RESOLVED — confirmed absent by design` | §55 — no trigger endpoint is exposed, per 5G's own explicit statement that 4E defines none |
-| 5 | `WEBHOOK`/`API_CALL` node execution — dependency on 6J | `EXECUTION-BLOCKED` | §23 — draft-acceptable, publish-blocked, until 6J supplies credential-binding + egress controls. Unaffected by the 2026-08-29 remediation — the durable claim mechanism these two node types would eventually use now exists (`workflow.node_execution_claims`), but SSRF/credential/egress controls remain 6J's separate, still-open dependency (6I §25/ADR-6I-04). |
+| 5 | `WEBHOOK`/`API_CALL` node execution — dependency on 6J | `EXECUTION-BLOCKED` (field-shape sub-item now `RESOLVED`) | §23 — draft-acceptable, publish-blocked, until a real egress-adapter implementation exists. The durable claim mechanism these two node types would eventually use already exists (`workflow.node_execution_claims`). **2026-08-29 (§67):** the credential-reference field shape 6J had disclosed as an unresolved cross-phase gap (6J's `DEP-6J-12`) is now closed — `WebhookNodeConfig`/`ApiCallNodeConfig` carry a `credential_reference` field matching 6J §30.2's contract exactly, with the full publish/runtime validation logic specified (§67.3). The broader execution-block itself is **unchanged** — still pending a real egress-adapter implementation, which remains 6J's/a future phase's open item, not resolved by this amendment. |
 | 6 | Side-effecting node (`TOOL_CALL`/`WEBHOOK`/`API_CALL`/`TRANSFER`/`HUMAN_TRANSFER`) crash-retry idempotency | **`RESOLVED` (2026-08-29)** | §30/§63 — `100_5G1.sql`'s `workflow.node_execution_claims` + five guarded functions, live-validated including a genuine concurrent-duplicate-claim race. `TOOL_CALL`/`TRANSFER`/`HUMAN_TRANSFER` are implementation-ready; `WEBHOOK`/`API_CALL` remain gated by item 5 above regardless. |
 | 7 | `app_platform_admin` direct-DML bypass of `fn_workflow_publish()`'s guards via raw UPDATE on `workflow_definitions`, and unguarded DELETE/identity-column mutation on `workflow_versions`/`prompt_versions` | **`RESOLVED` (2026-08-29)** | §38/§63 — `100_5G1.sql` reduced `app_platform_admin` to `SELECT`-only on all four affected tables and hardened both immutability triggers; live-proven closed for all nine originally-exploitable vectors. |
 | 8 | Checkpoint-ordering guarantee for post-Redis-loss recovery | **`RESOLVED` (2026-08-29)** | §37/§63 — `checkpoint_seq` CAS + hardened trigger now make PostgreSQL itself reject any backward move, closing this at the DB level rather than depending on queue-ordering discipline. |
@@ -1232,6 +1236,7 @@ No capability above is called `IMPLEMENTATION-READY` unconditionally where a gen
 - [x] No Phase 5 schema, migration, function, or grant modified (§1, §3)
 - [x] No 6A–6H content contradicted or silently amended (§3, §20, §21, §24)
 - [x] No 6J/6K/6L/6M capability prematurely designed (§23, §54)
+- [x] Plugin/integration credential-reference field shape (6J's `DEP-6J-12`) closed via a small, narrowly-scoped compatibility amendment — node config, publish validation, runtime re-validation, error contract, traceability, all updated; ADR-6I-04's execution-block itself deliberately left unchanged, not reopened (§67)
 
 ---
 
@@ -1664,6 +1669,71 @@ AFTER:  GRANT EXECUTE ON FUNCTION workflow.fn_start_workflow_execution(...)
 ### 66.5 Final Freeze-Review Checklist
 
 Every guarantee named in the governing task's own final checklist re-confirmed live this pass: guarded publish only; mandatory exact-draft precondition; Archive↔StartExecution serialization; monotonic checkpoint CAS; durable side-effect claim identity; `SUBMITTING` cannot become retryable `FAILED`; `AMBIGUOUS` cannot auto-retry; no raw-DML lifecycle bypass; **`app_platform_admin` cannot start Workflow executions (closed by this pass)**; `WorkflowVersion` history immutable; `WEBHOOK`/`API_CALL` still execution-blocked pending 6J. All eleven hold.
+
+---
+
+## 67. Phase 6I Compatibility Amendment (2026-08-29) — Plugin/Integration `credential_reference` Field Shape (Closes 6J's `DEP-6J-12`)
+
+**Scope discipline, stated up front:** this is a **small, controlled compatibility amendment**, not a reopening of Phase 6I. It touches exactly the five things the governing task named — plugin-related workflow node config (§67.2), publish validation (§67.3), runtime re-validation (§67.3), the error contract (§47, already updated above), traceability (§54 item 5, §60, already updated above) — and nothing else. It does **not** revisit ADR-6I-04's execution-block decision (§23, §67.1), does not touch `workflow.*` migrations/functions/grants, and does not modify any other node type's contract.
+
+### 67.1 Why This Amendment Exists
+
+6J §30.2, in the course of its own final closure pass, found and disclosed a genuine cross-phase gap: 6I's frozen `WebhookNodeConfig`/`ApiCallNodeConfig` (§11) had no field of any kind for referencing a plugin installation's or integration connection's credential — 6J's own credential-reference design (§30.2's three shapes) had nowhere to attach inside 6I's actual schema. 6J correctly disclosed this as an unresolved, non-fabricated cross-phase coordination item (its own `DEP-6J-12`) rather than inventing a fictitious 6I field to point at. This amendment supplies that missing field, using exactly the shape 6J's own document already specified — 6I does not redesign 6J's credential-reference contract, it only adopts it.
+
+### 67.2 The `CredentialReference` Sub-Shape
+
+Added to `WebhookNodeConfig` and `ApiCallNodeConfig` (§11) as an optional field, `credential_reference: CredentialReference | null` — `null` preserves the existing behavior for a bare, unauthenticated-URL node (`credential_source: "none"` is equivalent to `null` and both remain fully subject to §23.2/6J §30.3's SSRF contract regardless):
+
+```text
+CredentialReference =
+    { credential_source: "plugin_installation",
+      plugin_installation_id: UUID,
+      plugin_version_id: UUID,       -- mandatory when credential_source = plugin_installation, per 6J ADR-6J-09
+      capability: str }
+  | { credential_source: "integration_connection",
+      connection_id: UUID,
+      capability: str }
+  | { credential_source: "none" }
+```
+
+This is 6J §30.2's contract verbatim — reproduced here, not reinvented, so that 6I's own discriminated-union config model (§11's binding "no `dict[str, Any]`, `extra=forbid`" rule) has a concrete Pydantic sub-model to validate against. `extra="forbid"` applies to `CredentialReference` exactly as it applies to every other node-config shape (§11) — an unrecognized field (e.g., a raw `credential_ref`, a raw secret, a raw API key) is rejected at the schema layer, never merely at a later validation step. No config model in this amendment accepts a raw secret value, consistent with §46's structural (not merely documented) closure of that requirement.
+
+### 67.3 Publish-Time and Runtime Validation Contract
+
+Both checks below are **contract-level specifications for a future implementation**, not a claim that this validation logic executes anywhere today — no application code exists in this document or in 6J's, per both documents' own governing constraint. This is stated explicitly per the governing task's instruction not to present a contract as if it were a live DB execution test.
+
+**At publish time** (6I's own gate, §14, extending the table there), for every `WEBHOOK`/`API_CALL` node whose `credential_reference.credential_source = "plugin_installation"`:
+
+1. `installation.organization_id = workflow.organization_id` (the installation belongs to the publishing tenant — no cross-tenant reference).
+2. `installation.status = ACTIVE`.
+3. `installation.plugin_version_id = credential_reference.plugin_version_id` — **exact match**: the workflow is being published against the plugin version actually installed right now, not an arbitrary/stale version ID the graph author typed in.
+4. `credential_reference.capability ∈ installation.enabled_capabilities`.
+5. `credential_reference.capability ∈` the referenced plugin version's `manifest.capabilities`.
+
+Any failure of 1–2 or 4–5 surfaces as `422 WORKFLOW_REFERENCE_NOT_READY` (consistent with every other unready-dependency case in §14's table). Failure of check 3 specifically surfaces as `422 PLUGIN_VERSION_PINNED_MISMATCH` (§47) — a distinct code from the general "not ready" case, because this is not an absence of a dependency but a **version-drift** condition the graph author must explicitly resolve (see recovery path below), mirroring 6J §30.5's own identical distinction for its own side of this exact check. The `credential_source = "integration_connection"` and `credential_source = "none"` shapes have no plugin-version dimension and are validated per 6J §30.2's connection/none rules respectively — 6I does not restate 6J's connection-side validation ownership here, only consumes its outcome.
+
+**At every execution** (not just publish) — re-run, not cached from publish time, exactly mirroring §14's own "runtime never trusts that publish-time validation ran, or ran correctly" philosophy (§16.3's identical pattern for expression safety):
+
+- Re-check org ownership, `ACTIVE` status, and **`installation.plugin_version_id = credential_reference.plugin_version_id` exactly**. If the installation has since been upgraded (§29.4-equivalent lifecycle event on the plugin side) and its live `plugin_version_id` no longer matches this node's pinned value, the node fails closed with `422 PLUGIN_VERSION_PINNED_MISMATCH` — **never** silently executing against the new version's behavior. This is the same non-negotiable determinism guarantee 6J's own ADR-6J-09 establishes on its side of the boundary (6J §30.5); 6I adopts it rather than defining a weaker one.
+- Re-check `capability ∈ installation.enabled_capabilities` (an installation's enabled capabilities can be narrowed post-publish without a version change, §67.2/6J §28.3's defense-in-depth pattern — re-checked every invocation, not just at publish, exactly as 6J itself already documents for its own capability-gating).
+
+**No silent plugin-version drift, by construction:** a published workflow's plugin-capability behavior is fully determined by that node's own pinned `plugin_version_id`, never by the installation's current, mutable state — identical in spirit to §15's existing `prompt_ref`/`tool_name` pinning table, extended here to cover the plugin-credential dimension 6J introduced.
+
+**Recovery path:** a tenant whose workflow now fails `PLUGIN_VERSION_PINNED_MISMATCH` after upgrading the underlying plugin installation must explicitly republish the workflow (6I's own existing publish flow, §14) — republishing re-runs the five publish-time checks above against the installation's now-current `plugin_version_id`, and succeeds once the pin is brought current. This is an explicit, visible, auditable tenant action, never an implicit consequence of the plugin installation's own upgrade lifecycle — identical in shape to 6J §30.5's own recovery-path statement, because it is the same underlying event viewed from 6I's side of the boundary.
+
+**Compatibility note for workflows published before this amendment:** any `WorkflowVersion` published before 2026-08-29 has no `credential_reference` field in its pinned `graph_json` at all (the field did not exist). Since `WEBHOOK`/`API_CALL` nodes remain execution-blocked at publish regardless (§23, §67.1 — unchanged by this amendment), no pre-existing published `WorkflowVersion` can contain one of these node types in the first place; this amendment therefore has no retroactive-migration concern for already-published graphs.
+
+### 67.4 What This Amendment Does Not Do
+
+- Does not lift ADR-6I-04's execution-block (§23, §67.1) — `WEBHOOK`/`API_CALL` publish is still rejected outright, for every graph, regardless of `credential_reference` completeness, until a real egress-adapter implementation exists.
+- Does not touch `workflow.*` DDL, functions, grants, or any Phase 5 migration — this is a `graph_json`/Pydantic-model-level schema amendment only, exactly like 6I's own prior `§42`/`§45`-class documentation-only amendments, not a database change.
+- Does not modify `TOOL_CALL`'s existing `tool_name`-based mechanism (§22) — plugin capabilities reached via a `WEBHOOK`/`API_CALL` node's `credential_reference` are a distinct path from an Agent's `ToolPermissions`-gated `TOOL_CALL` node; this amendment does not merge or redesign either.
+- Does not reopen §30's already-`RESOLVED` side-effecting-node idempotency mechanism (`node_execution_claims`) — a future `WEBHOOK`/`API_CALL` executor, once implementable, is expected to use that same existing claim mechanism unchanged (6J §30.5's own "6I's `node_execution_claims`... is the idempotency boundary" statement already assumes this).
+- Does not decide or design 6J's own connection-side (`credential_source: "integration_connection"`) validation logic in any more detail than 6J §30.2 already specifies — 6I only consumes that contract's shape.
+
+### 67.5 Closure Statement
+
+This amendment closes 6J's `DEP-6J-12` (the credential-reference field-shape cross-phase coordination item) from 6I's side of the boundary — the field now exists, in the exact shape 6J's own design specified, with a complete publish/runtime validation contract. It leaves 6I's `DEP` item 5 (§54) and ADR-6I-04 (§23) in their existing `EXECUTION-BLOCKED` classification, unchanged, pending a real implementation phase — consistent with the governing task's explicit instruction not to reopen Phase 6I broadly and not to fabricate a claim that runtime code now exists where it does not.
 
 ### 66.6 Documentation Reconciled
 

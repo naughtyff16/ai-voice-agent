@@ -1,0 +1,16 @@
+      extname       | extversion 
+--------------------+------------
+ pg_stat_statements | 1.12
+ pgcrypto           | 1.4
+ vector             | 0.8.6
+(3 rows)
+
+CREATE TABLE
+INSERT 0 2
+ id |     distance      
+----+-------------------
+  1 |                 0
+  2 | 5.196152422706632
+(2 rows)
+
+DROP TABLE

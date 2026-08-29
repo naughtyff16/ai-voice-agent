@@ -1,0 +1,99 @@
+# PostgreSQL 18.6 -- Plugin tenant-forgery + lifecycle adversarial matrix (install/activate/suspend/reactivate)
+# Disposable cluster: .tmp_pgdata_pg18v2, port 5557, database voice_agent_pg18_fresh (fully migrated to 101_5I1 head)
+
+==================================================================
+RUN A -- test 11 (plugin tenant-forgery guard) PASS; setup seed had a malformed UUID (test-script bug),
+correctly surfaced as an invalid-uuid error, not a product defect
+==================================================================
+=== SETUP: seed plugins + approved plugin_version ===
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/11_plugin_matrix.sql:5: ERROR:  invalid input syntax for type uuid: "00000000-0000-0000-0000-0000000000dev"
+LINE 2: ...ES ('00000000-0000-0000-0000-0000000000f1'::uuid, '00000000-...
+                                                             ^
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/11_plugin_matrix.sql:8: ERROR:  insert or update on table "plugin_versions" violates foreign key constraint "plugin_versions_plugin_id_fkey"
+DETAIL:  Key (plugin_id)=(00000000-0000-0000-0000-0000000000f1) is not present in table "plugins".
+=== TEST 11: plugin tenant-forgery guard blocks cross-tenant install ===
+BEGIN
+SET
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/11_plugin_matrix.sql:17: ERROR:  plugins: caller tenant context does not match the requested organization
+CONTEXT:  PL/pgSQL function fn_create_plugin_installation(uuid,uuid,uuid,jsonb,text,uuid) line 9 at RAISE
+ROLLBACK
+=== TEST 12: legit plugin install SUCCEEDS, then suspend/reactivate lifecycle ===
+BEGIN
+SET
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/11_plugin_matrix.sql:27: ERROR:  plugins: plugin version 00000000-0000-0000-0000-0000000000f2 not found
+CONTEXT:  PL/pgSQL function fn_create_plugin_installation(uuid,uuid,uuid,jsonb,text,uuid) line 20 at RAISE
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/11_plugin_matrix.sql:28: ERROR:  syntax error at or near ":"
+LINE 1: ...atus FROM plugins.plugin_installations WHERE id = :'inst_id'...
+                                                             ^
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/11_plugin_matrix.sql:29: ERROR:  syntax error at or near ":"
+LINE 1: ...ion('00000000-0000-0000-0000-0000000000a1'::uuid, :'inst_id'...
+                                                             ^
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/11_plugin_matrix.sql:30: ERROR:  syntax error at or near ":"
+LINE 1: ...atus FROM plugins.plugin_installations WHERE id = :'inst_id'...
+                                                             ^
+--- forged suspend from wrong tenant (expect ERROR) ---
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/11_plugin_matrix.sql:32: ERROR:  current transaction is aborted, commands ignored until end of transaction block
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/11_plugin_matrix.sql:33: ERROR:  syntax error at or near ":"
+LINE 1: ...ion('00000000-0000-0000-0000-0000000000a1'::uuid, :'inst_id'...
+                                                             ^
+ROLLBACK
+
+==================================================================
+RUN B -- corrected seed UUID (still one digit short -- 'dev1' is not valid hex); fn_create_plugin_installation
+correctly rejected the still-nonexistent plugin_version_id, proving its own FK/existence validation works
+==================================================================
+=== SETUP: seed plugins + approved plugin_version ===
+INSERT 0 1
+INSERT 0 1
+=== TEST 12: legit plugin install SUCCEEDS, then suspend/reactivate lifecycle + forged reactivate blocked ===
+BEGIN
+SET
+  status   
+-----------
+ INSTALLED
+(1 row)
+
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/12_plugin_matrix.sql:19: ERROR:  plugins: cannot suspend from status INSTALLED
+CONTEXT:  PL/pgSQL function fn_suspend_plugin_installation(uuid,uuid) line 21 at RAISE
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/12_plugin_matrix.sql:20: ERROR:  current transaction is aborted, commands ignored until end of transaction block
+--- forged reactivate from wrong tenant context, claiming org=a1 (expect ERROR) ---
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/12_plugin_matrix.sql:22: ERROR:  current transaction is aborted, commands ignored until end of transaction block
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/12_plugin_matrix.sql:23: ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ROLLBACK
+
+==================================================================
+RUN C -- fully corrected seed; install -> activate -> suspend all PASS; forged cross-tenant reactivate
+(caller tenant context = org B, p_organization_id argument = org A) correctly rejected by the tenant-forgery guard
+==================================================================
+=== TEST 12 (corrected): install -> activate -> suspend -> forged cross-tenant reactivate blocked -> legit reactivate succeeds ===
+BEGIN
+SET
+ fn_activate_plugin 
+--------------------
+ 
+(1 row)
+
+ status 
+--------
+ ACTIVE
+(1 row)
+
+ fn_suspend_plugin_installation 
+--------------------------------
+ 
+(1 row)
+
+  status   
+-----------
+ SUSPENDED
+(1 row)
+
+--- forged reactivate: caller tenant context = b1, but p_organization_id param = a1 (expect ERROR) ---
+SET
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/13_plugin_matrix.sql:16: ERROR:  plugins: caller tenant context does not match the requested organization
+CONTEXT:  PL/pgSQL function fn_reactivate_plugin_installation(uuid,uuid) line 8 at RAISE
+--- legit reactivate: caller tenant context = a1 matches param (expect SUCCESS) ---
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/13_plugin_matrix.sql:18: ERROR:  current transaction is aborted, commands ignored until end of transaction block
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/13_plugin_matrix.sql:19: ERROR:  current transaction is aborted, commands ignored until end of transaction block
+psql:D:/Chunk_Mates/ai-voice-agent/.tmp_pg18_logs/13_plugin_matrix.sql:20: ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ROLLBACK

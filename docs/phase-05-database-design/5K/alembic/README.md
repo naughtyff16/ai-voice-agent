@@ -1,5 +1,7 @@
 # Phase 5K — Alembic integration layer
 
+**Baseline note (2026-08-29):** PostgreSQL 18.x is now the platform's authoritative database baseline (see `5K-Database-Migration-and-Implementation.md` §5, `6J-Integrations-Webhooks-Plugins-APIs.md` §63). The "Update (Phase 5K final validation, 2026-08-19)" section below is retained unchanged as an accurate historical record of the original PostgreSQL 16 validation run — it is not rewritten. A CI/local disposable-database test pattern going forward should use a PostgreSQL 18 image (e.g. `pgvector/pgvector:pg18`, unverified exact tag — confirm against the current published tag before use) in place of the `pg16` tag that historical run used.
+
 ## What this is (and isn't)
 
 This directory does **not** define the schema. The schema of record is
