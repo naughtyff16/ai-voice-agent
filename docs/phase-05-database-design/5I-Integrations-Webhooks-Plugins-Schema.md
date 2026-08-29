@@ -2229,7 +2229,29 @@ All DDL and query patterns are valid PostgreSQL 15+. Key correctness items:
 ```
 058 → 059 → 060 → 061 → 062 → 063 → 064 → 065 → 066
 ```
-✅ Confirmed. No gaps. No renumbering.
+✅ Confirmed. No gaps. No renumbering. (Migration 101_5I1 — §38 below — continues the chain from `100_5G1`, not from 066; migrations 067-100 belong to other phases' own amendments and are unaffected by, and unrelated to, this section.)
+
+---
+
+## 38. Controlled Amendment — Phase 5I.1 (2026-08-29)
+
+**Source:** independent-review remediation pass against `docs/phase-06-api-design/6J-Integrations-Webhooks-Plugins-APIs.md`. Full rationale, security test matrix requirements, and per-finding reconciliation live in that document and in `5K/MIGRATION_MANIFEST.md`'s own "Phase 6J Remediation Pass" section — this section records only the schema-facing summary, per this document's role as the schema's authoritative record.
+
+**Migration:** `5K/migrations/101_5I1.sql`, Alembic revision `101_5I1`, `down_revision = '100_5G1'`. Additive only — no 059-066 statement is edited or removed.
+
+**What it adds:**
+- `oauth_attempts.connection_id` (nullable FK to `integration_connections`), `oauth_attempts.failure_reason` (nullable, ≤1000 chars) — closes the ambiguous `(organization_id, definition_id)`-inference correlation this document's §13 originally relied on (ODD-adjacent, not a numbered ODD at v1.1 time).
+- `webhook_endpoints.previous_signing_secret_ref`, `webhook_endpoints.previous_secret_expires_at` (both nullable, paired by CHECK) — enables genuine dual-signature secret-rotation grace (the platform signs outbound deliveries with both the current and, while unexpired, the previous secret during the grace window), closing a cryptographic defect in the API layer's originally-proposed rotation design (retaining the old secret without ever signing with it gave a consumer no working grace period).
+- `integrations.fn_activate_integration_connection`, `fn_fail_integration_connection`, `fn_degrade_integration_connection`, `fn_disconnect_integration_connection`, `fn_update_integration_connection_config`, `fn_record_integration_sync_result` — the full `CONNECTING/ACTIVE/DEGRADED/DISCONNECTED/FAILED` transition surface §8's state machine defines but 059-066 never implemented beyond the initial `CONNECTING` insert (`fn_create_integration_connection`) and the GDPR-only forced-disconnect (`fn_integrations_anonymize_org`). All five new transition functions are `SELECT ... FOR UPDATE`-guarded, `organization_id`-scoped, and respect the existing `fn_ic_terminal_guard` trigger without modification.
+- `integrations.fn_redeem_oauth_callback_state(state)`, `fn_fail_oauth_callback_state(state, reason)` — the tenant-bootstrap-safe OAuth callback redemption/denial path (takes `state` alone, no `organization_id` input, returning tenant identity as output instead) used by an unauthenticated browser-redirect callback. `fn_redeem_oauth_attempt` (061) is unmodified and still present.
+- `plugins.fn_suspend_plugin_installation`, `fn_reactivate_plugin_installation`, `fn_update_plugin_installation_config`, `fn_rotate_plugin_installation_credential` — closes the `SUSPENDED`/config-update/credential-rotation gap §19/§27 of this document's original v1.1 text left open (`SUSPENDED` was a valid `chk_pi_status` value with no function ever reaching or leaving it).
+- `webhooks.fn_rotate_webhook_secret` — atomic current↔previous secret-reference rotation backing the two new `webhook_endpoints` columns above.
+- `CREATE OR REPLACE` on `fn_create_integration_connection` (061) — same signature; body now additionally checks `integration_definitions.is_active` before creating a connection (defense-in-depth; the application layer was already expected to check this).
+- `GRANT EXECUTE ... TO app_api` on five pre-existing `app_worker`-only functions (`fn_activate_plugin`, `fn_uninstall_plugin`, `fn_upgrade_plugin`, `fn_rotate_integration_credential`, `fn_replay_webhook_delivery`) — grants only, no body changed; each of the five already performs its own tenant-scoped authorization internally, so direct `app_api` execution carries no new risk.
+
+**RLS posture:** unchanged. `oauth_attempts` and `integration_connections` keep `ENABLE + FORCE ROW LEVEL SECURITY` exactly as this document's §24/§28 originally specified. The new OAuth-bootstrap function does not bypass RLS by policy change — it relies on the pre-existing fact (confirmed against `001_5B.sql` and the live `077_5J1_VALIDATION_REPORT.md`) that `app_migration`, the role owning every `SECURITY DEFINER` function in this schema, was already created `BYPASSRLS`.
+
+**Validation status:** SQL was authored and manually traced against the byte-for-byte contents of the actually-applied `059_5I.sql`-`066_5I.sql` and `001_5B.sql` files in the same pass that wrote it. It was **not** executed against a live PostgreSQL instance (disclosed environment limitation — see `5K/MIGRATION_MANIFEST.md`'s "Phase 6J Remediation Pass" section for the full explanation). This document's own §37 Validation Report above, and its "STATUS: APPROVED FOR FREEZE" line, describe the **059-066 baseline only** and are unaffected by and do not extend to `101_5I1` — `101_5I1` carries its own, separately disclosed, not-yet-live-validated status and must not be read as already covered by the v1.1 approval above it.
 
 ---
 
@@ -2245,4 +2267,11 @@ Open design decisions: 6 (non-blocking)
 
 STATUS: APPROVED FOR FREEZE
 PHASE 5J READY
+
+--------------------------------------------------------------------
+Phase 5I.1 controlled amendment (101_5I1.sql, §38 above, 2026-08-29):
+STATUS: SQL AUTHORED, STATICALLY TRACED AGAINST SOURCE — NOT YET
+LIVE-VALIDATED. Requires a fresh-DB alembic upgrade head run plus the
+6J §26 security test matrix before it may be represented as validated.
+--------------------------------------------------------------------
 ```
