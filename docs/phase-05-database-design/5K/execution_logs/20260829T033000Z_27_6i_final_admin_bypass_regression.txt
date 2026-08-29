@@ -1,0 +1,28 @@
+=== A1: UPDATE workflow_definitions ===
+SET
+ERROR:  permission denied for table workflow_definitions
+=== A2: DELETE workflow_versions ===
+SET
+ERROR:  permission denied for table workflow_versions
+=== A3: INSERT workflow_versions ===
+SET
+ERROR:  permission denied for table workflow_versions
+=== A4: DELETE workflow_executions ===
+SET
+ERROR:  permission denied for table workflow_executions
+=== A5: UPDATE workflow_executions ===
+SET
+ERROR:  permission denied for table workflow_executions
+=== A6: INSERT/UPDATE/DELETE node_execution_claims ===
+SET
+ERROR:  permission denied for table node_execution_claims
+=== A7: EXECUTE fn_publish_workflow as admin (never granted) ===
+SET
+ERROR:  permission denied for function fn_publish_workflow
+=== A8: legitimate SELECT still works ===
+SET
+ count 
+-------
+     6
+(1 row)
+

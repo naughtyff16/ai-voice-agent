@@ -1,0 +1,2 @@
+SET
+ERROR:  permission denied for function fn_publish_workflow

@@ -755,11 +755,13 @@ Every Workflow/Prompt table has `ENABLE + FORCE ROW LEVEL SECURITY` with the sta
 
 ---
 
-## 36. Publish Concurrency — Adversarial Review, Resolved
+## 36. Publish Concurrency — Adversarial Review, RESOLVED at the DB Level (§64)
 
-6A §35 (frozen) already classifies **"Publish Workflow + WorkflowVersion"** as a mandatory same-transaction-atomicity operation. This is the binding requirement 6I's `PublishWorkflow` application-service implementation must satisfy — the two SQL statements shown in 5G's QP-03 (INSERT `workflow_versions`, then `SELECT fn_workflow_publish(...)`) are **one database transaction**, not two round trips. 6I additionally specifies the one implementation detail 5G/4E leave unstated: **how the next `version_number` is computed without a race.**
+> **Status update (2026-08-29, Phase 6I FINAL Blocker Remediation pass):** §36.1's original framing — a transaction-discipline requirement the *application service* must faithfully implement — was itself the residual risk a second adversarial pass closed. Nothing stopped `app_api`/`app_worker` from bypassing the intended two-statement application flow entirely: `040_5G.sql` grants them plain `INSERT` on `workflow_versions`, and the original `fn_workflow_publish()` (`039_5G.sql`) accepted **any** already-existing `version_id` belonging to the workflow, with no check that it was ever produced by a validated publish flow. `100_5G1.sql` closes this by revoking that raw DML entirely and replacing the two-step pattern with **one guarded function**, `workflow.fn_publish_workflow()`, that owns the whole transaction itself — the API layer now calls one function, not "two statements inside one transaction it must remember to open." §36.1/§36.2 below are retained as the original race analysis (still accurate for reasoning about *why* each step matters); §64 documents the closure and its live evidence, including a genuine two-connection concurrent-publish test proving unique, sequential version numbers.
 
-### 36.1 Required Transaction Shape (this document's contribution, not a schema change)
+6A §35 (frozen) already classifies **"Publish Workflow + WorkflowVersion"** as a mandatory same-transaction-atomicity operation — `fn_publish_workflow()` satisfies this by construction (it *is* the transaction), not by relying on the calling application code to remember to wrap two statements correctly.
+
+### 36.1 Transaction Shape (as originally specified; now implemented by `fn_publish_workflow()` itself, §64)
 
 ```sql
 BEGIN;
@@ -776,18 +778,18 @@ BEGIN;
 COMMIT;                                                  -- or ROLLBACK on any exception above, discarding the INSERT too
 ```
 
-The `SELECT ... FOR UPDATE` on `workflow_definitions` is the serialization point — it is not new schema, it is a transaction-discipline requirement on the application service, exactly the kind of thing 6A §17.3 already says the API layer is responsible for getting right on top of Phase 5's guarded functions.
+The `SELECT ... FOR UPDATE` on `workflow_definitions` is the serialization point. As of `100_5G1.sql`, this entire block (lock, ARCHIVED check, exact-draft precondition, version-number allocation, snapshot, insert, definition update) executes **inside `fn_publish_workflow()` itself** — the API layer's job is reduced to calling one function with `(organization_id, workflow_id, published_by, expected_updated_at)` and interpreting its `outcome` (`PUBLISHED | PRECONDITION_FAILED | ARCHIVED | NOT_FOUND`). No application code can get the transaction boundary wrong, because there is no longer a multi-statement boundary for it to get wrong.
 
 ### 36.2 Race Resolution
 
-| Race | Outcome under the required transaction shape |
+| Race | Outcome under `fn_publish_workflow()` |
 |---|---|
-| **A — two users publish the same draft concurrently** | Second `FOR UPDATE` blocks until the first transaction commits or rolls back. The second then re-reads `draft_graph`/`published_version_id` fresh (not the values it read before blocking) and computes its own `next` `version_number` from the now-updated `MAX`. No `UNIQUE (workflow_definition_id, version_number)` collision is possible — the row lock, not the unique constraint, is the actual defense; the constraint is the backstop if some future code path skips the lock. |
-| **B — publish racing `UpdateDraftGraph`** | `UpdateDraftGraph`'s own `UPDATE workflow_definitions SET draft_graph=... WHERE id=...` (5G QP-02) takes an ordinary row-level write lock on the same row a concurrent publish's `FOR UPDATE` already holds — whichever transaction started first blocks the other until commit. The publish transaction's snapshot of `draft_graph` (read inside its own `FOR UPDATE`) is therefore always either fully-before or fully-after any concurrent draft edit — never a torn read. |
-| **C — publish racing `ArchiveWorkflow`** | Same row lock serializes the two. If Archive commits first, the publish transaction's own `fn_workflow_publish` call sees `status='ARCHIVED'` and raises — and because the `INSERT INTO workflow_versions` happened **inside the same transaction**, the `RAISE EXCEPTION` rolls back that INSERT too. **No orphan `WorkflowVersion` is created.** |
-| **D — publish fails after the `workflow_versions` INSERT but before `fn_workflow_publish()` returns** | Same answer as C — single transaction means any failure after the INSERT (including an unrelated connection drop) rolls back the whole transaction, including the INSERT. An orphaned, never-published, immutable `WorkflowVersion` **cannot** exist under this transaction shape. It **could** exist under the two-round-trip interpretation of 5G's bare QP-03 SQL — which is exactly why 6A §35's atomicity requirement is binding and non-optional here, not a nice-to-have. |
+| **A — two users publish the same draft concurrently** | Second `FOR UPDATE` (inside the function) blocks until the first transaction commits or rolls back, then re-reads `draft_graph`/`updated_at` fresh and computes its own `next` `version_number` from the now-updated `MAX`. **Live-proven** (§64, test D1): two genuine concurrent connections publishing the same workflow both succeed with unique, sequential version numbers (`{1, 2}`), no collision. |
+| **B — publish racing `UpdateDraftGraph`** | `UpdateDraftGraph`'s own `UPDATE workflow_definitions SET draft_graph=...` takes an ordinary row-level write lock on the same row `fn_publish_workflow()`'s `FOR UPDATE` already holds — whichever started first blocks the other until commit. Never a torn read. |
+| **C — publish racing `ArchiveWorkflow`** | Same row lock serializes the two — `fn_publish_workflow()` and `fn_archive_workflow()` (§64) both lock the identical `workflow_definitions` row. If Archive commits first, `fn_publish_workflow()` observes `status='ARCHIVED'` and returns the `ARCHIVED` outcome **before ever inserting a version row** — not an exception after-the-fact requiring a rollback, an outcome value returned from a function that never performed the risky INSERT in the first place. **No orphan `WorkflowVersion` is created**, live-proven (§64, test P2.8). |
+| **D — publish fails after version allocation but before the definition UPDATE** | Impossible to leave an orphan under `fn_publish_workflow()`'s own single-transaction body — any failure anywhere in the function rolls back the whole function call, including the `INSERT`, exactly as PostgreSQL guarantees for any single transaction. This is no longer contingent on the *calling* application code getting a transaction boundary right (§36's prior framing) — it is now a property of the database object itself. |
 
-**Verdict:** publish semantics are safe **only if** the application service honors 6A §35's mandatory single-transaction requirement and includes the `FOR UPDATE` lock this section adds. Both are disclosed here as binding implementation requirements on the (not-yet-written) `WorkflowApplicationService.publish_workflow()` — 6A §35 already made the transaction-boundary requirement binding; §36.1's lock is 6I's own necessary addition to make the version-number computation race-free, since no source before this document specified it.
+**Verdict:** publish semantics are safe **by construction**, not merely "safe if the application service is implemented correctly" — `fn_publish_workflow()` is the transaction. See §64 for the live evidence, including the stale-`If-Match`/`expected_updated_at` precondition test (§8.2/§52's `PRECONDITION_FAILED` outcome, confirmed to create zero new versions) and the two-connection concurrent-publish race.
 
 ---
 
@@ -1239,7 +1241,11 @@ No capability above is called `IMPLEMENTATION-READY` unconditionally where a gen
 
 **This verdict was invalid governance and is retracted, not merely amended.** A document carrying an open `BLOCKER` (§30, as originally classified) cannot simultaneously be "APPROVED" — the original text is struck through above and kept only for audit trail, per the Phase 6I Blocker Remediation pass's own instruction to correct this contradiction rather than paper over it.
 
-### PHASE 6I STATUS (2026-08-29, Phase 6I Blocker Remediation pass): **APPROVED / FROZEN**
+### PHASE 6I STATUS (as of the first remediation pass, superseded below): ~~APPROVED / FROZEN~~
+
+**This verdict was also premature and is likewise retracted, not silently carried forward.** A second, adversarial review of this same pass' own new functions and grants — performed the same day — found three further defects the first pass' own testing had not exercised: ordinary runtime roles could still bypass guarded Workflow publishing entirely via raw DML (§64 Blocker E), `StartExecution` did not truly serialize against `Archive` (§64 Blocker F), and four of the five new side-effect functions never validated their caller-supplied tenant argument at all (§64 Blocker G). A verdict of "FROZEN" that a same-day follow-up review overturns was not a safe verdict to have issued. It is retracted here, not edited away, per the same discipline applied to the original pass' own "APPROVED WITH BLOCKER" contradiction above.
+
+### PHASE 6I STATUS (2026-08-29, Phase 6I FINAL Blocker Remediation pass): **APPROVED / FROZEN**
 
 Both genuine findings the original pass correctly discovered but left open are now **RESOLVED**, live-validated on genuine PostgreSQL 16.10, via the single additive migration `100_5G1.sql`:
 
@@ -1247,6 +1253,12 @@ Both genuine findings the original pass correctly discovered but left open are n
 2. **§38 — `app_platform_admin` direct-DML bypass.** Reduced to `SELECT`-only on `workflow_definitions`, `workflow_versions`, `workflow_executions` (parent and every partition — a defensive per-partition privilege loop, itself a live-discovered necessity in this same pass), `node_execution_claims`, and `prompt_versions`. Live-proven closed for all nine originally-named exploit vectors (§63, test suite T6).
 
 Two further items §37 had left as a disclosed, non-blocking residual risk are also now fully closed rather than merely mitigated: the stale/out-of-order checkpoint race (a new `checkpoint_seq` CAS plus a hardened, unconditional trigger guard, live-proven against a genuine two-connection out-of-order-commit race and against the `postgres` superuser), and the Archive-vs-draft-update concurrency-matrix self-contradiction §57 originally carried (now corrected in place, live-proven both via the ordinary WHERE-clause path and via a new terminal-immutability trigger).
+
+The three findings the same-day FINAL pass added on top of these (§64, full detail):
+
+3. **§36/§41 INV-6I-PUB-01/02 — raw-DML publish bypass.** `app_api`/`app_worker` no longer hold `INSERT` on `workflow_versions` or table-level `UPDATE` on `workflow_definitions` at all (re-granted only on the three safe columns `name`/`description`/`draft_graph`); the old `fn_workflow_publish()` — exploitable via any already-existing `version_id` — is dropped, replaced by the single guarded `fn_publish_workflow()`. Live-proven: all raw-DML publish attempts denied; the guarded function itself functionally correct including a genuine two-connection concurrent-publish race yielding unique, sequential version numbers.
+4. **§14/§41 INV-6I-START-01/02 — StartExecution/Archive serialization.** `fn_start_workflow_execution()` now takes `FOR SHARE OF wd`, sharing a real lock with `fn_archive_workflow()`'s own `UPDATE`. Live-proven with measured lock-blocking (0.49s) under a genuine two-thread race, both orderings (Start-first and Archive-first).
+5. **§41 INV-6I-SE-01/02/03/04 — side-effect claim tenant/identity integrity.** The four previously-unguarded Part-A functions now cross-check `organization.current_tenant_id()`; `fn_claim_node_execution` now validates the real `WorkflowExecution` row (tenant, `ACTIVE`, `checkpoint_seq+1`) and the claimed node against the pinned `graph_json` before ever creating or reclaiming a claim. Live-proven across seven identity-forgery/mismatch scenarios plus the four functions' own forged-tenant tests.
 
 Everything else — draft/publish/archive lifecycle, node-type catalogue and validation, expression safety, the Voice/Agent/Campaign/Knowledge cross-context boundaries, execution debug/list reads, realtime progress, audit, GDPR propagation, and the full concurrency/security adversarial review — remains as designed in the original pass, reconciled against the actually-executed SQL (not stale prose, §3), and does not modify, contradict, or prematurely extend any frozen Phase 1–6H document. See §63 for the complete live-validation record.
 
@@ -1422,8 +1434,120 @@ No edit was made to `4E-Knowledge-RAG-Workflow-Tools.md`, `5G-Workflow-Prompt-Me
 
 ### 63.13 Final Verdict
 
+**APPROVED — PHASE 6I READY TO FREEZE** *(superseded — see §64 for why this verdict was itself premature, and the actual final verdict)*
+
+---
+
+## 64. Phase 6I FINAL Blocker Remediation (2026-08-29) — Guarded Publish, Archive/Start Serialization, Side-Effect Claim Integrity
+
+A second, adversarial review of §63's own remediation — performed the same day, before any external sign-off — found three further defects in that pass' own new functions and grants. All three are closed here, in the same migration file (`100_5G1.sql`, amended in place a second time, per its own header's revision-policy note — matching `099_5C1.sql`'s established six-pass precedent), live-validated on genuine PostgreSQL 16.10.
+
+### 64.1 Blocker E — Guarded Workflow Publish/Archive Capability (closes §36's residual risk, INV-6I-PUB-01/02/03)
+
+**The gap:** `040_5G.sql` grants `app_api`/`app_worker` plain `INSERT` on `workflow_versions`; §63's own remediation never touched this. Combined with `039_5G.sql`'s pre-existing `fn_workflow_publish(workflow_id, version_id, org_id)` — which validates only ownership/tenant/`ARCHIVED`, never that `version_id` was produced by an actual validated publish — ordinary application code could raw-INSERT an arbitrary `workflow_versions` row (skipping every §14 publish-time check) and then call `fn_workflow_publish()` to point `published_version_id` at it, or even re-point it at an old, already-superseded version, silently rolling back published content outside any approved command.
+
+**The fix:** `REVOKE INSERT ON workflow.workflow_versions FROM app_api, app_worker`. `workflow_definitions`' table-level `UPDATE` is revoked from both roles and re-granted only on `(name, description, draft_graph)` — `status`/`published_version_id` become unwritable by any runtime role via raw DML, period. The old `fn_workflow_publish()` is dropped outright. `workflow.fn_publish_workflow(organization_id, workflow_id, published_by, expected_updated_at)` replaces it — one `SECURITY DEFINER` function owning the entire publish transaction (`FOR UPDATE` row lock → `ARCHIVED` check → exact-draft precondition → version-number allocation → snapshot → insert → definition update), returning `PUBLISHED | PRECONDITION_FAILED | ARCHIVED | NOT_FOUND`. `workflow.fn_archive_workflow(organization_id, workflow_id)` restores Archive's ability to write `status` (as its owner, not as `app_api`) despite the column revoke, returning `ARCHIVED | ALREADY_ARCHIVED | NOT_FOUND`. Both are `EXECUTE`-granted to `app_api` only — deliberately narrower than the dropped predecessor's `app_api, app_worker, app_platform_admin`, since Publish/Archive are synchronous, user-initiated REST actions (§6.1) with no approved worker-initiated flow in 4E/6I.
+
+**Live-discovered defect, found and fixed within this same pass:** the first attempt used a column-level `REVOKE UPDATE (status, published_version_id) ... FROM app_api, app_worker`, leaving `040_5G.sql`'s table-level `UPDATE` grant untouched — live-tested and proven **not** to block either column (`UPDATE 1` succeeded for both). PostgreSQL's privilege model makes a table-level grant implicitly cover every column regardless of a later column-level `REVOKE`. Fixed by revoking the table-level grant first, then re-granting `UPDATE` on only the three safe columns.
+
+**Live evidence:** raw INSERT/UPDATE publish bypass — 5/5 denied/absent; guarded functions — 12/12 functional scenarios PASS (fresh publish, republish with sequential version numbers, stale-precondition rejection with zero versions created, idempotent archive, publish-on-archived, not-found, cross-tenant, forged tenant); `app_worker` denied `EXECUTE`; a genuine two-connection concurrent publish of the same workflow yields unique, sequential version numbers `{1, 2}`.
+
+### 64.2 Blocker F — StartExecution/Archive Serialization (closes §14, INV-6I-START-01/02)
+
+**The gap:** `fn_start_workflow_execution()`'s `ARCHIVED` check (§63.7) was a plain, unlocked `SELECT` — under READ COMMITTED it reads whatever was last committed at that instant, with no serialization against a concurrent `ArchiveWorkflow` UPDATE racing to commit at effectively the same moment.
+
+**The fix:** the version/definition lookup now takes `FOR SHARE OF wd`, holding a shared lock on the specific `WorkflowDefinition` row through the remainder of the transaction (including the `INSERT` into `workflow_executions`). `fn_archive_workflow()`'s own `UPDATE` needs the ordinary, conflicting `FOR NO KEY UPDATE` lock, forcing the two to serialize on this exact row. Multiple concurrent `StartExecution` calls against the same popular workflow do not block each other (`FOR SHARE` is compatible with `FOR SHARE`) — only a concurrent Archive forces a wait.
+
+**Live evidence — both race orderings, genuine two-thread tests:**
+- **Race A (Start locks first):** `StartExecution` succeeds (`STARTED`); the concurrent `Archive` call is *measurably* forced to wait (0.49 seconds of real, observed lock-blocking — not asserted, timed); `Archive` succeeds only after `Start`'s transaction commits; the resulting execution remains `ACTIVE` despite the later Archive.
+- **Race B (Archive commits first):** a subsequent `StartExecution` against that now-`ARCHIVED` workflow's version is rejected with the exact expected exception.
+
+### 64.3 Blocker G — Side-Effect Claim Tenant/Identity Integrity (closes §41, INV-6I-SE-01 through 05)
+
+**The gap (two parts):** (1) four of Part A's five side-effect functions — `fn_begin_node_submission`, `fn_record_node_succeeded`, `fn_record_node_ambiguous`, `fn_record_node_failed` — filtered their `UPDATE` by a caller-supplied `p_organization_id` with **no cross-check** against `organization.current_tenant_id()`, unlike their sibling `fn_claim_node_execution`/`fn_checkpoint_workflow_execution`/`fn_start_workflow_execution`, which already had this guard; (2) `fn_claim_node_execution` itself never validated that the caller-supplied `workflow_execution_id`/`workflow_execution_started_at`/`target_checkpoint_seq` corresponded to a real, `ACTIVE`, same-tenant `WorkflowExecution` at its true current `checkpoint_seq`, nor that the claimed `node_id`/`node_type` existed in that execution's own pinned graph.
+
+**The fix:** all four functions in (1) gained the identical explicit tenant check. `fn_claim_node_execution` now reads the real `WorkflowExecution` row `FOR SHARE` (closing the TOCTOU window against a concurrent checkpoint, without holding the lock across the external side effect itself, per §19's explicit requirement) and requires: the row exists for that tenant; `status = 'ACTIVE'`; `target_checkpoint_seq = checkpoint_seq + 1` exactly. It then checks the claimed `node_id`/`node_type` against the execution's pinned `WorkflowVersion.graph_json` via a bounded `jsonb_array_elements` existence check — a lightweight bound on a forged/incorrect node reference, deliberately not a re-implementation of §11's full discriminated-union config validation (which already runs at publish time and would be redundant/heavy to duplicate on the claim hot path).
+
+**Live evidence:** all four previously-unguarded functions now reject a forged `organization_id` and still succeed with the correct one (6/6). `fn_claim_node_execution` correctly rejects: wrong `target_checkpoint_seq`, wrong `started_at` (partition-hint mismatch), an unknown `node_id`, a `node_id` whose real `node_type` doesn't match the claim, a wholly nonexistent execution, and a claim attempt against an already-`COMPLETED` execution (7/7) — while a genuinely valid claim (correct sequence, correct node/type, `ACTIVE` execution) still succeeds.
+
+### 64.4 Regression
+
+The entire first-pass concurrency/security suite (13 concurrency scenarios, 9 admin-bypass vectors, 6 tenant-isolation checks) was re-run against the FINAL migration with **zero regressions** — the one test requiring an update (Archive-vs-draft-update, C4) was updated to call the new `fn_archive_workflow()` instead of a now-impossible raw `UPDATE`, and still passes identically.
+
+### 64.5 Full `SECURITY DEFINER` Inventory (§36 of the remediation brief — every function, not only new ones)
+
+| Function | Owner | `prosecdef` | `search_path` includes `public`? | `PUBLIC EXECUTE`? | Grantees |
+|---|---|:---:|:---:|:---:|---|
+| `fn_publish_workflow` | migration owner | ✅ | ✅ (INSERT relies on `gen_uuid_v7()`-defaulted `id`) | ❌ | `app_api` |
+| `fn_archive_workflow` | migration owner | ✅ | — (no ID generation) | ❌ | `app_api` |
+| `fn_start_workflow_execution` | migration owner | ✅ | ✅ | ❌ | `app_api`, `app_worker`, `app_platform_admin` |
+| `fn_claim_node_execution` | migration owner | ✅ | ✅ | ❌ | `app_api`, `app_worker` |
+| `fn_begin_node_submission` | migration owner | ✅ | — | ❌ | `app_api`, `app_worker` |
+| `fn_record_node_succeeded` | migration owner | ✅ | — | ❌ | `app_api`, `app_worker` |
+| `fn_record_node_ambiguous` | migration owner | ✅ | — | ❌ | `app_api`, `app_worker` |
+| `fn_record_node_failed` | migration owner | ✅ | — | ❌ | `app_api`, `app_worker` |
+| `fn_checkpoint_workflow_execution` | migration owner | ✅ | — | ❌ | `app_api`, `app_worker` |
+| `fn_complete_workflow_execution` | migration owner | ✅ | — | ❌ | `app_api`, `app_worker` |
+| `fn_fail_workflow_execution` | migration owner | ✅ | — | ❌ | `app_api`, `app_worker` |
+| `fn_prompt_set_active` (5G, unmodified) | migration owner | ✅ | — | ❌ | `app_api`, `app_worker`, `app_platform_admin` |
+
+Live-queried directly from `pg_proc`/`pg_roles`/`pg_namespace` (not asserted from the SQL source) — every row confirmed exactly as listed.
+
+### 64.6 Final Table/Function Privilege Matrix
+
+| Table | `app_api`/`app_worker` | `app_platform_admin` | `app_readonly` |
+|---|---|---|---|
+| `workflow.workflow_definitions` | `SELECT`, `INSERT`; `UPDATE` on `(name, description, draft_graph)` **only** | `SELECT` only | `SELECT` |
+| `workflow.workflow_versions` | `SELECT`, `INSERT` **removed** → `SELECT` only | `SELECT` only | `SELECT` |
+| `workflow.workflow_executions` | `SELECT` only (mutation via guarded functions only) | `SELECT` only | `SELECT` |
+| `workflow.node_execution_claims` | `SELECT` only (mutation via guarded functions only) | `SELECT` only | `SELECT` |
+| `prompt.prompt_versions` | `SELECT`, `INSERT` (unchanged) | `SELECT` only | `SELECT` |
+
+No normal runtime role holds `INSERT`/`UPDATE`/`DELETE` sufficient to create a `WorkflowVersion`, set `published_version_id`, force `status='PUBLISHED'`, or mutate `workflow_executions`/`node_execution_claims` outside a guarded function, on any of these five tables.
+
+### 64.7 Final Invariants — Status
+
+| Invariant | Status |
+|---|---|
+| INV-6I-PUB-01 (no direct `WorkflowVersion` creation) | ✅ Closed — `INSERT` revoked; live-proven denied |
+| INV-6I-PUB-02 (no direct `published_version_id`/`status='PUBLISHED'`) | ✅ Closed — table-level `UPDATE` revoked, re-granted only on safe columns; live-proven denied |
+| INV-6I-PUB-03 (exact-draft precondition) | ✅ Closed — `p_expected_updated_at`, live-proven `PRECONDITION_FAILED` with zero versions created |
+| INV-6I-START-01 (no start after Archive commits) | ✅ Closed — `FOR SHARE OF wd`, live-proven (Race B) |
+| INV-6I-START-02 (Start-first admitted, Archive waits) | ✅ Closed — live-proven with measured lock-blocking (Race A) |
+| INV-6I-START-03/04 (duplicate-start / version-conflict semantics) | ✅ Closed (§63.7) — live-proven under genuine simultaneity |
+| INV-6I-SE-01 (every side-effect function validates tenant) | ✅ Closed — all five functions now checked; four were previously missing it |
+| INV-6I-SE-02/03 (claim only against a real, same-tenant, `ACTIVE` execution) | ✅ Closed — live-proven (nonexistent, wrong `started_at`, terminal) |
+| INV-6I-SE-04 (`target_checkpoint_seq` must equal current+1) | ✅ Closed — live-proven |
+| INV-6I-SE-05 (one logical occurrence → one durable claim) | ✅ Closed (§63.2) — the checkpoint-seq-derived identity, unchanged, plus this pass' validation that the supplied seq is truthful |
+| INV-6I-SE-06 (`SUBMITTING`/`AMBIGUOUS` never blindly re-executed) | ✅ Closed (§63.2), unaffected by this pass |
+| INV-6I-PRIV-01 (no lifecycle bypass via raw DML) | ✅ Closed — extended this pass to cover Publish specifically, on top of §63's Archive/version/execution coverage |
+
+### 64.8 Final Adversarial Review
+
+Every scenario the governing task's own §42 list named was attempted live and closed: `app_api`/`app_worker`/`app_platform_admin` raw-INSERT/raw-UPDATE publish attempts (all denied), two concurrent publishers (unique sequential versions), stale-ETag publish (`PRECONDITION_FAILED`, zero versions), publish of an archived workflow (`ARCHIVED` outcome, zero versions), resolve-then-archive-then-start in both orderings, duplicate `StartExecution` for same/different version, forged `organization_id` on every one of the five side-effect functions, forged `execution_started_at`, forged `target_checkpoint_seq`, a claim against a terminal execution, and direct claim-table DML. No adversarial probe from either remediation pass remains open.
+
+### 64.9 Documentation Reconciled (this pass)
+
+- `docs/phase-05-database-design/5K/migrations/100_5G1.sql` — amended in place (revision policy documented in its own header).
+- `docs/phase-05-database-design/5K/alembic/versions/100_5G1.py` — docstring and `downgrade()` message updated.
+- `docs/phase-05-database-design/5K/MIGRATION_MANIFEST.md` — row 100's checksum/size updated; new top-of-log "Phase 6I FINAL Blocker Remediation" section.
+- `docs/phase-05-database-design/5K/validation/6I_FINAL_BLOCKER_REMEDIATION_VALIDATION_REPORT.md` — new.
+- `docs/phase-06-api-design/6I-Workflow-APIs.md` (this document) — §36 status-updated in place (old framing struck through where it was actually wrong, not silently replaced); §61's own "APPROVED / FROZEN" verdict retracted a second time with the same non-silent discipline used for the original "APPROVED WITH BLOCKER" contradiction; this §64 added.
+
+No edit was made to `5G-Workflow-Prompt-Memory-Schema.md`'s own §30 amendment text beyond what already generically covers this migration (it references `100_5G1.sql` by name, not by pass-count, so no update was needed), and no 6A-6H document was touched.
+
+### 64.10 Remaining Dependencies (unaffected by this pass)
+
+Identical to §63.11: 6J (`WEBHOOK`/`API_CALL` execution controls), ADR-5G-010 (prompt-version pinning, Phase 9), `AMBIGUOUS`-claim reconciliation process/UI, 6K/6L/6M consumption of Workflow events, Campaign ACL tool binding.
+
+### 64.11 Remaining Blockers
+
+**NONE.**
+
+### 64.12 Final Verdict
+
 **APPROVED — PHASE 6I READY TO FREEZE**
 
 ---
 
-**STOP — Phase 6I complete (including the 2026-08-29 Blocker Remediation pass, §63). Phase 6J not started.**
+**STOP — Phase 6I complete (including both the 2026-08-29 Blocker Remediation pass, §63, and the same-day FINAL Blocker Remediation pass, §64). Phase 6J not started.**

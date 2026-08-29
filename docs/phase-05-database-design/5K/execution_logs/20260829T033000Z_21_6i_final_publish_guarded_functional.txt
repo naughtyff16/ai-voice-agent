@@ -1,0 +1,68 @@
+SET
+=== P2.1: guarded publish -> PUBLISHED, version_number=1 ===
+              version_id              | version_number |           published_at           |  outcome  
+--------------------------------------+----------------+----------------------------------+-----------
+ 01a04a45-a7ee-7526-9a50-5039b41d908a |              1 | 2026-08-29 02:57:54.090446+05:30 | PUBLISHED
+(1 row)
+
+=== P2.2: verify definition now PUBLISHED with published_version_id set ===
+  status   |         published_version_id         
+-----------+--------------------------------------
+ PUBLISHED | 01a04a45-a7ee-7526-9a50-5039b41d908a
+(1 row)
+
+=== P2.3: publish AGAIN (new draft implicitly same) -> PUBLISHED, version_number=2 ===
+              version_id              | version_number |           published_at           |  outcome  
+--------------------------------------+----------------+----------------------------------+-----------
+ 01a04a45-a7fe-7d2f-bac2-c2ae2f99acc4 |              2 | 2026-08-29 02:57:54.109805+05:30 | PUBLISHED
+(1 row)
+
+=== P2.4: publish with stale expected_updated_at -> PRECONDITION_FAILED, no version created ===
+ version_id | version_number | published_at |       outcome       
+------------+----------------+--------------+---------------------
+            |                |              | PRECONDITION_FAILED
+(1 row)
+
+=== P2.5: verify still only 2 versions exist (P2.4 created none) ===
+ count 
+-------
+     2
+(1 row)
+
+=== P2.6: archive workflow A2 -> ARCHIVED ===
+ fn_archive_workflow 
+---------------------
+ ARCHIVED
+(1 row)
+
+=== P2.7: archive again (idempotent) -> ALREADY_ARCHIVED ===
+ fn_archive_workflow 
+---------------------
+ ALREADY_ARCHIVED
+(1 row)
+
+=== P2.8: publish an ARCHIVED workflow -> ARCHIVED outcome, no version created ===
+ version_id | version_number | published_at | outcome  
+------------+----------------+--------------+----------
+            |                |              | ARCHIVED
+(1 row)
+
+=== P2.9: publish nonexistent workflow -> NOT_FOUND ===
+ version_id | version_number | published_at |  outcome  
+------------+----------------+--------------+-----------
+            |                |              | NOT_FOUND
+(1 row)
+
+=== P2.10: cross-tenant publish (forged org) -> exception ===
+psql:C:/Users/Dell/pgval16/test_pub_02_guarded_functions.sql:49: ERROR:  fn_publish_workflow: organization_id 00000000-0000-7000-8000-00000000000b does not match current tenant context
+CONTEXT:  PL/pgSQL function fn_publish_workflow(uuid,uuid,uuid,timestamp with time zone) line 23 at RAISE
+=== P2.11: publish Org Bs workflow while authenticated as Org A (non-disclosing) -> NOT_FOUND ===
+ version_id | version_number | published_at |  outcome  
+------------+----------------+--------------+-----------
+            |                |              | NOT_FOUND
+(1 row)
+
+=== P2.12: archive cross-tenant forged org -> exception ===
+psql:C:/Users/Dell/pgval16/test_pub_02_guarded_functions.sql:58: ERROR:  fn_archive_workflow: organization_id 00000000-0000-7000-8000-00000000000b does not match current tenant context
+CONTEXT:  PL/pgSQL function fn_archive_workflow(uuid,uuid) line 7 at RAISE
+=== P2.13: app_worker attempts to publish -> EXECUTE denied (app_api only) ===

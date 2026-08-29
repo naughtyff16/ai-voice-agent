@@ -1,0 +1,31 @@
+SET
+=== S1.0: start a fresh execution against WF A3 (has TOOL_CALL node 50000000...0001 in graph) ===
+=== S1.1: valid claim, target_checkpoint_seq = current(0)+1 = 1, node exists in pinned graph -> succeeds ===
+ claimed |               claim_id               | claim_state | downstream_ref | reason 
+---------+--------------------------------------+-------------+----------------+--------
+ t       | 01a04a47-9185-7ccc-b0c7-c7d9640eefe1 | CLAIMED     |                | 
+(1 row)
+
+=== S1.2: wrong target_checkpoint_seq (should be 1, supply 5) -> exception ===
+psql:C:/Users/Dell/pgval16/test_se_01_identity_hardening.sql:23: ERROR:  fn_claim_node_execution: target_checkpoint_seq 5 does not match the execution's real current checkpoint_seq+1 (1)
+CONTEXT:  PL/pgSQL function fn_claim_node_execution(uuid,uuid,timestamp with time zone,bigint,uuid,text,text,integer) line 50 at RAISE
+=== S1.3: wrong workflow_execution_started_at (partition hint mismatch) -> exception (not found) ===
+psql:C:/Users/Dell/pgval16/test_se_01_identity_hardening.sql:29: ERROR:  fn_claim_node_execution: workflow_execution 01a04a47-916c-7a34-9e3d-3dc7adcc8fb2 (started_at 2000-01-01 00:00:00+05:30) not found for tenant 00000000-0000-7000-8000-00000000000a — or the identity does not match a real execution
+CONTEXT:  PL/pgSQL function fn_claim_node_execution(uuid,uuid,timestamp with time zone,bigint,uuid,text,text,integer) line 44 at RAISE
+=== S1.4: node_id not present in the pinned graph -> exception ===
+psql:C:/Users/Dell/pgval16/test_se_01_identity_hardening.sql:35: ERROR:  fn_claim_node_execution: node 99999999-0000-7000-8000-000000000099 (type TOOL_CALL) is not present in the execution's pinned graph_json
+CONTEXT:  PL/pgSQL function fn_claim_node_execution(uuid,uuid,timestamp with time zone,bigint,uuid,text,text,integer) line 70 at RAISE
+=== S1.5: node_id exists but node_type mismatched vs pinned graph -> exception ===
+psql:C:/Users/Dell/pgval16/test_se_01_identity_hardening.sql:41: ERROR:  fn_claim_node_execution: node 50000000-0000-7000-8000-000000000002 (type TOOL_CALL) is not present in the execution's pinned graph_json
+CONTEXT:  PL/pgSQL function fn_claim_node_execution(uuid,uuid,timestamp with time zone,bigint,uuid,text,text,integer) line 70 at RAISE
+=== S1.6: nonexistent execution entirely -> exception ===
+psql:C:/Users/Dell/pgval16/test_se_01_identity_hardening.sql:47: ERROR:  fn_claim_node_execution: workflow_execution 99999999-0000-7000-8000-000000000001 (started_at 2026-08-29 02:59:59.436136+05:30) not found for tenant 00000000-0000-7000-8000-00000000000a — or the identity does not match a real execution
+CONTEXT:  PL/pgSQL function fn_claim_node_execution(uuid,uuid,timestamp with time zone,bigint,uuid,text,text,integer) line 44 at RAISE
+=== S1.7: complete the execution, then attempt a claim against it -> exception (not ACTIVE) ===
+ fn_complete_workflow_execution 
+--------------------------------
+ APPLIED
+(1 row)
+
+psql:C:/Users/Dell/pgval16/test_se_01_identity_hardening.sql:54: ERROR:  fn_claim_node_execution: workflow_execution 01a04a47-916c-7a34-9e3d-3dc7adcc8fb2 is not ACTIVE (status=COMPLETED) — no new side-effect claim may be created against a terminal execution
+CONTEXT:  PL/pgSQL function fn_claim_node_execution(uuid,uuid,timestamp with time zone,bigint,uuid,text,text,integer) line 47 at RAISE

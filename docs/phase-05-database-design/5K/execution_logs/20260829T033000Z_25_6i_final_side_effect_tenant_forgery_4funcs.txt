@@ -1,0 +1,26 @@
+SET
+=== S2.0: fresh claim to exercise against (execution S1, node 2 = TRANSFER) ===
+=== S2.1: fn_begin_node_submission with FORGED org (session=A, arg=B) -> exception ===
+psql:C:/Users/Dell/pgval16/test_se_02_tenant_forgery_4funcs.sql:16: ERROR:  fn_begin_node_submission: organization_id 00000000-0000-7000-8000-00000000000b does not match current tenant context
+CONTEXT:  PL/pgSQL function fn_begin_node_submission(uuid,uuid,text) line 5 at RAISE
+=== S2.2: legitimate fn_begin_node_submission (correct org) -> began=TRUE ===
+ began | reason 
+-------+--------
+ t     | 
+(1 row)
+
+=== S2.3: fn_record_node_succeeded with FORGED org -> exception ===
+psql:C:/Users/Dell/pgval16/test_se_02_tenant_forgery_4funcs.sql:22: ERROR:  fn_record_node_succeeded: organization_id 00000000-0000-7000-8000-00000000000b does not match current tenant context
+CONTEXT:  PL/pgSQL function fn_record_node_succeeded(uuid,uuid,text,text) line 5 at RAISE
+=== S2.4: fn_record_node_ambiguous with FORGED org -> exception ===
+psql:C:/Users/Dell/pgval16/test_se_02_tenant_forgery_4funcs.sql:25: ERROR:  fn_record_node_ambiguous: organization_id 00000000-0000-7000-8000-00000000000b does not match current tenant context
+CONTEXT:  PL/pgSQL function fn_record_node_ambiguous(uuid,uuid,text,text) line 5 at RAISE
+=== S2.5: fn_record_node_failed with FORGED org -> exception ===
+psql:C:/Users/Dell/pgval16/test_se_02_tenant_forgery_4funcs.sql:28: ERROR:  fn_record_node_failed: organization_id 00000000-0000-7000-8000-00000000000b does not match current tenant context
+CONTEXT:  PL/pgSQL function fn_record_node_failed(uuid,uuid,text,text) line 5 at RAISE
+=== S2.6: legitimate fn_record_node_succeeded (correct org) -> TRUE ===
+ fn_record_node_succeeded 
+--------------------------
+ t
+(1 row)
+

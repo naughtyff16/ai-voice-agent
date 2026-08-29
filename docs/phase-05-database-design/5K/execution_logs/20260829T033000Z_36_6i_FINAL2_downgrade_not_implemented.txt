@@ -1,0 +1,39 @@
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+INFO  [alembic.runtime.migration] Running downgrade 100_5G1 -> 099_5C1, Phase 5G.1 — wraps controlled reconciliation migration 100_5G1.sql.
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "D:\Chunk_Mates\ai-voice-agent\docs\phase-05-database-design\5K\.venv_validation_pg16\Lib\site-packages\alembic\__main__.py", line 4, in <module>
+    main(prog="alembic")
+  File "D:\Chunk_Mates\ai-voice-agent\docs\phase-05-database-design\5K\.venv_validation_pg16\Lib\site-packages\alembic\config.py", line 1039, in main
+    CommandLine(prog=prog).main(argv=argv)
+  File "D:\Chunk_Mates\ai-voice-agent\docs\phase-05-database-design\5K\.venv_validation_pg16\Lib\site-packages\alembic\config.py", line 1029, in main
+    self.run_cmd(cfg, options)
+  File "D:\Chunk_Mates\ai-voice-agent\docs\phase-05-database-design\5K\.venv_validation_pg16\Lib\site-packages\alembic\config.py", line 963, in run_cmd
+    fn(
+  File "D:\Chunk_Mates\ai-voice-agent\docs\phase-05-database-design\5K\.venv_validation_pg16\Lib\site-packages\alembic\command.py", line 534, in downgrade
+    script.run_env()
+  File "D:\Chunk_Mates\ai-voice-agent\docs\phase-05-database-design\5K\.venv_validation_pg16\Lib\site-packages\alembic\script\base.py", line 550, in run_env
+    util.load_python_file(self.dir, "env.py")
+  File "D:\Chunk_Mates\ai-voice-agent\docs\phase-05-database-design\5K\.venv_validation_pg16\Lib\site-packages\alembic\util\pyfiles.py", line 114, in load_python_file
+    module = load_module_py(module_id, path)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Chunk_Mates\ai-voice-agent\docs\phase-05-database-design\5K\.venv_validation_pg16\Lib\site-packages\alembic\util\pyfiles.py", line 132, in load_module_py
+    spec.loader.exec_module(module)  # type: ignore
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap_external>", line 999, in exec_module
+  File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+  File "D:\Chunk_Mates\ai-voice-agent\docs\phase-05-database-design\5K\alembic\env.py", line 124, in <module>
+    run_migrations_online()
+  File "D:\Chunk_Mates\ai-voice-agent\docs\phase-05-database-design\5K\alembic\env.py", line 118, in run_migrations_online
+    context.run_migrations()
+  File "<string>", line 8, in run_migrations
+  File "D:\Chunk_Mates\ai-voice-agent\docs\phase-05-database-design\5K\.venv_validation_pg16\Lib\site-packages\alembic\runtime\environment.py", line 967, in run_migrations
+    self.get_context().run_migrations(**kw)
+  File "D:\Chunk_Mates\ai-voice-agent\docs\phase-05-database-design\5K\.venv_validation_pg16\Lib\site-packages\alembic\runtime\migration.py", line 621, in run_migrations
+    step.migration_fn(**kw)
+  File "D:\Chunk_Mates\ai-voice-agent\docs\phase-05-database-design\5K\alembic\versions\100_5G1.py", line 73, in downgrade
+    raise NotImplementedError(
+NotImplementedError: Migration 100_5G1 is part of the frozen, forward-only 5K SQL package. No rollback DDL is authored here. To revert, restore from a database backup taken before this revision was applied (workflow.node_execution_claims and its five functions would need to be dropped; workflow.workflow_executions.checkpoint_seq and its CHECK constraint would need to be dropped; fn_start_workflow_execution/fn_checkpoint_workflow_execution/fn_complete_workflow_execution/fn_fail_workflow_execution would need to be reverted to their 041_5G.sql-era shape; the four REVOKEs would need to be re-GRANTed; and the three trigger functions plus trg_wfd_archived_immutable would need reverting/dropping — an operational runbook note, not an Alembic-managed downgrade, matching every other revision in this package).
+EXIT_CODE=1

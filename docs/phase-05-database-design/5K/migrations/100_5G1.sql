@@ -10,19 +10,60 @@
 --   backward), Blocker C (app_platform_admin direct-DML bypass of
 --   Workflow/Prompt version-identity and lifecycle invariants), and
 --   Blocker D (Archive-vs-draft-update race can mutate an ARCHIVED
---   WorkflowDefinition).
+--   WorkflowDefinition) — extended by the Phase 6I FINAL Blocker
+--   Remediation pass (same day) with three further defects an
+--   adversarial second-pass review found in this same file's own first
+--   version: (E) ordinary runtime roles (`app_api`/`app_worker`) still
+--   held raw DML sufficient to bypass guarded Workflow publishing
+--   entirely (direct `INSERT` on `workflow_versions`, plus the
+--   pre-existing `fn_workflow_publish()` from `039_5G.sql` remaining
+--   callable with an arbitrary already-existing `version_id` — together
+--   these let ordinary code "publish" a stale or fabricated version
+--   without ever running graph validation or the version-number
+--   allocation path); (F) `fn_start_workflow_execution()`'s
+--   Archive-status check was a plain, unlocked `SELECT` — it did not
+--   share a serialization point with `ArchiveWorkflow`'s own row
+--   `UPDATE`, leaving a narrow window where an execution could start
+--   using a `WorkflowVersion` whose parent had just been (or was about
+--   to be) archived; (G) four of Part A's five side-effect functions
+--   (`fn_begin_node_submission`, `fn_record_node_succeeded`,
+--   `fn_record_node_ambiguous`, `fn_record_node_failed`) filtered their
+--   `UPDATE` by a caller-supplied `p_organization_id` without ever
+--   cross-checking it against `organization.current_tenant_id()` —
+--   exactly the "do not trust a SECURITY DEFINER caller argument" class
+--   of defect `fn_claim_node_execution`/`fn_checkpoint_workflow_
+--   execution`/`fn_start_workflow_execution` were already correctly
+--   guarded against in this same file's first version, never applied
+--   symmetrically to their four siblings; and `fn_claim_node_execution`
+--   itself additionally never validated that the `workflow_execution_id`/
+--   `workflow_execution_started_at`/`target_checkpoint_seq` a caller
+--   supplied actually corresponded to a real, `ACTIVE`,
+--   same-tenant `WorkflowExecution` at its true current `checkpoint_seq`
+--   — a caller could otherwise manufacture a claim identity for an
+--   execution that does not exist, belongs to another tenant, is already
+--   terminal, or names a `target_checkpoint_seq` unrelated to reality.
 --
--- SCOPE DISCIPLINE: this is a controlled, additive amendment to the
+-- REVISION NOTE, matching `099_5C1.sql`'s own established precedent
+-- exactly: `100_5G1.sql` has not been applied to any real/production
+-- database — every validation pass so far ran against disposable,
+-- throwaway local PostgreSQL 16 instances, torn down at the end of each
+-- batch. There is therefore no "frozen, already-applied" version of this
+-- file to preserve, and it is corrected in place here for the second
+-- time rather than superseded by a new `101_5G2.sql` — identical
+-- reasoning to why `099_5C1.sql` itself absorbed six remediation passes
+-- in place before ever being frozen.
+--
+-- SCOPE DISCIPLINE: this remains a controlled, additive amendment to the
 -- `workflow` schema, plus two narrowly-scoped identity-immutability
--- trigger hardenings (one in `workflow`, one in `prompt`, the latter
--- because 6I's own adversarial review found the identical gap on
--- `prompt.prompt_versions` while proving out the `workflow.
--- workflow_versions` defect) and privilege REVOKEs on three existing
--- `workflow` tables. It does not add, rename, or redesign any table,
--- schema, bounded context, or business entity beyond what those four
--- blockers require. No `knowledge.*`, `crm.*`, `campaign.*`, `voice.*`
--- (other than reading, never writing, `voice.tool_executions` conceptually
--- via a logical reference column — no FK, no schema touch), `billing.*`,
+-- trigger hardenings (one in `workflow`, one in `prompt`) and privilege
+-- REVOKEs on three existing `workflow` tables plus `workflow_versions`'
+-- own INSERT grant and `workflow_definitions`' `status`/
+-- `published_version_id` columns specifically (Part F, this pass). It
+-- does not add, rename, or redesign any table, schema, bounded context,
+-- or business entity beyond what these seven findings require. No
+-- `knowledge.*`, `crm.*`, `campaign.*`, `voice.*` (other than reading,
+-- never writing, `voice.tool_executions` conceptually via a logical
+-- reference column — no FK, no schema touch), `billing.*`,
 -- `integrations.*`, `webhooks.*`, `plugins.*`, or `analytics.*` object is
 -- touched. Migrations 001-099 are not edited, renumbered, or reordered.
 -- =================================================================
@@ -221,7 +262,10 @@ SET search_path = workflow, organization, public, pg_catalog
 AS $$
 #variable_conflict use_column
 DECLARE
-  v_row workflow.node_execution_claims%ROWTYPE;
+  v_row       workflow.node_execution_claims%ROWTYPE;
+  v_exec      workflow.workflow_executions%ROWTYPE;
+  v_graph     JSONB;
+  v_node_ok   BOOLEAN;
 BEGIN
   IF p_organization_id IS DISTINCT FROM organization.current_tenant_id() THEN
     RAISE EXCEPTION 'fn_claim_node_execution: organization_id % does not match current tenant context', p_organization_id;
@@ -231,6 +275,60 @@ BEGIN
   END IF;
   IF p_node_type NOT IN ('TOOL_CALL','TRANSFER','HUMAN_TRANSFER','WEBHOOK','API_CALL') THEN
     RAISE EXCEPTION 'fn_claim_node_execution: invalid p_node_type %', p_node_type;
+  END IF;
+
+  -- Live-discovered gap, this pass (Blocker C2 of the FINAL remediation
+  -- pass): the caller-supplied workflow_execution_id/started_at/
+  -- target_checkpoint_seq were never validated against the real
+  -- WorkflowExecution row — a caller could otherwise manufacture a claim
+  -- identity for an execution that does not exist, belongs to another
+  -- tenant, is already terminal, or names a target_checkpoint_seq
+  -- unrelated to the execution's true current checkpoint_seq. `FOR
+  -- SHARE` (not FOR UPDATE) is deliberate: it conflicts with a
+  -- concurrent checkpoint's own UPDATE (which takes the ordinary
+  -- FOR-NO-KEY-UPDATE row lock every plain UPDATE acquires), forcing the
+  -- two to serialize and closing the TOCTOU window between "read
+  -- checkpoint_seq" and "insert the claim row" — but it does NOT
+  -- conflict with another concurrent FOR SHARE reader, so two workers
+  -- validating against the same execution for two DIFFERENT nodes in
+  -- the same Turn never block each other. The lock is held only for
+  -- this short claim-creation transaction, never across the external
+  -- side effect itself (6I §19's own explicit requirement).
+  SELECT * INTO v_exec
+  FROM workflow.workflow_executions
+  WHERE id = p_workflow_execution_id
+    AND started_at = p_workflow_execution_started_at
+    AND organization_id = p_organization_id
+  FOR SHARE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'fn_claim_node_execution: workflow_execution % (started_at %) not found for tenant % — or the identity does not match a real execution', p_workflow_execution_id, p_workflow_execution_started_at, p_organization_id;
+  END IF;
+  IF v_exec.status <> 'ACTIVE' THEN
+    RAISE EXCEPTION 'fn_claim_node_execution: workflow_execution % is not ACTIVE (status=%) — no new side-effect claim may be created against a terminal execution', p_workflow_execution_id, v_exec.status;
+  END IF;
+  IF p_target_checkpoint_seq <> v_exec.checkpoint_seq + 1 THEN
+    RAISE EXCEPTION 'fn_claim_node_execution: target_checkpoint_seq % does not match the execution''s real current checkpoint_seq+1 (%)', p_target_checkpoint_seq, v_exec.checkpoint_seq + 1;
+  END IF;
+
+  -- Bound node-reference validation against the execution's own pinned
+  -- WorkflowVersion.graph_json (6I §17's "at minimum" requirement) — a
+  -- lightweight existence+type check, not a re-implementation of the
+  -- full discriminated-union config validation 6I §11 already enforces
+  -- at publish time (that would be redundant/heavy to duplicate here on
+  -- the claim hot path; this check only bounds a forged/incorrect
+  -- node_id or node_type reference).
+  SELECT graph_json INTO v_graph
+  FROM workflow.workflow_versions
+  WHERE id = v_exec.workflow_version_id AND organization_id = p_organization_id;
+
+  SELECT EXISTS (
+    SELECT 1 FROM jsonb_array_elements(COALESCE(v_graph->'nodes', '[]'::jsonb)) n
+    WHERE n->>'node_id' = p_node_id::text AND n->>'node_type' = p_node_type
+  ) INTO v_node_ok;
+
+  IF NOT v_node_ok THEN
+    RAISE EXCEPTION 'fn_claim_node_execution: node % (type %) is not present in the execution''s pinned graph_json', p_node_id, p_node_type;
   END IF;
 
   -- Fresh claim: identity has never been seen before.
@@ -306,10 +404,25 @@ CREATE OR REPLACE FUNCTION workflow.fn_begin_node_submission(
 RETURNS TABLE(began BOOLEAN, reason TEXT)
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = workflow, pg_catalog
+-- `organization` added to search_path for the explicit tenant check
+-- below — live-discovered missing in this pass' adversarial second
+-- review: the original version of this function filtered its UPDATE by
+-- a caller-supplied p_organization_id with no cross-check against the
+-- session's actual tenant context, meaning an Org-A-authenticated caller
+-- who supplied (or correctly guessed — organization_id is not secret,
+-- it routinely appears in URLs/API responses) Org B's real
+-- organization_id on a claim_id it also somehow obtained could mutate
+-- Org B's claim. This is exactly the "do not rely on claim_id/worker_id
+-- secrecy as authorization" hazard — fixed identically to
+-- fn_claim_node_execution's own pre-existing guard.
+SET search_path = workflow, organization, pg_catalog
 AS $$
 DECLARE v_rows INTEGER;
 BEGIN
+  IF p_organization_id IS DISTINCT FROM organization.current_tenant_id() THEN
+    RAISE EXCEPTION 'fn_begin_node_submission: organization_id % does not match current tenant context', p_organization_id;
+  END IF;
+
   UPDATE workflow.node_execution_claims
   SET claim_state = 'SUBMITTING',
       submission_started_at = NOW()
@@ -344,10 +457,15 @@ CREATE OR REPLACE FUNCTION workflow.fn_record_node_succeeded(
 RETURNS BOOLEAN
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = workflow, pg_catalog
+-- `organization` added — same missing-tenant-check defect as
+-- fn_begin_node_submission above, found and fixed identically.
+SET search_path = workflow, organization, pg_catalog
 AS $$
 DECLARE v_rows INTEGER;
 BEGIN
+  IF p_organization_id IS DISTINCT FROM organization.current_tenant_id() THEN
+    RAISE EXCEPTION 'fn_record_node_succeeded: organization_id % does not match current tenant context', p_organization_id;
+  END IF;
   IF p_downstream_ref IS NULL OR length(p_downstream_ref) = 0 THEN
     RAISE EXCEPTION 'fn_record_node_succeeded: p_downstream_ref is required';
   END IF;
@@ -384,10 +502,16 @@ CREATE OR REPLACE FUNCTION workflow.fn_record_node_ambiguous(
 RETURNS BOOLEAN
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = workflow, pg_catalog
+-- `organization` added — same missing-tenant-check defect, fixed
+-- identically.
+SET search_path = workflow, organization, pg_catalog
 AS $$
 DECLARE v_rows INTEGER;
 BEGIN
+  IF p_organization_id IS DISTINCT FROM organization.current_tenant_id() THEN
+    RAISE EXCEPTION 'fn_record_node_ambiguous: organization_id % does not match current tenant context', p_organization_id;
+  END IF;
+
   UPDATE workflow.node_execution_claims
   SET claim_state = 'AMBIGUOUS',
       last_error  = LEFT(COALESCE(p_error, ''), 2000),
@@ -422,10 +546,16 @@ CREATE OR REPLACE FUNCTION workflow.fn_record_node_failed(
 RETURNS BOOLEAN
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = workflow, pg_catalog
+-- `organization` added — same missing-tenant-check defect, fixed
+-- identically.
+SET search_path = workflow, organization, pg_catalog
 AS $$
 DECLARE v_rows INTEGER;
 BEGIN
+  IF p_organization_id IS DISTINCT FROM organization.current_tenant_id() THEN
+    RAISE EXCEPTION 'fn_record_node_failed: organization_id % does not match current tenant context', p_organization_id;
+  END IF;
+
   UPDATE workflow.node_execution_claims
   SET claim_state = 'FAILED',
       last_error  = LEFT(COALESCE(p_error, ''), 2000),
@@ -712,11 +842,31 @@ BEGIN
   -- Existence + tenant match for the version, AND its parent
   -- WorkflowDefinition's current status — closes 6I §27's
   -- resolve-then-archive race at the durable serialization point.
+  --
+  -- `FOR SHARE OF wd` is the live-discovered fix this pass adds: the
+  -- first version of this function read wd.status via a plain,
+  -- UNLOCKED SELECT — under READ COMMITTED that reads whatever was last
+  -- committed at the instant of the read, with no serialization against
+  -- a concurrent ArchiveWorkflow UPDATE racing to commit ARCHIVED at
+  -- effectively the same moment. `FOR SHARE OF wd` forces this
+  -- transaction to hold a shared lock on the SPECIFIC WorkflowDefinition
+  -- row for the remainder of this transaction (i.e. through the INSERT
+  -- below) — Archive's own plain UPDATE needs the ordinary
+  -- FOR-NO-KEY-UPDATE row lock, which conflicts with FOR SHARE, so the
+  -- two are forced to serialize on this exact row: whichever commits
+  -- first is authoritative, and the loser observes the winner's
+  -- post-commit state. `OF wd` (not `OF wv`) deliberately locks only the
+  -- definition, not the version row, since nothing else needs to
+  -- serialize against a version read. Multiple concurrent
+  -- StartExecution calls against the SAME popular workflow do not block
+  -- each other (FOR SHARE is compatible with FOR SHARE) — only a
+  -- concurrent Archive forces a wait.
   SELECT wd.status INTO v_wfd_status
   FROM workflow.workflow_versions wv
   JOIN workflow.workflow_definitions wd ON wd.id = wv.workflow_definition_id
     AND wd.organization_id = wv.organization_id
-  WHERE wv.id = p_workflow_version_id AND wv.organization_id = p_organization_id;
+  WHERE wv.id = p_workflow_version_id AND wv.organization_id = p_organization_id
+  FOR SHARE OF wd;
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'fn_start_workflow_execution: workflow_version % not found for tenant %', p_workflow_version_id, p_organization_id;
@@ -756,15 +906,19 @@ REVOKE ALL ON FUNCTION workflow.fn_start_workflow_execution(UUID, UUID, UUID, TI
 GRANT EXECUTE ON FUNCTION workflow.fn_start_workflow_execution(UUID, UUID, UUID, TIMESTAMPTZ) TO app_api, app_worker, app_platform_admin;
 
 COMMENT ON FUNCTION workflow.fn_start_workflow_execution(UUID, UUID, UUID, TIMESTAMPTZ) IS
-  'Revised by 100_5G1.sql (6I Blocker Remediation). Now (1) returns a '
-  'deterministic outcome (STARTED | REPLAYED_EXISTING | VERSION_CONFLICT) '
-  'instead of raising on a duplicate start for the same session, and (2) '
-  'rejects starting a new execution when the WorkflowVersion''s parent '
-  'WorkflowDefinition is ARCHIVED. Still the sole INSERT path on '
+  'Revised by 100_5G1.sql (6I Blocker Remediation, two passes). Now (1) '
+  'returns a deterministic outcome (STARTED | REPLAYED_EXISTING | '
+  'VERSION_CONFLICT) instead of raising on a duplicate start for the '
+  'same session, (2) rejects starting a new execution when the '
+  'WorkflowVersion''s parent WorkflowDefinition is ARCHIVED, and (3) '
+  '(FINAL pass) takes that ARCHIVED check under FOR SHARE OF wd, sharing '
+  'the WorkflowDefinition row as a real serialization point with '
+  'ArchiveWorkflow''s own UPDATE — closing the previously-unlocked-read '
+  'race between the two. Still the sole INSERT path on '
   'workflow_executions; still raises (does not return a row) for a '
   'genuine validation error (missing version, tenant mismatch, archived '
-  'workflow) — only the benign duplicate-active-session race is now a '
-  'return value rather than an exception.';
+  'workflow) — only the benign duplicate-active-session race is a return '
+  'value rather than an exception.';
 
 
 -- =================================================================
@@ -939,3 +1093,288 @@ COMMENT ON TRIGGER trg_wfd_archived_immutable ON workflow.workflow_definitions I
   'mutable field (including a further status change) can be updated by '
   'any runtime role, regardless of the calling code''s own WHERE clause. '
   'Closes the archive-vs-draft-update / archive-vs-metadata-update race.';
+
+
+-- =================================================================
+-- PART F (FINAL Blocker Remediation pass, same day) — Blocker E:
+--   guarded Workflow publish/archive capability, raw-DML bypass closed
+--
+-- Root cause, found by this pass' own adversarial second review of
+-- Part A-E's first version: 040_5G.sql grants `app_api`/`app_worker`
+-- plain `INSERT` on `workflow.workflow_versions`, and this file's own
+-- Part D never touched that grant (it only revoked app_platform_admin's
+-- INSERT/UPDATE/DELETE on the table). Combined with `039_5G.sql`'s
+-- pre-existing `fn_workflow_publish(p_workflow_id, p_new_version_id,
+-- p_organization_id)` — which still ends this file's first version with
+-- an unrevoked EXECUTE grant to app_api/app_worker/app_platform_admin —
+-- ordinary application code could: (1) raw-INSERT an arbitrary
+-- `workflow_versions` row (any `graph_json`, any `version_number`,
+-- skipping every publish-time validation 6I §14 requires), then (2)
+-- call `fn_workflow_publish()` naming that row, which only checks
+-- ownership/tenant/ARCHIVED — never that the version was actually
+-- produced by a validated publish flow. Worse: `fn_workflow_publish()`
+-- accepts ANY existing version belonging to the workflow, including an
+-- OLD, already-superseded one — a caller could "republish" a stale
+-- version without creating a new one or bumping `version_number`,
+-- silently rolling back `published_version_id` outside any approved
+-- rollback command. INV-6I-PUB-01/02 (6I §41, FINAL pass) require that
+-- NO normal runtime role can create a WorkflowVersion or set
+-- `published_version_id`/`status='PUBLISHED'` except through one
+-- guarded, tenant-safe, exact-draft transaction.
+--
+-- THE FIX: `fn_workflow_publish()` is dropped outright (its capability
+-- is fully absorbed by the new all-in-one `fn_publish_workflow()` below
+-- — leaving the old function in place, even unused by any approved
+-- flow, would leave its dangerous "point published_version_id at any
+-- existing version" capability reachable by anyone who could name a
+-- version_id, which is not secret). `workflow_versions.INSERT` is
+-- revoked from app_api/app_worker. `workflow_definitions.status` and
+-- `.published_version_id` receive PostgreSQL COLUMN-LEVEL UPDATE
+-- revokes from app_api/app_worker — deliberately column-level, not a
+-- blanket table UPDATE revoke, per 6I §29's explicit anti-over-
+-- engineering instruction ("keep simple safe fields simple... do not
+-- rewrite the whole module"): ordinary `name`/`description`/
+-- `draft_graph` edits remain plain, ungoverned UPDATEs (no new guarded
+-- function needed for them), while the two lifecycle-guarded columns
+-- become unwritable by ordinary runtime roles at the SQL-privilege
+-- layer itself — the strongest possible enforcement, since PostgreSQL
+-- refuses a column-level-unauthorized UPDATE at parse time, before any
+-- trigger or application check even runs. `ArchiveWorkflow` — which
+-- only ever needs to write `status` (to 'ARCHIVED', never 'PUBLISHED')
+-- — is centralized into a new `fn_archive_workflow()` (6I §28) so it
+-- keeps working despite the column-level revoke, using the same
+-- owner-privilege mechanism every other guarded function in this schema
+-- already relies on (a SECURITY DEFINER function's body runs with its
+-- OWNER's privileges, not the caller's — the owning role already holds
+-- full privileges on every object it creates, independent of any GRANT
+-- statement, identical in kind to `099_5C1.sql`'s own documented
+-- reasoning for `app_migration`).
+-- =================================================================
+
+-- F.1 — remove the raw-DML publish bypass.
+REVOKE INSERT ON workflow.workflow_versions FROM app_api, app_worker;
+
+-- Live-discovered in THIS pass, not assumed: PostgreSQL's column-level
+-- `REVOKE UPDATE (col) ... FROM role` has NO effect when that role also
+-- holds a table-level `UPDATE` grant on the same table — per PostgreSQL's
+-- own privilege model, a table-level grant implicitly covers every
+-- column, and a column-level REVOKE narrows only a column-level GRANT,
+-- never a table-level one. The first attempt at this fix
+-- (`REVOKE UPDATE (status, published_version_id) ... FROM app_api,
+-- app_worker`, leaving 040_5G.sql's table-level `UPDATE` grant
+-- untouched) was live-tested and proven NOT to block either column —
+-- both `UPDATE ... SET published_version_id = ...` and
+-- `UPDATE ... SET status = 'PUBLISHED'` still succeeded as app_api. The
+-- correct, working pattern is to revoke the table-level grant entirely
+-- first, then re-grant UPDATE on only the columns ordinary runtime code
+-- legitimately needs to write directly (`name`, `description`,
+-- `draft_graph` — `updated_at` does not need an explicit grant: the
+-- existing `set_updated_at()` BEFORE UPDATE trigger sets it on NEW
+-- regardless of which columns the caller's own SET-list named, and
+-- PostgreSQL's column-privilege check looks only at the columns
+-- actually referenced in the statement's own SET clause, not at what a
+-- trigger subsequently changes). `status`/`published_version_id` are
+-- deliberately excluded from the re-grant — `fn_publish_workflow()` and
+-- `fn_archive_workflow()` below write them as their OWNER, not as
+-- app_api/app_worker, so no grant on those two columns is needed or
+-- given to either runtime role.
+REVOKE UPDATE ON workflow.workflow_definitions FROM app_api, app_worker;
+GRANT UPDATE (name, description, draft_graph) ON workflow.workflow_definitions TO app_api, app_worker;
+
+-- The old three-argument publish function is fully superseded by
+-- fn_publish_workflow() below — dropped, not merely left unused, to
+-- close the "existing version can be re-pointed-to without validation"
+-- capability described above. No other object depends on this exact
+-- name/signature (grep-verified against every migration file in this
+-- package before dropping).
+DROP FUNCTION IF EXISTS workflow.fn_workflow_publish(UUID, UUID, UUID);
+
+-- -----------------------------------------------------------------
+-- fn_publish_workflow: the ONE guarded capability that creates a
+-- WorkflowVersion and moves a WorkflowDefinition to PUBLISHED. Owns the
+-- entire durable publish transaction end to end — no application code
+-- performs a raw INSERT into workflow_versions or a raw UPDATE of
+-- published_version_id/status anywhere in the approved flow.
+--
+-- `p_expected_updated_at`: the exact-draft precondition (6I §8/ADR-6I-08
+-- / INV-6I-PUB-03). This is the same information a weak `hash(id,
+-- updated_at)` API-layer ETag already carries (id is fixed by
+-- p_workflow_id; updated_at is therefore the only free variable an ETag
+-- match actually verifies) — the function is not asked to recompute an
+-- API-layer hash formula, only to compare the one underlying value that
+-- formula depends on, resolved fresh under the row lock below (never
+-- trusting a client-generated hash as authoritative by itself, per 6I
+-- §8's explicit instruction). NULL bypasses the precondition entirely
+-- (a caller that genuinely does not want optimistic-concurrency
+-- protection may omit it) — the API layer, per 6I §52, always supplies
+-- it in the approved flow.
+--
+-- `FOR UPDATE` (not FOR SHARE) on workflow_definitions: this is the
+-- publish-side counterpart to fn_start_workflow_execution's FOR SHARE —
+-- publish genuinely intends to WRITE the row (published_version_id,
+-- status, updated_at), so it needs the exclusive lock, which serializes
+-- it against every other publisher, every StartExecution's FOR SHARE
+-- (a competing FOR SHARE blocks a FOR UPDATE and vice versa), and
+-- ArchiveWorkflow's own FOR-NO-KEY-UPDATE-acquiring plain UPDATE.
+-- -----------------------------------------------------------------
+CREATE FUNCTION workflow.fn_publish_workflow(
+  p_organization_id      UUID,
+  p_workflow_id          UUID,
+  p_published_by         UUID,
+  p_expected_updated_at  TIMESTAMPTZ DEFAULT NULL
+)
+RETURNS TABLE(version_id UUID, version_number INTEGER, published_at TIMESTAMPTZ, outcome TEXT)
+-- outcome: PUBLISHED | PRECONDITION_FAILED | ARCHIVED | NOT_FOUND
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = workflow, organization, public, pg_catalog
+AS $$
+#variable_conflict use_column
+-- Live-discovered necessary in this pass, reproducing the identical
+-- diagnosis 099_5C1.sql's own header comment already gives for
+-- fn_claim_dispatch_for_provider_submission: this function's
+-- RETURNS TABLE OUT parameter `version_number` shares its name with
+-- workflow_versions.version_number, producing the exact
+-- "column reference is ambiguous" error inside the
+-- `SELECT COALESCE(MAX(version_number), 0) + 1 FROM workflow_versions`
+-- allocation query below — confirmed live, not assumed, on the very
+-- first functional test of this function. This pragma makes every bare
+-- identifier prefer the table column over the like-named OUT parameter,
+-- the correct resolution here (the OUT parameter is only ever set via
+-- the explicit RETURN QUERY SELECT ... v_next_version at the end, never
+-- read back from itself).
+DECLARE
+  v_wfd            workflow.workflow_definitions%ROWTYPE;
+  v_next_version   INTEGER;
+  v_new_version_id UUID := gen_uuid_v7();
+  v_now            TIMESTAMPTZ := NOW();
+BEGIN
+  IF p_organization_id IS DISTINCT FROM organization.current_tenant_id() THEN
+    RAISE EXCEPTION 'fn_publish_workflow: organization_id % does not match current tenant context', p_organization_id;
+  END IF;
+  IF p_published_by IS NULL THEN
+    RAISE EXCEPTION 'fn_publish_workflow: p_published_by is required';
+  END IF;
+
+  -- THE serialization point — every publisher, every concurrent
+  -- StartExecution (FOR SHARE), and Archive (plain UPDATE) all
+  -- contend on this single row lock.
+  SELECT * INTO v_wfd
+  FROM workflow.workflow_definitions
+  WHERE id = p_workflow_id AND organization_id = p_organization_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RETURN QUERY SELECT NULL::UUID, NULL::INTEGER, NULL::TIMESTAMPTZ, 'NOT_FOUND'::TEXT;
+    RETURN;
+  END IF;
+
+  IF v_wfd.status = 'ARCHIVED' THEN
+    RETURN QUERY SELECT NULL::UUID, NULL::INTEGER, NULL::TIMESTAMPTZ, 'ARCHIVED'::TEXT;
+    RETURN;
+  END IF;
+
+  IF p_expected_updated_at IS NOT NULL AND v_wfd.updated_at IS DISTINCT FROM p_expected_updated_at THEN
+    RETURN QUERY SELECT NULL::UUID, NULL::INTEGER, NULL::TIMESTAMPTZ, 'PRECONDITION_FAILED'::TEXT;
+    RETURN;
+  END IF;
+
+  -- Safe under the FOR UPDATE lock already held on wfd above — no
+  -- concurrent publisher for this SAME workflow can be mid-flight past
+  -- this point, so MAX(version_number)+1 cannot race with another
+  -- publisher's own allocation. uq_wv_version_number remains the
+  -- unique-constraint backstop if this invariant is ever violated by a
+  -- future code path that forgets the lock.
+  SELECT COALESCE(MAX(version_number), 0) + 1 INTO v_next_version
+  FROM workflow.workflow_versions
+  WHERE workflow_definition_id = p_workflow_id AND organization_id = p_organization_id;
+
+  INSERT INTO workflow.workflow_versions
+    (id, organization_id, workflow_definition_id, version_number, graph_json, published_by, published_at)
+  VALUES
+    (v_new_version_id, p_organization_id, p_workflow_id, v_next_version, v_wfd.draft_graph, p_published_by, v_now);
+
+  UPDATE workflow.workflow_definitions
+  SET published_version_id = v_new_version_id,
+      status               = 'PUBLISHED',
+      updated_at           = v_now
+  WHERE id = p_workflow_id AND organization_id = p_organization_id;
+
+  RETURN QUERY SELECT v_new_version_id, v_next_version, v_now, 'PUBLISHED'::TEXT;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION workflow.fn_publish_workflow(UUID, UUID, UUID, TIMESTAMPTZ) FROM PUBLIC;
+-- app_api only: PublishWorkflow is a synchronous, user-initiated REST
+-- action (6I §6.1, POST /workflows/{id}/publish) — no approved Workflow
+-- capability in 4E/6I has a Celery worker publish on a tenant's behalf,
+-- so app_worker's EXECUTE grant (which the pre-existing
+-- fn_workflow_publish() carried forward unexamined from an earlier
+-- pattern) is deliberately NOT restored here. If a genuine future
+-- worker-initiated publish need arises, it is a new, separately
+-- justified GRANT, not a default inherited from this function's
+-- predecessor.
+GRANT EXECUTE ON FUNCTION workflow.fn_publish_workflow(UUID, UUID, UUID, TIMESTAMPTZ) TO app_api;
+
+COMMENT ON FUNCTION workflow.fn_publish_workflow(UUID, UUID, UUID, TIMESTAMPTZ) IS
+  '100_5G1.sql FINAL pass — the sole guarded path to create a '
+  'WorkflowVersion and move a WorkflowDefinition to PUBLISHED. Replaces '
+  'the dropped 039_5G.sql fn_workflow_publish() and the raw-INSERT-then-'
+  'call pattern it depended on. Owns the whole durable publish '
+  'transaction: row lock, ARCHIVED rejection, exact-draft precondition, '
+  'version-number allocation, snapshot, insert, and definition update — '
+  'all inside one transaction, closing every publish-concurrency race '
+  '6I §36 analyzes.';
+
+
+-- -----------------------------------------------------------------
+-- fn_archive_workflow: the sole guarded path to ARCHIVED, restoring
+-- Archive's ability to write `status` despite F.1's column-level
+-- revoke (this function runs with its OWNER's privileges, not the
+-- caller's — no GRANT on workflow_definitions.status is needed for it
+-- to succeed). Legal source states unchanged from 6I's original design
+-- (DRAFT or PUBLISHED); the trg_wfd_archived_immutable trigger (Part E)
+-- remains the independent, unconditional backstop regardless of which
+-- role or function attempts a later mutation.
+-- -----------------------------------------------------------------
+CREATE FUNCTION workflow.fn_archive_workflow(
+  p_organization_id UUID,
+  p_workflow_id     UUID
+)
+RETURNS TEXT   -- ARCHIVED | ALREADY_ARCHIVED | NOT_FOUND
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = workflow, organization, pg_catalog
+AS $$
+DECLARE
+  v_rows   INTEGER;
+  v_status TEXT;
+BEGIN
+  IF p_organization_id IS DISTINCT FROM organization.current_tenant_id() THEN
+    RAISE EXCEPTION 'fn_archive_workflow: organization_id % does not match current tenant context', p_organization_id;
+  END IF;
+
+  UPDATE workflow.workflow_definitions
+  SET status = 'ARCHIVED', updated_at = NOW()
+  WHERE id = p_workflow_id AND organization_id = p_organization_id
+    AND status IN ('DRAFT', 'PUBLISHED');
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  IF v_rows > 0 THEN RETURN 'ARCHIVED'; END IF;
+
+  SELECT status INTO v_status FROM workflow.workflow_definitions
+    WHERE id = p_workflow_id AND organization_id = p_organization_id;
+  IF NOT FOUND THEN RETURN 'NOT_FOUND'; ELSE RETURN 'ALREADY_ARCHIVED'; END IF;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION workflow.fn_archive_workflow(UUID, UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION workflow.fn_archive_workflow(UUID, UUID) TO app_api;
+
+COMMENT ON FUNCTION workflow.fn_archive_workflow(UUID, UUID) IS
+  '100_5G1.sql FINAL pass — restores ArchiveWorkflow''s ability to write '
+  '`status` despite F.1''s column-level UPDATE revoke on app_api/'
+  'app_worker (this function runs as its owner, not the caller). '
+  'Idempotent: archiving an already-ARCHIVED workflow returns '
+  'ALREADY_ARCHIVED rather than erroring. trg_wfd_archived_immutable '
+  '(Part E) remains the unconditional backstop against any future '
+  'mutation of an ARCHIVED row through any path.';

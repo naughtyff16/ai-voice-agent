@@ -1,0 +1,44 @@
+
+=== C1: concurrent duplicate node-execution claim (two connections) ===
+outcomes: {'A': (True, UUID('01a04a48-f48e-77c1-a315-151b8279c8a2'), 'CLAIMED', None), 'B': (False, UUID('01a04a48-f48e-77c1-a315-151b8279c8a2'), 'CLAIMED', 'NOT_CLAIMABLE_CLAIMED')}
+[PASS] C1: exactly one of the two concurrent claimants won outcomes={'A': (True, UUID('01a04a48-f48e-77c1-a315-151b8279c8a2'), 'CLAIMED', None), 'B': (False, UUID('01a04a48-f48e-77c1-a315-151b8279c8a2'), 'CLAIMED', 'NOT_CLAIMABLE_CLAIMED')}
+[PASS] C1: the other was told NOT_CLAIMABLE_CLAIMED outcomes={'A': (True, UUID('01a04a48-f48e-77c1-a315-151b8279c8a2'), 'CLAIMED', None), 'B': (False, UUID('01a04a48-f48e-77c1-a315-151b8279c8a2'), 'CLAIMED', 'NOT_CLAIMABLE_CLAIMED')}
+[PASS] C1: exactly ONE durable claim row exists for the identity rows=[('CLAIMED', 'worker-A')]
+
+=== C2: two REAL connections/threads race; seq=2 (fast) commits before delayed seq=1's UPDATE is even issued ===
+outcomes: {'B': 'APPLIED', 'A': 'STALE_CHECKPOINT'}
+[PASS] C2: fast seq=2 writer got APPLIED outcomes={'B': 'APPLIED', 'A': 'STALE_CHECKPOINT'}
+[PASS] C2: delayed seq=1 writer got STALE_CHECKPOINT outcomes={'B': 'APPLIED', 'A': 'STALE_CHECKPOINT'}
+[PASS] C2: final checkpoint_seq is 2, never regressed seq=2, slots={'t': 'seq2-fast'}
+
+=== C3: concurrent StartExecution for the same session ===
+[PASS] C3: A started fresh A=(UUID('01a04a48-f73f-7ac2-8123-23306cdc2505'), 'STARTED')
+[PASS] C3: B observed REPLAYED_EXISTING B=(UUID('01a04a48-f73f-7ac2-8123-23306cdc2505'), 'REPLAYED_EXISTING')
+simultaneous outcomes: {'C': (UUID('01a04a48-f7cf-7ac0-9cdb-db79c84fe7f4'), 'STARTED'), 'D': (UUID('01a04a48-f7cf-7ac0-9cdb-db79c84fe7f4'), 'REPLAYED_EXISTING')}
+[PASS] C3b: true-simultaneous race resolves to a SINGLE execution id outcomes={'C': (UUID('01a04a48-f7cf-7ac0-9cdb-db79c84fe7f4'), 'STARTED'), 'D': (UUID('01a04a48-f7cf-7ac0-9cdb-db79c84fe7f4'), 'REPLAYED_EXISTING')}
+[PASS] C3b: exactly one STARTED and one REPLAYED_EXISTING outcome_set={'STARTED', 'REPLAYED_EXISTING'}
+
+=== C4: Archive commits first (via fn_archive_workflow); queued draft update must then fail ===
+B result: {'rowcount': 0}
+[PASS] C4: queued draft UPDATE affects ZERO rows once Archive won the race b_result={'rowcount': 0}
+[PASS] C4: final state is ARCHIVED with draft_graph UNCHANGED row=('ARCHIVED', {})
+[PASS] C4b: trigger rejects mutation of an ARCHIVED row even via superuser raw UPDATE workflow_definitions: ARCHIVED is terminal — no further mutation is permitted. workflow_id: ccd82763-a774-40ee-b96a-6fcf1aae21c0
+CONTEXT:  PL/pgSQL function workflow.prevent_archived_definition_mutati
+
+
+==== SUMMARY ====
+PASS: C1: exactly one of the two concurrent claimants won
+PASS: C1: the other was told NOT_CLAIMABLE_CLAIMED
+PASS: C1: exactly ONE durable claim row exists for the identity
+PASS: C2: fast seq=2 writer got APPLIED
+PASS: C2: delayed seq=1 writer got STALE_CHECKPOINT
+PASS: C2: final checkpoint_seq is 2, never regressed
+PASS: C3: A started fresh
+PASS: C3: B observed REPLAYED_EXISTING
+PASS: C3b: true-simultaneous race resolves to a SINGLE execution id
+PASS: C3b: exactly one STARTED and one REPLAYED_EXISTING
+PASS: C4: queued draft UPDATE affects ZERO rows once Archive won the race
+PASS: C4: final state is ARCHIVED with draft_graph UNCHANGED
+PASS: C4b: trigger rejects mutation of an ARCHIVED row even via superuser raw UPDATE
+
+13/13 PASS

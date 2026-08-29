@@ -1,0 +1,28 @@
+
+=== D1: two concurrent publishers of the SAME workflow (FOR UPDATE serialization) ===
+outcomes: {'A': (1, 'PUBLISHED'), 'B': (2, 'PUBLISHED')}
+[PASS] D1: both publishers succeeded {'A': (1, 'PUBLISHED'), 'B': (2, 'PUBLISHED')}
+[PASS] D1: version numbers are unique (no collision) and sequential version_numbers={1, 2}
+
+=== D2: Race A — StartExecution locks first, Archive waits, then both complete ===
+outcomes: {'start_pre_commit': (UUID('01a04a46-6aa1-7f23-8bff-ffeb214ab5aa'), 'STARTED'), 'archive_wait_seconds': 0.49245238304138184, 'archive_outcome': 'ARCHIVED'}
+[PASS] D2: StartExecution succeeded (STARTED) {'start_pre_commit': (UUID('01a04a46-6aa1-7f23-8bff-ffeb214ab5aa'), 'STARTED'), 'archive_wait_seconds': 0.49245238304138184, 'archive_outcome': 'ARCHIVED'}
+[PASS] D2: Archive was forced to WAIT for A's FOR SHARE lock (observed blocking, not instant) waited 0.49s
+[PASS] D2: Archive succeeded AFTER A committed {'start_pre_commit': (UUID('01a04a46-6aa1-7f23-8bff-ffeb214ab5aa'), 'STARTED'), 'archive_wait_seconds': 0.49245238304138184, 'archive_outcome': 'ARCHIVED'}
+[PASS] D2: the existing execution remains valid/ACTIVE despite the later Archive exec_status=ACTIVE
+
+=== D3: Race B — Archive already committed; StartExecution against that version must be rejected ===
+[PASS] D3: StartExecution against an already-ARCHIVED workflow's version is rejected fn_start_workflow_execution: the WorkflowDefinition owning workflow_version 01a04a46-6a3d-77c2-ad8c-8ce31aa09efe is ARCHIVED; no new execution may start against it
+CONTEXT:  PL/pgSQL function fn_start
+
+
+==== SUMMARY ====
+PASS: D1: both publishers succeeded
+PASS: D1: version numbers are unique (no collision) and sequential
+PASS: D2: StartExecution succeeded (STARTED)
+PASS: D2: Archive was forced to WAIT for A's FOR SHARE lock (observed blocking, not instant)
+PASS: D2: Archive succeeded AFTER A committed
+PASS: D2: the existing execution remains valid/ACTIVE despite the later Archive
+PASS: D3: StartExecution against an already-ARCHIVED workflow's version is rejected
+
+7/7 PASS

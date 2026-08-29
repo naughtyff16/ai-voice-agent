@@ -1,0 +1,32 @@
+SET
+ org_b_sees_of_workflow_definitions_named_a 
+--------------------------------------------
+                                          0
+(1 row)
+
+ org_b_sees_of_node_claims 
+---------------------------
+                         0
+(1 row)
+
+ org_b_sees_of_executions 
+--------------------------
+                        0
+(1 row)
+
+SET
+ no_tenant_sees_definitions 
+----------------------------
+                          0
+(1 row)
+
+ no_tenant_sees_executions 
+---------------------------
+                         0
+(1 row)
+
+ no_tenant_sees_claims 
+-----------------------
+                     0
+(1 row)
+
