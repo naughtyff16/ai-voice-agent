@@ -115,20 +115,33 @@ pass' own new capabilities found:
   any unconditional runtime publish route: every call must supply the
   row's actual current updated_at or the call is rejected outright.
 
-Also reviewed and resolved without a silent product decision: whether
+Reviewed (not decided unilaterally) in that same pass: whether
 app_platform_admin's EXECUTE grant on fn_start_workflow_execution (which
 traces to the original, frozen 041_5G.sql — not introduced or altered by
-any 6I remediation pass) should be revoked on least-privilege grounds.
-Left UNCHANGED — flagged as a genuine product-policy question in the
-accompanying report rather than decided unilaterally, since (unlike
-every other REVOKE in this file) no invariant is bypassed by this grant:
-the function is already fully tenant/archive/version-safe for any
-caller, so removing it would be a business-policy restriction on what a
-platform admin's role is permitted to do, not a security-bypass closure.
+any prior 6I remediation pass) should be revoked on least-privilege
+grounds. Flagged as a genuine product-policy question rather than a
+technical gap, since (unlike every other REVOKE in this file) no
+invariant is bypassed by this grant — the function is already fully
+tenant/archive/version-safe for any caller.
+
+Phase 6I FINAL PRIVILEGE CLEANUP pass (same day, fourth pass over this
+file): the product owner has now made that authoritative decision —
+app_platform_admin must not be able to directly start a live
+WorkflowExecution. This pass changes exactly one GRANT statement:
+`GRANT EXECUTE ON FUNCTION workflow.fn_start_workflow_execution(...) TO
+app_api, app_worker, app_platform_admin` becomes `TO app_api,
+app_worker`. `REVOKE ALL ... FROM PUBLIC` on the same function is
+confirmed unchanged. No function body, tenant-validation, ARCHIVED-
+locking, duplicate-start-semantics, or advisory-lock behavior is
+touched — this is a privilege-only change, live-verified via
+`aclexplode(proacl)` to show exactly `{app_api, app_worker}` as the
+resulting EXECUTE grantees, `PUBLIC` still denied, and a full
+Archive/StartExecution regression (Race A/B, duplicate/version-conflict
+semantics) with zero defects reintroduced.
 
 Source: docs/phase-06-api-design/6I-Workflow-APIs.md, Phase 6I Blocker
-Remediation pass (all three passes). No table/schema/bounded context is
-added beyond what these nine findings require; migrations 001-099 are
+Remediation pass (all four passes). No table/schema/bounded context is
+added beyond what these ten findings require; migrations 001-099 are
 not edited, renumbered, or reordered.
 
 Revision ID: 100_5G1
@@ -168,9 +181,10 @@ def downgrade() -> None:
         "UPDATE grants on workflow_versions/workflow_definitions would "
         "need to be reverted to their pre-100_5G1 shape; the "
         "immutability/archived-terminal trigger functions would need "
-        "reverting/dropping; and fn_record_node_failed would need "
-        "reverting to its earlier BOOLEAN-returning, "
-        "SUBMITTING-permitting shape — an operational runbook note, not "
-        "an Alembic-managed downgrade, matching every other revision in "
-        "this package)."
+        "reverting/dropping; fn_record_node_failed would need reverting "
+        "to its earlier BOOLEAN-returning, SUBMITTING-permitting shape; "
+        "and app_platform_admin's EXECUTE grant on "
+        "fn_start_workflow_execution would need re-GRANTing — an "
+        "operational runbook note, not an Alembic-managed downgrade, "
+        "matching every other revision in this package)."
     )

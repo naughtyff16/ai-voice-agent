@@ -1,0 +1,14 @@
+SET
+=== T-A: publish WF A1 to get a valid version ===
+=== T-B: legitimate runtime role (app_worker-equivalent, via app_api here since we connect as app_api) start succeeds ===
+             execution_id             |       execution_started_at       | outcome 
+--------------------------------------+----------------------------------+---------
+ 01a04c10-90bd-748a-ac66-66a60923be22 | 2026-08-29 11:19:09.180717+05:30 | STARTED
+(1 row)
+
+=== T-C: duplicate same session + same version -> REPLAYED_EXISTING ===
+             execution_id             |       execution_started_at       |      outcome      
+--------------------------------------+----------------------------------+-------------------
+ 01a04c10-90bd-748a-ac66-66a60923be22 | 2026-08-29 11:19:09.180717+05:30 | REPLAYED_EXISTING
+(1 row)
+

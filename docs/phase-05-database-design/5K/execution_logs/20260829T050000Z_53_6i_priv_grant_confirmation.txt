@@ -1,0 +1,5 @@
+  execute_grantees   | public_can_execute 
+---------------------+--------------------
+ app_api, app_worker | f
+(1 row)
+

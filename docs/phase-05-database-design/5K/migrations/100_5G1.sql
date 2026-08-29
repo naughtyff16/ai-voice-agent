@@ -82,6 +82,20 @@
 --     constrained) — no unconditional runtime publish route exists any
 --     longer.
 --
+-- FINAL PRIVILEGE CLEANUP pass (same day, fourth pass over this file):
+-- the FINAL MICRO-REMEDIATION pass above reviewed, but explicitly did
+-- NOT decide, whether app_platform_admin's EXECUTE grant on
+-- fn_start_workflow_execution() (inherited unmodified from the original,
+-- frozen 041_5G.sql) should be revoked — flagging it as a genuine
+-- product-policy question rather than a technical security gap, since
+-- the function is already fully tenant/archive/version-safe for any
+-- caller. The product owner has now made the authoritative decision:
+-- app_platform_admin must not be able to directly start a live
+-- WorkflowExecution. This pass makes exactly one change — the GRANT
+-- statement below — no function body, tenant validation, ARCHIVED
+-- locking, duplicate-start semantics, or advisory-lock behavior is
+-- touched.
+--
 -- SCOPE DISCIPLINE: this remains a controlled, additive amendment to the
 -- `workflow` schema, plus two narrowly-scoped identity-immutability
 -- trigger hardenings (one in `workflow`, one in `prompt`) and privilege
@@ -1001,8 +1015,23 @@ BEGIN
   RETURN QUERY SELECT v_new_id, p_started_at, 'STARTED'::TEXT;
 END;
 $$;
+-- Privilege-only cleanup (FINAL pass, same day): app_platform_admin's
+-- EXECUTE grant here traced to the original, frozen 041_5G.sql (Phase 5,
+-- pre-dating any 6I remediation) and was reviewed, not silently
+-- revoked, in the FINAL MICRO-REMEDIATION pass (6I-Workflow-APIs.md
+-- §65.3) as a genuine product-policy question rather than a technical
+-- security gap — the function is already fully tenant/archive/version-
+-- safe for any caller, so no invariant was ever bypassed by this grant.
+-- The product owner has now made the authoritative decision: platform
+-- admin must not be able to directly start a live WorkflowExecution.
+-- StartWorkflowExecution creates live conversational runtime state; any
+-- future administrative intervention belongs to Phase 6M through an
+-- explicit, guarded, audited admin-specific capability, not this
+-- runtime function. No change to the function body, tenant validation,
+-- ARCHIVED locking, duplicate-start semantics, or advisory-lock
+-- behavior — this is a GRANT-only change.
 REVOKE ALL ON FUNCTION workflow.fn_start_workflow_execution(UUID, UUID, UUID, TIMESTAMPTZ) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION workflow.fn_start_workflow_execution(UUID, UUID, UUID, TIMESTAMPTZ) TO app_api, app_worker, app_platform_admin;
+GRANT EXECUTE ON FUNCTION workflow.fn_start_workflow_execution(UUID, UUID, UUID, TIMESTAMPTZ) TO app_api, app_worker;
 
 COMMENT ON FUNCTION workflow.fn_start_workflow_execution(UUID, UUID, UUID, TIMESTAMPTZ) IS
   'Revised by 100_5G1.sql (6I Blocker Remediation, two passes). Now (1) '

@@ -110,7 +110,75 @@ regeneration corrects that. See "Reconciliation" below for details.
 | 097 | 5D.5 | `097_5D5.sql` | `096_5B2` | transactional | 13681 | `1ebb277a8551b648cec8f085edc0dae5596ad2c54b8b348f58d8323a05f13fe1` |
 | 098 | 5E.1 | `098_5E1.sql` | `097_5D5` | transactional | 16943 | `aad468ae59b50bf0a3b8c29e99b248268198ed8a5c3f3fb896b69d0911b7afd6` |
 | 099 | 5C.1 | `099_5C1.sql` | `098_5E1` | transactional | 63844 | `3dcf9b245b1a352069d3ff70da2a5af625f968c4ec728adc70ae0265f623310f` |
-| 100 | 5G.1 | `100_5G1.sql` | `099_5C1` | transactional | 78282 | `d38d2e2cc873eb158a5febbfeff051969041abcd54e7e95ad156c9d7ec04da84` |
+| 100 | 5G.1 | `100_5G1.sql` | `099_5C1` | transactional | 80135 | `9b52e7ffac8534faee64f6f9972dc1bc924d95147f3bbc28dd19b30dde2e7f55` |
+
+---
+
+## Phase 6I FINAL PRIVILEGE CLEANUP (2026-08-29) — app_platform_admin cannot start Workflow executions, PostgreSQL 16 live-validated
+
+`100_5G1.sql` amended in place a fourth time — never applied to any
+real/production database, same policy as the three prior passes.
+SHA-256/size updated in the table above; `revision`/`down_revision`
+unchanged.
+
+**Trigger:** the FINAL MICRO-REMEDIATION pass reviewed, but explicitly
+declined to decide unilaterally, whether `app_platform_admin`'s
+`EXECUTE` grant on `workflow.fn_start_workflow_execution()` — inherited
+unmodified from the original, frozen `041_5G.sql` — should be revoked,
+since the function is already fully tenant/archive/version-safe for any
+caller and no invariant was bypassed by the grant (a pure product-policy
+question, not a technical gap). The product owner has now made the
+authoritative decision: `app_platform_admin` must not be able to
+directly start a live `WorkflowExecution`.
+
+**What this pass changes:** exactly one `GRANT` statement.
+`REVOKE ALL ... FROM PUBLIC` is confirmed unchanged (still in effect);
+`GRANT EXECUTE ... TO app_api, app_worker, app_platform_admin` becomes
+`GRANT EXECUTE ... TO app_api, app_worker`. No change to the function
+body, tenant validation, `ARCHIVED` locking (`FOR SHARE OF wd`),
+duplicate-start semantics (`STARTED`/`REPLAYED_EXISTING`/
+`VERSION_CONFLICT`), or advisory-lock behavior — privilege-only.
+
+**Final privilege matrix for this function:**
+
+| Role | EXECUTE |
+|---|---|
+| `app_api` | ✅ |
+| `app_worker` | ✅ |
+| `app_platform_admin` | ❌ (revoked, this pass) |
+| `app_readonly` | ❌ (never granted) |
+| `PUBLIC` | ❌ (unchanged) |
+
+**PostgreSQL 16 validation (live, this pass — same disposable-instance
+approach, torn down at the end of this batch):**
+
+- Fresh (`voice_agent_pg16_finalfresh4`, full `001_5B → … → 100_5G1`):
+  **PASS, exit 0**, single head `100_5G1`.
+  `execution_logs/20260829T050000Z_58_..._60_*.txt`.
+- Incremental (`voice_agent_pg16_incremental4`, pinned at `099_5C1`, then
+  `100_5G1` alone): **PASS, exit 0** for both steps.
+  `..._61_*.txt`, `..._62_*.txt`.
+- `alembic history`: single linear 100-entry chain, no branch. `..._63_*.txt`.
+
+**Privilege and regression evidence:**
+
+| Area | Evidence file | Result |
+|---|---|---|
+| Grant confirmation (`app_platform_admin` absent, `PUBLIC` denied, `app_api`/`app_worker` present) | `..._53_*.txt` | PASS |
+| `app_platform_admin` direct call → `permission denied for function fn_start_workflow_execution` (function body never executes) | `..._55_*.txt` | PASS |
+| Legitimate runtime role (`app_api`) start succeeds; duplicate same session+version → `REPLAYED_EXISTING` | `..._54_*.txt` | PASS |
+| `app_worker` start still succeeds | `..._56_*.txt` | PASS |
+| Archive/StartExecution Race A (Start wins, Archive measurably waits 0.48s, execution stays `ACTIVE`) and Race B (Archive wins, subsequent Start rejected); different-version conflict (`VERSION_CONFLICT`) | `..._57_*.txt` | 6/6 PASS |
+
+**Reconciled totals after this amendment:** 100/100 `migrations/*.sql`
+files, 100/100 `alembic/versions/*.py` files, single linear Alembic
+chain, single head `100_5G1` (unchanged revision id — content amended in
+place a fourth time).
+
+**Consumer:** `docs/phase-06-api-design/6I-Workflow-APIs.md` (Phase 6I
+FINAL PRIVILEGE CLEANUP pass) — resolves the `USER DECISION REQUIRED`
+item §65.3 raised, closing it with the product owner's own authoritative
+decision rather than a unilateral one.
 
 ---
 

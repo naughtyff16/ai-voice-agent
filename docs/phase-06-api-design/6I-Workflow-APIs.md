@@ -1570,9 +1570,11 @@ A third, independent adversarial review — of §64's own new capabilities, the 
 
 **Live evidence:** `NULL` precondition → exception, zero versions created, definition unchanged; stale precondition → `PRECONDITION_FAILED`, zero versions created; correct precondition → `PUBLISHED`; a **second** publish attempt reusing the now-consumed, now-stale precondition → `PRECONDITION_FAILED` again, still exactly one version (no silent duplicate publish). The concurrent-publish regression additionally demonstrates the documented consequence of making the precondition mandatory (§20 of the governing task): two publishers racing with the *same*, shared (pre-race) precondition value can no longer both succeed — only the winner of `fn_publish_workflow()`'s own `FOR UPDATE` lock race publishes; the loser's now-stale-relative-to-the-winner's-own-commit precondition correctly yields `PRECONDITION_FAILED`. This is a deliberate, documented behavior change from §64's own optional-precondition version (where both concurrent publishers could succeed with sequential version numbers) — mandatory preconditions make two mutually-unaware concurrent publishes of the same base draft impossible by construction, which is precisely what optimistic concurrency control is for.
 
-### 65.3 `app_platform_admin` / `fn_start_workflow_execution` — Reviewed, Not Silently Decided
+### 65.3 `app_platform_admin` / `fn_start_workflow_execution` — Reviewed, Not Silently Decided — RESOLVED (§66)
 
-**`USER DECISION REQUIRED`**
+> **Status update (2026-08-29, Phase 6I FINAL PRIVILEGE CLEANUP pass):** the product owner has made the authoritative decision named in item 2(b) below — **Option 2, revoke**. `app_platform_admin` no longer holds `EXECUTE` on `workflow.fn_start_workflow_execution`, live-verified. See §66 for the closure and evidence. The analysis below is retained as the record of the decision that was put to the product owner.
+
+**`USER DECISION REQUIRED`** *(now resolved — §66)*
 
 1. **Exact decision:** whether to revoke `app_platform_admin`'s `EXECUTE` grant on `workflow.fn_start_workflow_execution`, restricting live `WorkflowExecution` creation to `app_api`/`app_worker` only.
 2. **Available options:** (a) **Preserve** the grant as-is (the default applied here — nothing changed); (b) **Revoke** it, matching the narrower `app_api`-only posture this remediation series gave `fn_publish_workflow`/`fn_archive_workflow`.
@@ -1619,10 +1621,71 @@ Identical to §63.11/§64.10: 6J (`WEBHOOK`/`API_CALL`), ADR-5G-010 (prompt-vers
 
 ### 65.9 Final Verdict
 
-**APPROVED — PHASE 6I READY TO FREEZE**
-
-(One non-blocking `USER DECISION REQUIRED` item remains open per §65.3 — it does not gate this verdict, per the governing task's own explicit instruction that a pure least-privilege/role-scope question, where the function itself is already fully safe for any caller, is not a freeze blocker.)
+**APPROVED — PHASE 6I READY TO FREEZE** *(the one open `USER DECISION REQUIRED` item per §65.3 was non-blocking as stated; it is now also fully resolved — see §66)*
 
 ---
 
-**STOP — Phase 6I complete (including the 2026-08-29 Blocker Remediation pass §63, the same-day FINAL Blocker Remediation pass §64, and the same-day FINAL MICRO-REMEDIATION pass §65). Phase 6J not started.**
+## 66. Phase 6I FINAL PRIVILEGE CLEANUP (2026-08-29) — `app_platform_admin` Cannot Start Workflow Executions
+
+The product owner has made the authoritative decision on the one open item §65.3 raised: **Option 2 — `app_platform_admin` must NOT be allowed to directly start Workflow executions.** This section closes it.
+
+### 66.1 The Change
+
+One `GRANT` statement in `100_5G1.sql` (amended in place a fourth time, per its own header's stated policy — never applied to production):
+
+```
+BEFORE: GRANT EXECUTE ON FUNCTION workflow.fn_start_workflow_execution(...)
+        TO app_api, app_worker, app_platform_admin;
+
+AFTER:  GRANT EXECUTE ON FUNCTION workflow.fn_start_workflow_execution(...)
+        TO app_api, app_worker;
+```
+
+`REVOKE ALL ... FROM PUBLIC` on the same function is confirmed unchanged. No other line in the function — tenant validation, `ARCHIVED` locking (`FOR SHARE OF wd`, §64.2), duplicate-start semantics (`STARTED`/`REPLAYED_EXISTING`/`VERSION_CONFLICT`, §63.7), or advisory-lock behavior — was touched. This is a privilege-only change, exactly as scoped.
+
+### 66.2 Rationale (restated from the decision)
+
+`StartWorkflowExecution` creates live conversational runtime state. Platform-admin credentials should not directly start Workflow executions. Any future administrative intervention belongs to **Phase 6M — Admin/Platform APIs**, through an explicit, guarded, and audited admin-specific capability — not this runtime function. This closes the one remaining asymmetry with `fn_publish_workflow`/`fn_archive_workflow` (§64.1), which were already deliberately scoped narrower than their predecessor for the identical reason.
+
+### 66.3 Final Privilege Matrix
+
+| Role | `workflow.fn_start_workflow_execution` EXECUTE |
+|---|---|
+| `app_api` | ✅ |
+| `app_worker` | ✅ |
+| `app_platform_admin` | ❌ |
+| `app_readonly` | ❌ (never granted) |
+| `PUBLIC` | ❌ |
+
+### 66.4 Live Evidence
+
+`aclexplode(proacl)` queried directly (not asserted from source): `execute_grantees = app_api, app_worker`; `public_can_execute = false`. `app_platform_admin` calling the function directly: `ERROR: permission denied for function fn_start_workflow_execution` — the function body never executes. `app_api` and `app_worker` both still start executions successfully (`STARTED`). Full regression re-run with zero defects: duplicate same-session-same-version → `REPLAYED_EXISTING`; different-version → `VERSION_CONFLICT`; Archive/StartExecution Race A (Start wins, Archive measurably waits, execution stays `ACTIVE`) and Race B (Archive wins, subsequent Start rejected) — both unchanged from §64.2's own proof.
+
+### 66.5 Final Freeze-Review Checklist
+
+Every guarantee named in the governing task's own final checklist re-confirmed live this pass: guarded publish only; mandatory exact-draft precondition; Archive↔StartExecution serialization; monotonic checkpoint CAS; durable side-effect claim identity; `SUBMITTING` cannot become retryable `FAILED`; `AMBIGUOUS` cannot auto-retry; no raw-DML lifecycle bypass; **`app_platform_admin` cannot start Workflow executions (closed by this pass)**; `WorkflowVersion` history immutable; `WEBHOOK`/`API_CALL` still execution-blocked pending 6J. All eleven hold.
+
+### 66.6 Documentation Reconciled
+
+- `docs/phase-05-database-design/5K/migrations/100_5G1.sql` — amended in place a fourth time.
+- `docs/phase-05-database-design/5K/alembic/versions/100_5G1.py` — docstring and `downgrade()` message updated.
+- `docs/phase-05-database-design/5K/MIGRATION_MANIFEST.md` — row 100 checksum/size updated; new top-of-log section.
+- `docs/phase-05-database-design/5K/validation/6I_FINAL_PRIVILEGE_CLEANUP_VALIDATION_REPORT.md` — new.
+- `docs/phase-06-api-design/6I-Workflow-APIs.md` (this document) — §65.3/§65.9 status-updated in place; this §66 added.
+- `docs/phase-05-database-design/5G-Workflow-Prompt-Memory-Schema.md` — §30 amendment note extended.
+
+### 66.7 Remaining Dependencies
+
+Identical to §65.7: 6J (`WEBHOOK`/`API_CALL`), ADR-5G-010 (Phase 9), `AMBIGUOUS`-claim reconciliation UI, 6K/6L/6M, Campaign ACL binding. **No open `USER DECISION REQUIRED` items remain.**
+
+### 66.8 Remaining Blockers
+
+**NONE.**
+
+### 66.9 Final Verdict
+
+**APPROVED — PHASE 6I READY TO FREEZE**
+
+---
+
+**STOP — Phase 6I complete (Blocker Remediation §63, FINAL Blocker Remediation §64, FINAL MICRO-REMEDIATION §65, and FINAL PRIVILEGE CLEANUP §66, all same day). Phase 6J not started.**

@@ -1,0 +1,22 @@
+
+=== Archive/Start regression: Race A (Start wins) + Race B (Archive wins) ===
+outcomes: {'start': (UUID('01a04c10-df8f-78d5-9d70-70b4749c412a'), 'STARTED'), 'archive_wait': 0.47943115234375, 'archive': 'ARCHIVED'}
+[PASS] RaceA: StartExecution succeeded (STARTED) {'start': (UUID('01a04c10-df8f-78d5-9d70-70b4749c412a'), 'STARTED'), 'archive_wait': 0.47943115234375, 'archive': 'ARCHIVED'}
+[PASS] RaceA: Archive measurably waited waited 0.48s
+[PASS] RaceA: Archive succeeded after commit {'start': (UUID('01a04c10-df8f-78d5-9d70-70b4749c412a'), 'STARTED'), 'archive_wait': 0.47943115234375, 'archive': 'ARCHIVED'}
+[PASS] RaceA: execution remains ACTIVE 
+[PASS] RaceB: StartExecution against ARCHIVED workflow rejected fn_start_workflow_execution: the WorkflowDefinition owning workflow_version 01a04c10-df4f-7517-9f7d-7dfc06946200 is ARCHIVED; no new execution may sta
+
+=== Different-version conflict regression ===
+[PASS] Same session + different version -> VERSION_CONFLICT (UUID('01a04c10-e289-75a2-aa8b-8b43795f04f6'), 'STARTED'), (UUID('01a04c10-e289-75a2-aa8b-8b43795f04f6'), 'VERSION_CONFLICT')
+
+
+==== SUMMARY ====
+PASS: RaceA: StartExecution succeeded (STARTED)
+PASS: RaceA: Archive measurably waited
+PASS: RaceA: Archive succeeded after commit
+PASS: RaceA: execution remains ACTIVE
+PASS: RaceB: StartExecution against ARCHIVED workflow rejected
+PASS: Same session + different version -> VERSION_CONFLICT
+
+6/6 PASS
