@@ -11,7 +11,7 @@
 | Document | 6J-Integrations-Webhooks-Plugins-APIs.md |
 | Phase | 6J (tenth document of Phase 6 — API Design) |
 | Depends on | Phase 1 SRS, Phase 2 HLA, Phase 3 LLD, Phase 4F DDD (§6–§9, §12–§13), Phase 5B/5H/5I/5J (FROZEN), Phase 6A (FROZEN), Phase 6B (FROZEN), Phase 6D–6I (FROZEN) |
-| Status of dependencies | Phase 5 is APPROVED/FROZEN/PRODUCTION BASELINE READY. Phase 6A–6I are APPROVED/FROZEN. No changes made to any of them by this document. This document's own additive amendment (`5K/migrations/101_5I1.sql`) touches only the `integrations`/`plugins`/`webhooks` schemas 5I itself defined — no other Phase 5 schema is touched. |
+| Status of dependencies | Phase 5 is APPROVED/FROZEN/PRODUCTION BASELINE READY. **6A–6H remain unchanged — no changes made to any of them by this document.** **6I remains frozen except for one explicitly authorized, narrowly-scoped amendment**: `6I-Workflow-APIs.md` §67, added during this document's own final closure pass to supply the `credential_reference` field shape (`WebhookNodeConfig`/`ApiCallNodeConfig`) required to close `DEP-6J-12` (§56, §63). §67 does not reopen any broader 6I architecture or workflow-execution design, and no Phase 5 workflow database schema, migration, function, or grant is touched by it. This document's own additive amendment (`5K/migrations/101_5I1.sql`) touches only the `integrations`/`plugins`/`webhooks` schemas 5I itself defined — no other Phase 5 schema is touched. |
 | Author scope | Integration, webhook (outbound + inbound), and plugin API contracts only. No workflow-execution, CRM, campaign, call, or knowledge-domain endpoints are (re)designed here. |
 | Supersedes | Nothing |
 | Governed by | 6A (platform-wide API standards — binding), 6B (auth/authz — binding) |
@@ -20,6 +20,7 @@
 | **Remediation pass 1** | 2026-08-29 (same day) — strict corrective pass following independent engineering/security review. 7 P0 and 17 P1/P2 findings addressed; `101_5I1.sql` authored, not yet live-validated. |
 | **Remediation pass 2 (FINAL)** | **2026-08-29 (same day) — database closure and live PostgreSQL 18.6 validation pass**, following a second independent review that found 3 further P0s in pass 1's migration. All closed via `101_5I1.sql` amended in place (§55 ADRs, §56 DEP table); a major, live-discovered, platform-wide-impact defect (`gen_uuid_v7()` missing `search_path`, affecting 84 of 99 `SECURITY DEFINER` functions across the entire 001-100 baseline — not introduced by 6J) was found and fixed in the same pass. Full adversarial live-test matrix (tenant-forgery, OAuth, integration/plugin lifecycle, webhook rotation, concurrency race, RLS, privileges, `SECURITY DEFINER` inventory, targeted regression) — **all PASS**, PostgreSQL 18.6. Full evidence: `5K/validation/6J_FINAL_BLOCKER_REMEDIATION_VALIDATION_REPORT.md`. **Final status: `PHASE 6J — IMPLEMENTATION READY`** (§62), with two explicitly disclosed, non-blocking-per-scope items: SSRF/application-layer tests (no deployed app code exists in this repo to test against) and a 6I cross-phase schema-compatibility item for plugin-version-pinning (6I is frozen; disclosed, not silently resolved). |
 | **Remediation pass 3 (PostgreSQL 18 baseline)** | **2026-08-29 (same day) — controlled database-baseline reconciliation, plugin-version-pinning cross-phase closure, and full re-validation on a fresh disposable PostgreSQL 18.6 cluster.** PostgreSQL 18 is now this document's (and the platform's) authoritative database baseline, superseding the previously-stated PostgreSQL 16 target — a deliberate, scoped architecture decision (§63), not a disclosed deviation; PostgreSQL 16 evidence from pass 2 is retained as valid historical/legacy-compatibility evidence, not superseded (the SQL did not change). `DEP-6J-06` closed by an explicit V1 scope decision (no sync-job table in V1, §56). `DEP-6J-12` closed by a small, controlled 6I compatibility amendment (`6I-Workflow-APIs.md` §67) supplying the `credential_reference` field shape 6J's own §30.2 had already designed. Every DEP row now ends `CLOSED`, `CLOSED BY V1 SCOPE`, or `FUTURE ENHANCEMENT — NON-BLOCKING` — none left open (§56). Fresh + incremental migration, Alembic integrity, extension compatibility (`vector`/`pgcrypto`/`pg_stat_statements`), `SECURITY DEFINER` inventory/guard classification, and a representative re-run of the tenant-forgery/OAuth/integration-lifecycle/plugin-lifecycle/webhook-rotation/RLS/privilege matrices all re-confirmed live on a brand-new, disposable PostgreSQL 18.6 cluster never previously touched by this document's work. Full evidence: `5K/validation/POSTGRESQL_18_BASELINE_AND_6J_FINAL_VALIDATION_REPORT.md`, `5K/execution_logs/` (prefix `20260829T220000Z_`). **Final status: `PHASE 6J — IMPLEMENTATION READY`** (§62, restated). |
+| **Remediation pass 4 (FINAL micro-closure)** | **2026-08-29 (same day) — three closure items, no database change.** (1) Closed a genuine evidence-precision gap: the webhook dual-signature *cryptographic* contract had only ever been proven at the *database rotation-state* level, never cryptographically — closed via a standalone, deterministic HMAC-SHA256 test fixture, 21/21 checks PASS (§64). (2) Corrected 6I's §67 amendment, which had been structurally misplaced (splitting §66's own subsections) — reordered, no content lost, plus 6I's stale "Phase 6J not started" closing line replaced with accurate language (§64.4). (3) Corrected this document's own Document Control claim "no changes to 6A–6I," no longer accurate once 6I received §67 (§64.5, this table). `101_5I1.sql` unchanged; no new migration created. Full evidence: `5K/validation/POSTGRESQL_18_BASELINE_AND_6J_FINAL_VALIDATION_REPORT.md` (Final Micro-Closure section), `5K/execution_logs/fixtures/webhook_dual_signature_test.py`, `5K/execution_logs/20260829T230000Z_FINAL6J_dual_signature_crypto_test.txt`. **Final status: `PHASE 6J — IMPLEMENTATION READY`** (§62, §64.9). Not self-frozen — independent review performs the final freeze. |
 
 ---
 
@@ -2560,31 +2561,33 @@ Cons: requires 6K to design the metering/billing semantics (§46.2 explicitly ou
 
 `PHASE 6J — IMPLEMENTATION READY`
 
-**This verdict reflects a real state change from this document's prior revision** (which correctly declared `NOT READY — P0 BLOCKERS REMAIN`, because at that point every P0 fix existed only as authored-but-unexecuted SQL). Pass 2 closed that gap and three further P0s an independent review found in the first pass's own migration, then executed the entire result against a genuine, isolated PostgreSQL 18.6 instance with a full adversarial test suite, not a partial or representative sample. **Pass 3 (§63) then made PostgreSQL 18 this document's and the platform's authoritative database baseline** (a deliberate architecture decision, not a disclosed deviation — PostgreSQL 16 evidence from pass 2 is retained as valid historical/legacy-compatibility evidence, since the SQL under test never changed), closed the two remaining named dependencies (`DEP-6J-06` by explicit V1 scope decision, `DEP-6J-12` via a controlled 6I compatibility amendment), and re-confirmed the core matrices on a brand-new PostgreSQL 18.6 disposable cluster never previously touched by this document's own work.
+**This verdict reflects a real state change from this document's prior revision** (which correctly declared `NOT READY — P0 BLOCKERS REMAIN`, because at that point every P0 fix existed only as authored-but-unexecuted SQL). Pass 2 closed that gap and three further P0s an independent review found in the first pass's own migration, then executed the entire result against a genuine, isolated PostgreSQL 18.6 instance with a full adversarial test suite, not a partial or representative sample. **Pass 3 (§63) then made PostgreSQL 18 this document's and the platform's authoritative database baseline** (a deliberate architecture decision, not a disclosed deviation — PostgreSQL 16 evidence from pass 2 is retained as valid historical/legacy-compatibility evidence, since the SQL under test never changed), closed the two remaining named dependencies (`DEP-6J-06` by explicit V1 scope decision, `DEP-6J-12` via a controlled 6I compatibility amendment), and re-confirmed the core matrices on a brand-new PostgreSQL 18.6 disposable cluster never previously touched by this document's own work. **Pass 4 (FINAL micro-closure)** then closed one genuine evidence gap independent review found in pass 3's own reporting — the webhook dual-signature *cryptographic* contract had been described as "live-confirmed" when only its *database rotation state* had actually been tested — by adding a standalone, deterministic HMAC test fixture (§64) — plus corrected two documentation-consistency defects (6I's §67 section ordering, and this document's own "no changes to 6A–6I" Document Control claim, now precise per §67's existence). No database defect was found; `101_5I1.sql` is unchanged.
 
-**Every item in the remediation task's own explicit final-status gate is satisfied, with cited live evidence, not assertion:**
+**Every item in the remediation task's own explicit final-status gate is satisfied, with cited evidence — and the table below distinguishes what *kind* of evidence backs each row, since a DB live test, a standalone cryptographic fixture, a contract-level specification check, and a future application-code item are not the same kind of proof:**
 
-| Gate requirement | Result | Evidence |
-|---|---|---|
-| Zero P0 blockers | All 10 P0s across both remediation passes closed (§61: findings 2,3,4,6,7,9,25,26,27,29) | §56 DEP table, §61 |
-| Migration executed on PostgreSQL 18 (authoritative baseline) | Fresh + incremental, both PASS, exit 0 — twice: pass 2's original instance and pass 3's independent fresh disposable cluster | Validation report §2-§3; §63 baseline report §6-§7 |
-| Single Alembic head | `101_5I1 (head)`, `current == head`, linear history — re-confirmed both passes | Validation report §4; §63 baseline report §8 |
-| Tenant-forgery tests PASS | 11/11 (pass 2), re-confirmed on fresh PG18 cluster (pass 3) | Validation report §8; §63 baseline report §9 |
-| OAuth tests PASS | 14/14 (pass 2), re-confirmed on fresh PG18 cluster (pass 3) | Validation report §9; §63 baseline report §10 |
-| Webhook rotation tests PASS | Dual-signature grace live-confirmed, both passes | Validation report §8 test 11, §12; §63 baseline report §14 |
-| Plugin lifecycle tests PASS | All legal/illegal/idempotent transitions, version-pinning capability-reset proven, both passes | Validation report §11; §63 baseline report §12 |
-| Integration lifecycle tests PASS | All legal/illegal/idempotent transitions, terminal guards re-confirmed, both passes | Validation report §10; §63 baseline report §11 |
-| Privileges PASS | `PUBLIC EXECUTE = false` on all 34 functions; every role's grant matches design | Validation report §15; §63 baseline report §17 |
-| SECURITY DEFINER inventory PASS | Owner/`BYPASSRLS`/`search_path` correct for all 34 functions, guard classification re-confirmed against all three schemas | Validation report §16; §63 baseline report §18 |
-| RLS PASS | Fail-closed with no tenant context; tenant-scoped visibility; direct DML denied | Validation report §14; §63 baseline report §16 |
-| Regression PASS | Targeted spot-check on outbox, worker-only scoping, 6I's own RLS — no regression found | Validation report §17; §63 baseline report §19 |
-| Extension compatibility PASS (new, pass 3) | `vector` 0.8.6, `pgcrypto` 1.4, `pg_stat_statements` 1.12 all install cleanly on PostgreSQL 18.6; `vector` functional-tested (distance query) | §63 baseline report §4 |
-| `DEP-6J-06` closed | `CLOSED BY V1 SCOPE DECISION` — sync remains an async trigger only in V1, no job-history table required | §56, §63 |
-| `DEP-6J-12` closed | `CLOSED` — 6I §67 compatibility amendment supplies the `credential_reference` field shape 6J §30.2 designed | §56, §63 |
+| Gate requirement | Result | Evidence kind | Evidence |
+|---|---|---|---|
+| Zero P0 blockers | All 10 P0s across both remediation passes closed (§61: findings 2,3,4,6,7,9,25,26,27,29) | DB live test (mixed, per-finding) | §56 DEP table, §61 |
+| Migration executed on PostgreSQL 18 (authoritative baseline) | Fresh + incremental, both PASS, exit 0 — twice: pass 2's original instance and pass 3's independent fresh disposable cluster | DB live test | Validation report §2-§3; §63 baseline report §6-§7 |
+| Single Alembic head | `101_5I1 (head)`, `current == head`, linear history — re-confirmed both passes | DB live test | Validation report §4; §63 baseline report §8 |
+| Tenant-forgery tests PASS | 11/11 (pass 2), re-confirmed on fresh PG18 cluster (pass 3) | DB live test | Validation report §8; §63 baseline report §9 |
+| OAuth tests PASS | 14/14 (pass 2), re-confirmed on fresh PG18 cluster (pass 3) | DB live test | Validation report §9; §63 baseline report §10 |
+| Webhook DB rotation state PASS | Dual-secret write (current + previous + grace expiry) confirmed atomic and durable, both passes | DB live test | Validation report §8 test 11, §12; §63 baseline report §14a |
+| Webhook dual-signature cryptographic contract PASS (new, pass 4) | 21/21 checks PASS — Cases A–G (normal, grace period, wrong secret, body tampering, timestamp tampering, expired grace, rotation chain), constant-time comparison | **Standalone cryptographic test fixture** (not a deployed-worker integration test — none exists) | §63 baseline report §14b; `execution_logs/fixtures/webhook_dual_signature_test.py`, `execution_logs/20260829T230000Z_FINAL6J_dual_signature_crypto_test.txt` |
+| Plugin lifecycle tests PASS | All legal/illegal/idempotent transitions, version-pinning capability-reset proven, both passes | DB live test | Validation report §11; §63 baseline report §12 |
+| Integration lifecycle tests PASS | All legal/illegal/idempotent transitions, terminal guards re-confirmed, both passes | DB live test | Validation report §10; §63 baseline report §11 |
+| Plugin/workflow version-pinning contract PASS | 6I §67 field shape and validation logic cross-checked field-for-field against 6J §30.2/§30.5 — identical | **Contract-level/specification-consistency check** (no `workflow.*` runtime code exists to execute) | §63 baseline report §13 |
+| Privileges PASS | `PUBLIC EXECUTE = false` on all 34 functions; every role's grant matches design | DB live test | Validation report §15; §63 baseline report §17 |
+| SECURITY DEFINER inventory PASS | Owner/`BYPASSRLS`/`search_path` correct for all 34 functions, guard classification re-confirmed against all three schemas | DB live test | Validation report §16; §63 baseline report §18 |
+| RLS PASS | Fail-closed with no tenant context; tenant-scoped visibility; direct DML denied | DB live test | Validation report §14; §63 baseline report §16 |
+| Regression PASS | Targeted spot-check on outbox, worker-only scoping, 6I's own RLS — no regression found | DB live test | Validation report §17; §63 baseline report §19 |
+| Extension compatibility PASS | `vector` 0.8.6, `pgcrypto` 1.4, `pg_stat_statements` 1.12 all install cleanly on PostgreSQL 18.6; `vector` functional-tested (distance query) | DB live test | §63 baseline report §4 |
+| `DEP-6J-06` closed | `CLOSED BY V1 SCOPE DECISION` — sync remains an async trigger only in V1, no job-history table required | Scope decision (not a test) | §56, §63 |
+| `DEP-6J-12` closed | `CLOSED` — 6I §67 compatibility amendment supplies the `credential_reference` field shape 6J §30.2 designed | **Contract/field-shape closure** — egress-adapter itself is a **future application implementation**, not claimed done | §56, §63; `6I-Workflow-APIs.md` §67 |
 
 **What remains genuinely open, explicitly disclosed, and does not block this verdict per the gate's own literal text:**
 - **SSRF/application-layer tests** — not performable at the database layer; no deployed application code exists anywhere in this repository to execute them against. This is a statement about the repository's contents, not a skipped test.
-- **6I `WEBHOOK`/`API_CALL` execution-block (ADR-6I-04)** — deliberately left unchanged by the 6I §67 amendment (§30.2/§56 `DEP-6J-12` closes only the field-shape/contract gap); actual node execution remains pending a real egress-adapter implementation, consistent with the fact that no application code exists anywhere in this document series.
+- **6I `WEBHOOK`/`API_CALL` execution-block (ADR-6I-04)** — deliberately left unchanged by the 6I §67 amendment (§30.2/§56 `DEP-6J-12` closes only the field-shape/contract gap); actual node execution remains pending a real egress-adapter implementation (future application implementation), consistent with the fact that no application code exists anywhere in this document series.
 - **83 of 84 `gen_uuid_v7`-affected functions outside `integrations`/`plugins`/`webhooks`** — the root-cause fix is applied and benefits all 84 transitively, but a full audit of which of the other 83 functions actually exercise the previously-broken path in practice is out of this document's scope — forward finding for the owning phases.
 - A full re-run of every historical 001-100 test file — targeted regression spot-checks only, not exhaustive re-validation of phases 5B-5H/5J/6I's own prior test suites.
 
@@ -2626,6 +2629,62 @@ Disposable cluster: `.tmp_pgdata_pg18v2` (initdb'd fresh for this pass, port 555
 ### 63.4 Housekeeping
 
 Disposable PostgreSQL data directories (`.tmp_pgdata_*`) and any throwaway validation-log staging directories are **not** committed — they are test artifacts, not project deliverables. `.gitignore` at the repository root now excludes `.tmp_pgdata_*/` and `.tmp_valid_logs/`. Only the curated, final raw-evidence files under `5K/execution_logs/` and the validation reports under `5K/validation/` are retained in version control.
+
+---
+
+## 64. Phase 6J FINAL Micro-Closure (2026-08-29) — Webhook Dual-Signature Cryptographic Proof, 6I Structural Reconciliation, Document-Control Precision
+
+Independent review found this document extremely close to approval, identified exactly three closure items, and explicitly instructed: no redesign, no new migration unless a genuine new database defect surfaces, no start of Phase 6K. None of the three items found is a database defect; `101_5I1.sql` is unchanged by this pass.
+
+### 64.1 Webhook Dual-Signature — the Evidence Gap
+
+§60/§62 (prior revision) and `6J_FINAL_BLOCKER_REMEDIATION_VALIDATION_REPORT.md` described the webhook dual-signature grace-period behavior as "live-confirmed." That claim was imprecise: the supplied raw execution logs prove only the **database rotation state** — `signing_secret_ref`, `previous_signing_secret_ref`, `previous_secret_expires_at` — written correctly and atomically by `fn_rotate_webhook_secret()`. They contain no actual HMAC computation or signature-verification test, because that function only ever touches `secret_manager://` reference strings, never raw secret bytes. Nothing in this repository had ever cryptographically exercised the signing contract itself.
+
+### 64.2 Closure — Standalone Dual-Signature Test Fixture
+
+A small, deterministic, self-contained test fixture — `5K/execution_logs/fixtures/webhook_dual_signature_test.py` — independently re-implements exactly the contract §21.1-§21.3 documents (`HMAC-SHA256("ts=<timestamp>.<raw_body>")`, `v1=<hex>` header format, constant-time comparison via `hmac.compare_digest`) using deterministic, explicitly non-sensitive test secrets (`test-secret-A/B/C/D-deterministic-...`, never production values) and a fixed deterministic timestamp/payload. It does not implement, import, or invoke any deployed webhook worker — none exists anywhere in this repository, consistent with every other phase in this document series being design-only.
+
+Seven adversarial cases, matching the governing review's own enumeration:
+
+| Case | Scenario | Result |
+|---|---|---|
+| A | Normal, no rotation — current secret only | PASS — `X-Platform-Signature` present, `-Previous` absent, current secret verifies |
+| B | Active grace period — current + previous | PASS — both headers present; current secret verifies current header; previous secret verifies previous header; both computed over the identical `(timestamp, raw_body)` pair |
+| C | Wrong secret | PASS — verification correctly **fails** (constant-time compare) |
+| D | Body tampering (one byte flipped) | PASS — both current- and previous-secret verifications correctly **fail** |
+| E | Timestamp tampering (header timestamp changed, signature not recomputed) | PASS — verification correctly **fails** |
+| F | Grace expired | PASS — `X-Platform-Signature` present; `-Previous` correctly absent (matches `fn_rotate_webhook_secret`'s own `previous_secret_expires_at`-gated emission contract); the retired previous secret verifies nothing, since no header remains to check it against |
+| G | Second rotation (C→D) | PASS — new current (D) verifies the current header; new previous (C) verifies the previous header; the original retired secret (A) and the now-two-generations-stale secret (B) verify against **neither** header — confirming the single-generation-only design (6J §61 row 31) holds across a second rotation, not just the first |
+
+**Result: 21/21 checks PASS, exit code 0.** Raw log (no real secret values, redacted/deterministic-test-only as instructed): `5K/execution_logs/20260829T230000Z_FINAL6J_dual_signature_crypto_test.txt`.
+
+### 64.3 Terminology Correction
+
+For an **outbound** platform webhook, the **platform delivery worker SIGNS** every delivery attempt; the **external consumer** (the tenant's own receiving endpoint) **VERIFIES** it. `POSTGRESQL_18_BASELINE_AND_6J_FINAL_VALIDATION_REPORT.md` §14's prior wording ("a delivery worker can verify against either during the grace window") blurred this — corrected there to split the claim explicitly into **§14a DB rotation state (LIVE PASS, PostgreSQL 18.6)** and **§14b dual-signature cryptographic contract (TEST FIXTURE PASS)**, with an explicit statement that the fixture is a cryptographic contract test, not a deployed production-worker integration test.
+
+### 64.4 6I Structural Reconciliation
+
+`6I-Workflow-APIs.md`'s §67 compatibility amendment had been inserted at the wrong point on first pass — landing between §66.5 and §66.6-§66.9, splitting §66's own subsection sequence in two. Corrected: §66 now runs uninterrupted through §66.9 ("Final Verdict"), followed by §67 (§67.1-§67.5) as the document's true final section — no content duplicated, no historical section renumbered, only the misplaced block's position corrected. 6I's stale closing line ("Phase 6J not started" — false, since Phase 6J had already reached its own final closure pass by the time §67 was added) is replaced with historically accurate language: 6I's original design was completed and approved before 6J began; §67 is one small, controlled, narrowly-scoped compatibility amendment added during 6J's own closure; no broader 6I architecture, workflow-execution design, or Phase 5 workflow database schema was reopened; Phase 6J itself is explicitly stated as not yet frozen. 6I's own Document Control (§1) now carries an "Amendment history" row disclosing §67 precisely, rather than implying the document was never amended.
+
+### 64.5 6J Document-Control Precision
+
+This document's own Document Control (§1) previously stated "Phase 6A–6I are APPROVED/FROZEN. No changes made to any of them by this document" — no longer accurate once §67 existed. Corrected to: 6A–6H remain unchanged; 6I remains frozen except for the one explicitly authorized, narrowly-scoped §67 amendment required to close `DEP-6J-12`; no broader 6I architecture or Phase 5 workflow persistence was changed.
+
+### 64.6 `DEP-6J-12` Wording — Reconfirmed, No Change Needed
+
+Independent review asked that `DEP-6J-12`'s closure evidence (§56) precisely distinguish contract/schema-shape closure from future runtime implementation, and not claim the egress adapter is implemented. Direct re-inspection of the existing §56 row confirms it already does this correctly (states the field-shape gap is closed, explicitly states the egress-adapter implementation "remains a forward item," explicitly states 6I's `WEBHOOK`/`API_CALL` execution-block is "unchanged") — **no wording change was required or made** to that row.
+
+### 64.7 Pass-2/Pass-3 Evidence-Scope Language — Reconfirmed, No Change Needed
+
+Independent review asked that this document not imply the entire adversarial matrix was independently rerun in pass 3, and use precise "executed this pass" vs. "cited, unchanged-SQL evidence" language. Direct re-inspection of §1's remediation-pass-3 row, §56's closure narrative, §60's status line, and §62's evidence table (all already written this way in pass 3) confirms this distinction was already present and precise — **no wording change was required or made** there either. `POSTGRESQL_18_BASELINE_AND_6J_FINAL_VALIDATION_REPORT.md`'s own §9/§10/§15/§18/§19 independently confirm the same discipline (e.g. §10: "cited, not re-run, here"; §18: "not independently re-queried in full this pass").
+
+### 64.8 What This Pass Did Not Do
+
+Did not create a new migration (`101_5I1.sql` is byte-identical; no `102_5I2` exists). Did not re-run the 001→101 migration chain (no database file changed — the accepted pass-2/pass-3 database evidence, listed in the governing review's own §11, is preserved unchanged). Did not implement the webhook worker, the egress adapter, or any other application code. Did not reopen any broader 6I or 6J architecture decision.
+
+### 64.9 Final Verdict
+
+**PHASE 6J — IMPLEMENTATION READY.** Zero P0. Zero implementation-blocking P1. The webhook dual-signature contract is now backed by a passing standalone cryptographic test fixture (§64.2) in addition to the pre-existing DB rotation-state evidence — two distinct kinds of evidence, kept explicitly distinct (§62's evidence table). Documentation-consistency defects in 6I's structure and both documents' Document Control sections are corrected. This document does not declare itself `FROZEN` — final freeze/approval remains an independent-review decision.
 
 ---
 

@@ -185,6 +185,10 @@ Representative adversarial re-confirmation (full 11-test matrix already live-pro
 
 ## 14. Webhook Signing/Rotation Result
 
+**Terminology, stated precisely (corrected this pass):** for an outbound platform webhook, the **platform delivery worker SIGNS** every delivery attempt; the **external consumer (the tenant's own receiving endpoint) VERIFIES** it. The two claims below are two different kinds of evidence and must not be described as one test:
+
+**14a. DB rotation state — LIVE PASS on PostgreSQL 18.6:**
+
 ```sql
 -- endpoint created with signing_secret_ref = 'secret_manager://webhook/v1'
 SELECT webhooks.fn_rotate_webhook_secret(org_id, endpoint_id, 'secret_manager://webhook/v2', 3600);
@@ -193,7 +197,9 @@ SELECT webhooks.fn_rotate_webhook_secret(org_id, endpoint_id, 'secret_manager://
 -- previous_secret_expires_at > NOW()  -> true (grace window active)
 ```
 
-**Result: PASS.** The rotated endpoint carries both the new current secret and the prior secret with a live, unexpired grace-period timestamp in the same atomic call — a delivery worker can verify against either during the grace window. Re-confirms the identical result already proven in the prior pass against the same unchanged function. Raw log: `execution_logs/20260829T220000Z_06_tenant_forgery_oauth_integration_lifecycle_matrix.txt` (test 8).
+**Result: PASS.** The rotated endpoint durably carries both the new current secret reference and the prior secret reference with a live, unexpired grace-period timestamp, written atomically in the same function call. This proves the **database state** a delivery worker would read from during the grace window is correct — it does **not** by itself prove any HMAC was correctly computed or verified, because `fn_rotate_webhook_secret` only ever touches `secret_manager://` reference strings, never raw secret bytes or signatures. Re-confirms the identical result already proven in the prior pass against the same unchanged function. Raw log: `execution_logs/20260829T220000Z_06_tenant_forgery_oauth_integration_lifecycle_matrix.txt` (test 8).
+
+**14b. Dual-signature cryptographic contract — TEST FIXTURE PASS (new this pass):** a standalone, deterministic HMAC-SHA256 test fixture (`execution_logs/fixtures/webhook_dual_signature_test.py`) — not the deployed application, since none exists in this repository — independently re-implements exactly the canonical signing string 6J §21.1-§21.3 specifies (`ts=<timestamp>.<raw_body>`, `HMAC-SHA256`, constant-time comparison via `hmac.compare_digest`) and exercises it against seven adversarial cases: normal/no-rotation, active grace period (current+previous both verify, same timestamp/body), wrong secret (rejected), tampered body (rejected, both signatures), tampered timestamp (rejected), grace expired (previous header correctly absent), and a second rotation B→C→D (each generation's secret verifies only its own current-generation header; retired secrets A and B are never accepted against any live header). **21/21 checks PASS**, exit code 0. Raw log: `execution_logs/20260829T230000Z_FINAL6J_dual_signature_crypto_test.txt`. **This is a cryptographic contract test, not a deployed production-worker integration test** — it proves the contract's own HMAC construction is sound and self-consistent, not that any running platform code implements it correctly, because no such running code exists to test.
 
 ## 15. Inbound Callback Security Result
 
@@ -229,8 +235,47 @@ Fresh + incremental migration (§5-§6) exercising all 101 revisions from `001_5
 
 ---
 
+# Final Micro-Closure (2026-08-29, fourth pass — three closure items)
+
+Independent review found the entries above complete except for one genuine evidence gap: §14's original wording claimed the webhook dual-signature behavior was "live-confirmed" when the supplied raw logs proved only database rotation state, not any actual HMAC computation or verification. This section records the closure of that gap plus two structural documentation-consistency items, without touching `101_5I1.sql` or re-running the migration chain (no new database defect was found — none of these three items are database defects).
+
+## Webhook Dual-Signature Cryptographic Test
+
+`PASS`
+
+A standalone, deterministic HMAC-SHA256 test fixture — `execution_logs/fixtures/webhook_dual_signature_test.py`, no deployed application code invoked (none exists in this repository) — independently re-implements 6J §21.1-§21.3's exact canonical signing string (`ts=<timestamp>.<raw_body>`, HMAC-SHA256, constant-time `hmac.compare_digest`) and exercises Cases A–G (normal, active grace period, wrong secret, body tampering, timestamp tampering, expired grace, second rotation with retired-secret rejection). **21/21 checks PASS, exit code 0.** Full detail and role terminology correction (platform SIGNS, consumer VERIFIES) in §14 above.
+
+## Raw HMAC Test Log
+
+`execution_logs/20260829T230000Z_FINAL6J_dual_signature_crypto_test.txt` — full command, full fixture output (all 21 case results), exit code. No real secret values present; all test secrets are deterministic, explicitly non-sensitive ASCII literals (`test-secret-A/B/C/D-deterministic-...`), clearly labeled as such in both the fixture and the log.
+
+## 6I Compatibility Reconciliation
+
+`PASS`
+
+`6I-Workflow-APIs.md`'s §67 compatibility amendment was structurally misplaced on first insertion — it had landed between §66.5 and §66.6-§66.9, splitting §66's own subsection sequence. Corrected: §66 (through §66.9 Final Verdict) now runs uninterrupted, followed by §67 (§67.1-§67.5) as the document's true final section. No content was duplicated or lost in the reorder — only position changed. The document's stale closing line (**"Phase 6J not started"**, false since Phase 6J had already reached its own closure pass) is replaced with historically accurate language stating 6I was completed and approved before 6J began, that §67 is a narrowly-scoped compatibility amendment added during 6J's closure, that no broader 6I architecture was reopened, and that Phase 6J itself is not yet frozen. 6I's Document Control (§1) now carries an explicit "Amendment history" row disclosing §67 rather than implying the document was never amended.
+
+## Documentation Evidence Reconciliation
+
+`PASS`
+
+- 6J's Document Control corrected from "No changes made to any of [6A–6I]" (false, since 6I received §67) to: 6A–6H unchanged; 6I frozen except for the explicit, narrowly-scoped §67 amendment; no Phase 5 workflow database schema or broader 6I architecture touched.
+- §14's webhook-rotation wording corrected from "a delivery worker can verify against either" (imprecise — a worker signs, it does not verify its own outbound signatures) to the precise SIGN/VERIFY role split, with the DB-state claim (14a) and the cryptographic-contract claim (14b) now kept explicitly separate rather than implied to be one test.
+- `DEP-6J-12`'s closure evidence (6J §56) already correctly distinguished contract/field-shape closure from future runtime implementation prior to this pass — confirmed unchanged and re-verified as precise, no edit required there.
+- Pass-2/pass-3 evidence-scope language (6J §1 remediation-pass rows, this report's own §9/§10/§15/§18/§19) already correctly distinguishes "executed this pass" from "cited, unchanged-SQL evidence from a prior pass" for every category — confirmed unchanged and re-verified as precise, no edit required there.
+
+## Remaining P0
+
+`NONE`
+
+## Remaining implementation-blocking P1
+
+`NONE`
+
+---
+
 ## Verdict
 
-`PHASE 6J — IMPLEMENTATION READY` (restated; PostgreSQL 18.6 authoritative baseline).
+`PHASE 6J — IMPLEMENTATION READY` (restated; PostgreSQL 18.6 authoritative baseline; webhook dual-signature cryptographic contract now evidenced by a standalone test fixture, not merely asserted from DB state).
 
-Zero P0. Zero implementation-blocking P1. `DEP-6J-06` closed by V1 scope decision. `DEP-6J-12` closed via the 6I §67 compatibility amendment. Every remaining item is either explicitly non-blocking or honestly labeled as untestable at this repository's current layer (no application code exists to execute against). This report does not declare itself, nor `6J-Integrations-Webhooks-Plugins-APIs.md`, `FROZEN` — final freeze/approval remains an independent-review decision.
+Zero P0. Zero implementation-blocking P1. `DEP-6J-06` closed by V1 scope decision. `DEP-6J-12` closed via the 6I §67 compatibility amendment (field-shape/contract closure — the egress-adapter implementation itself remains a future item, not claimed done). The webhook dual-signature contract is now backed by a passing standalone cryptographic test fixture in addition to the pre-existing DB rotation-state evidence — these are two distinct kinds of evidence, kept distinct in this report, neither substituting for the other. Every remaining item is either explicitly non-blocking or honestly labeled as untestable at this repository's current layer (no application code exists to execute against). This report does not declare itself, nor `6J-Integrations-Webhooks-Plugins-APIs.md`, `FROZEN` — final freeze/approval remains an independent-review decision.

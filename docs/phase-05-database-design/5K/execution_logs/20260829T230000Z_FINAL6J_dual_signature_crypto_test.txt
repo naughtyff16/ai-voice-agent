@@ -1,0 +1,61 @@
+Command: py -3 docs/phase-05-database-design/5K/execution_logs/fixtures/webhook_dual_signature_test.py
+Purpose: Phase 6J FINAL micro-closure item 1/2/3 -- standalone cryptographic proof of the
+webhook dual-signature contract (6J SS21.1-SS21.3), independent of any deployed application
+code (none exists in this repository). Not a production-worker integration test -- see
+the fixture script's own module docstring for the precise scope statement.
+
+========================================================================================
+Phase 6J FINAL micro-closure -- standalone webhook dual-signature cryptographic test
+Contract under test: 6J-Integrations-Webhooks-Plugins-APIs.md SS21.1-SS21.3
+Canonical signing string: ts=<unix_timestamp>.<raw_body_bytes> ; HMAC-SHA256 ; v1=<hex>
+Comparison: hmac.compare_digest (constant-time), never a plain string ==
+Secrets used: deterministic, explicitly non-sensitive ASCII test literals only
+========================================================================================
+[PASS] Case A: normal/no-rotation: X-Platform-Signature present
+       X-Platform-Signature=v1=6dad4a805e4a3709af9fa0cf71b8b5e75f37dbe3b3498177f9dd4d8fc4718383
+[PASS] Case A: normal/no-rotation: X-Platform-Signature-Previous absent
+       no previous_signing_secret_ref set -> header contract omits X-Platform-Signature-Previous entirely
+[PASS] Case A: normal/no-rotation: current secret verifies X-Platform-Signature
+       verify(secret=B, ts, body, header) == True
+[PASS] Case B: grace period: X-Platform-Signature present
+       X-Platform-Signature=v1=ee87000bbf9dbf8c00eca1a8bf69d92caee648cbfee494593788114b8bad7181
+[PASS] Case B: grace period: X-Platform-Signature-Previous present
+       X-Platform-Signature-Previous=v1=6dad4a805e4a3709af9fa0cf71b8b5e75f37dbe3b3498177f9dd4d8fc4718383
+[PASS] Case B: grace period: current secret (C) + current header -> PASS
+       verify(secret=C, ts, body, X-Platform-Signature) == True
+[PASS] Case B: grace period: previous secret (B) + previous header -> PASS
+       verify(secret=B, ts, body, X-Platform-Signature-Previous) == True
+[PASS] Case B: grace period: both signatures computed over the identical (timestamp, raw_body) pair
+       ts=1735459200 (shared), len(raw_body)=88 bytes (shared)
+[PASS] Case C: wrong secret: verification correctly FAILS (constant-time compare)
+       verify(secret=WRONG, ts, body, header signed by C) == False (expected False)
+[PASS] Case D: body tampering: current-secret verification correctly FAILS
+       verify(secret=C, ts, TAMPERED_body, original X-Platform-Signature) == False (expected False)
+[PASS] Case D: body tampering: previous-secret verification correctly FAILS
+       verify(secret=B, ts, TAMPERED_body, original X-Platform-Signature-Previous) == False (expected False)
+[PASS] Case E: timestamp tampering: verification correctly FAILS
+       verify(secret=C, TAMPERED_ts=1735462800, body, original header) == False (expected False)
+[PASS] Case F: grace expired: X-Platform-Signature (current) still present
+       X-Platform-Signature=v1=ee87000bbf9dbf8c00eca1a8bf69d92caee648cbfee494593788114b8bad7181
+[PASS] Case F: grace expired: X-Platform-Signature-Previous absent
+       previous_secret_expires_at <= NOW() -> delivery worker omits X-Platform-Signature-Previous
+[PASS] Case F: grace expired: old previous secret (B) no longer accepted (header not emitted to check it against)
+       no previous header exists post-expiry, so B cannot verify anything -- correctly inert
+[PASS] Case G: rotation C->D: new current (D) verifies X-Platform-Signature
+       verify(secret=D, ts, body, X-Platform-Signature) == True
+[PASS] Case G: rotation C->D: new previous (C) verifies X-Platform-Signature-Previous
+       verify(secret=C, ts, body, X-Platform-Signature-Previous) == True
+[PASS] Case G: rotation C->D: retired secret A is not represented in either header (vs current)
+       verify(secret=A, ..., X-Platform-Signature) == False (expected False)
+[PASS] Case G: rotation C->D: retired secret A is not represented in either header (vs previous)
+       verify(secret=A, ..., X-Platform-Signature-Previous) == False (expected False)
+[PASS] Case G: rotation C->D: two-generations-stale secret B is not represented (vs current)
+       verify(secret=B, ..., X-Platform-Signature) == False (expected False)
+[PASS] Case G: rotation C->D: two-generations-stale secret B is not represented (vs previous)
+       verify(secret=B, ..., X-Platform-Signature-Previous) == False (expected False)
+========================================================================================
+TOTAL: 21 checks, 21 PASS, 0 FAIL
+OVERALL: PASS
+========================================================================================
+
+Exit code: 0

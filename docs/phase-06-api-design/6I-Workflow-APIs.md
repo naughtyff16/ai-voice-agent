@@ -16,6 +16,7 @@
 | Supersedes | Nothing (6I is a new document) |
 | Governs | Nothing downstream directly, but 6J (Integrations/Webhooks) must consume the WEBHOOK/API_CALL node classification fixed here (§23) without redesigning it, and any future Phase that resolves ADR-5G-010 (prompt-version pinning) must reconcile against §27's carry-forward. |
 | Date | 2026-08-29 |
+| Amendment history | The original 6I design (§1–§62) was completed, adversarially reviewed, and approved (§63–§66, all 2026-08-29) — that approval status is **unchanged and remains authoritative**. One subsequent, narrowly-scoped compatibility amendment was added: **§67** (2026-08-29, same day, during Phase 6J's own final closure pass) — adds a `credential_reference` field to `WebhookNodeConfig`/`ApiCallNodeConfig` (§11) and its publish/runtime validation contract, required to close 6J's `DEP-6J-12`. §67 does **not** reopen or redesign any part of §1–§66: no Phase 5 workflow database schema, migration, function, grant, or RLS policy is touched, no workflow execution architecture is changed, and ADR-6I-04's `WEBHOOK`/`API_CALL` execution-block (§23) is explicitly left in place. This document has therefore been amended once, in this one controlled, disclosed way — it was not "never amended," and the amendment does not constitute a broader reopening of Phase 6I. |
 
 ---
 
@@ -1670,6 +1671,27 @@ AFTER:  GRANT EXECUTE ON FUNCTION workflow.fn_start_workflow_execution(...)
 
 Every guarantee named in the governing task's own final checklist re-confirmed live this pass: guarded publish only; mandatory exact-draft precondition; Archive↔StartExecution serialization; monotonic checkpoint CAS; durable side-effect claim identity; `SUBMITTING` cannot become retryable `FAILED`; `AMBIGUOUS` cannot auto-retry; no raw-DML lifecycle bypass; **`app_platform_admin` cannot start Workflow executions (closed by this pass)**; `WorkflowVersion` history immutable; `WEBHOOK`/`API_CALL` still execution-blocked pending 6J. All eleven hold.
 
+### 66.6 Documentation Reconciled
+
+- `docs/phase-05-database-design/5K/migrations/100_5G1.sql` — amended in place a fourth time.
+- `docs/phase-05-database-design/5K/alembic/versions/100_5G1.py` — docstring and `downgrade()` message updated.
+- `docs/phase-05-database-design/5K/MIGRATION_MANIFEST.md` — row 100 checksum/size updated; new top-of-log section.
+- `docs/phase-05-database-design/5K/validation/6I_FINAL_PRIVILEGE_CLEANUP_VALIDATION_REPORT.md` — new.
+- `docs/phase-06-api-design/6I-Workflow-APIs.md` (this document) — §65.3/§65.9 status-updated in place; this §66 added.
+- `docs/phase-05-database-design/5G-Workflow-Prompt-Memory-Schema.md` — §30 amendment note extended.
+
+### 66.7 Remaining Dependencies
+
+Identical to §65.7: 6J (`WEBHOOK`/`API_CALL`), ADR-5G-010 (Phase 9), `AMBIGUOUS`-claim reconciliation UI, 6K/6L/6M, Campaign ACL binding. **No open `USER DECISION REQUIRED` items remain.**
+
+### 66.8 Remaining Blockers
+
+**NONE.**
+
+### 66.9 Final Verdict
+
+**APPROVED — PHASE 6I READY TO FREEZE**
+
 ---
 
 ## 67. Phase 6I Compatibility Amendment (2026-08-29) — Plugin/Integration `credential_reference` Field Shape (Closes 6J's `DEP-6J-12`)
@@ -1735,27 +1757,6 @@ Any failure of 1–2 or 4–5 surfaces as `422 WORKFLOW_REFERENCE_NOT_READY` (co
 
 This amendment closes 6J's `DEP-6J-12` (the credential-reference field-shape cross-phase coordination item) from 6I's side of the boundary — the field now exists, in the exact shape 6J's own design specified, with a complete publish/runtime validation contract. It leaves 6I's `DEP` item 5 (§54) and ADR-6I-04 (§23) in their existing `EXECUTION-BLOCKED` classification, unchanged, pending a real implementation phase — consistent with the governing task's explicit instruction not to reopen Phase 6I broadly and not to fabricate a claim that runtime code now exists where it does not.
 
-### 66.6 Documentation Reconciled
-
-- `docs/phase-05-database-design/5K/migrations/100_5G1.sql` — amended in place a fourth time.
-- `docs/phase-05-database-design/5K/alembic/versions/100_5G1.py` — docstring and `downgrade()` message updated.
-- `docs/phase-05-database-design/5K/MIGRATION_MANIFEST.md` — row 100 checksum/size updated; new top-of-log section.
-- `docs/phase-05-database-design/5K/validation/6I_FINAL_PRIVILEGE_CLEANUP_VALIDATION_REPORT.md` — new.
-- `docs/phase-06-api-design/6I-Workflow-APIs.md` (this document) — §65.3/§65.9 status-updated in place; this §66 added.
-- `docs/phase-05-database-design/5G-Workflow-Prompt-Memory-Schema.md` — §30 amendment note extended.
-
-### 66.7 Remaining Dependencies
-
-Identical to §65.7: 6J (`WEBHOOK`/`API_CALL`), ADR-5G-010 (Phase 9), `AMBIGUOUS`-claim reconciliation UI, 6K/6L/6M, Campaign ACL binding. **No open `USER DECISION REQUIRED` items remain.**
-
-### 66.8 Remaining Blockers
-
-**NONE.**
-
-### 66.9 Final Verdict
-
-**APPROVED — PHASE 6I READY TO FREEZE**
-
 ---
 
-**STOP — Phase 6I complete (Blocker Remediation §63, FINAL Blocker Remediation §64, FINAL MICRO-REMEDIATION §65, and FINAL PRIVILEGE CLEANUP §66, all same day). Phase 6J not started.**
+**STOP — Phase 6I original design was completed, live-validated, and approved (Blocker Remediation §63, FINAL Blocker Remediation §64, FINAL MICRO-REMEDIATION §65, and FINAL PRIVILEGE CLEANUP §66, all 2026-08-29) before Phase 6J began. Phase 6J subsequently reached its own final closure pass and, in the course of that closure, required this document to receive one small, controlled, narrowly-scoped compatibility amendment (§67, also 2026-08-29) to close 6J's own `DEP-6J-12` — no broader Phase 6I architecture, workflow execution design, or Phase 5 workflow database schema was reopened or changed by that amendment. Phase 6J itself is not yet frozen — see `6J-Integrations-Webhooks-Plugins-APIs.md` for its own current status.**
