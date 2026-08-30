@@ -1,0 +1,278 @@
+Timing is off.
+Pager usage is off.
+=== FIXTURE SETUP ===
+SET
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+RESET
+
+################ FINAL-6K-C01/C02: CALLBACK-BEFORE-RESPONSE CONVERGENCE + DURABLE RETRY ################
+--- Q1: ingress records receipt WITH normalized provider_transaction_id (durable from the start) ---
+SET
+RESET
+SET
+--- Q2: PROCESSING transition BEFORE the payment_attempt/provider linkage exists yet (the callback-before-response race) ---
+ resolved | resolved_payment_attempt_id | resolved_organization_id 
+----------+-----------------------------+--------------------------
+ t        |                             | 
+(1 row)
+
+--- Q3: caller classifies this as TRANSIENT -- transitions to RETRY_PENDING (NOT terminal FAILED) ---
+ resolved 
+----------
+ t
+(1 row)
+
+ processing_status | has_retry_time | payment_attempt_id 
+-------------------+----------------+--------------------
+ RETRY_PENDING     | t              | 
+(1 row)
+
+RESET
+--- Q4: duplicate webhook delivery WHILE retry-pending -- must NOT create a second receipt, must reaffirm (nudge next_retry_at) ---
+SET
+           dup_reaffirm_id            
+--------------------------------------
+ 01a050d5-bfed-73ee-8587-87dd3c5529bf
+(1 row)
+
+RESET
+(expect: same receipt id returned -- non-NULL, reaffirmed, not a fresh duplicate no-op)
+--- Q5: provider API response NOW links the transaction (the race resolves) ---
+SET
+SET
+RESET
+SET
+ fn_link_payment_provider_transaction 
+--------------------------------------
+ 
+(1 row)
+
+--- Q6: reconciliation retry -- RETRY_PENDING -> PROCESSING, correlation now resolves (reads provider_transaction_id from the ROW, no caller argument needed) ---
+ resolved |     resolved_payment_attempt_id      |       resolved_organization_id       
+----------+--------------------------------------+--------------------------------------
+ t        | 01a050d5-bffd-7efe-8ced-ed5b67424b36 | 11111111-1111-1111-1111-111111111111
+(1 row)
+
+ processing_status |          payment_attempt_id          |           organization_id            
+-------------------+--------------------------------------+--------------------------------------
+ PROCESSING        | 01a050d5-bffd-7efe-8ced-ed5b67424b36 | 11111111-1111-1111-1111-111111111111
+(1 row)
+
+--- Q7: settle atomically -- this is the eventual convergence: no provider redelivery was required ---
+ fn_update_payment_status 
+--------------------------
+ 
+(1 row)
+
+ applied |     resolved_payment_attempt_id      |       resolved_organization_id       
+---------+--------------------------------------+--------------------------------------
+ t       | 01a050d5-bffd-7efe-8ced-ed5b67424b36 | 11111111-1111-1111-1111-111111111111
+(1 row)
+
+ processing_status |          payment_attempt_id          |           organization_id            | has_processed_at 
+-------------------+--------------------------------------+--------------------------------------+------------------
+ PROCESSED         | 01a050d5-bffd-7efe-8ced-ed5b67424b36 | 11111111-1111-1111-1111-111111111111 | t
+(1 row)
+
+ status 
+--------
+ PAID
+(1 row)
+
+RESET
+
+################ CRASH RECOVERY: RECEIPT SURVIVES COMMIT WITHOUT EVER BEING ENQUEUED ################
+--- Q8: simulate a receipt that was durably committed but NEVER processed at all (crash before any worker touched it) ---
+SET
+RESET
+(simulated crash: no Celery enqueue occurred -- nothing else happens here)
+--- Q9: reconciliation worker discovers it purely via idx_pwr_status scan, with NO knowledge of the original request ---
+                  id                  | processing_status | provider_transaction_id | settled_amount 
+--------------------------------------+-------------------+-------------------------+----------------
+ 01a050d5-c005-75a7-952a-2a7dfb9bb39b | RECEIVED          | txn_conv_crash          |      2000.0000
+(1 row)
+
+SET
+SET
+RESET
+SET
+ fn_link_payment_provider_transaction 
+--------------------------------------
+ 
+(1 row)
+
+ fn_update_payment_status 
+--------------------------
+ 
+(1 row)
+
+ applied |     resolved_payment_attempt_id      
+---------+--------------------------------------
+ t       | 01a050d5-c006-76cc-b58b-8bf623cdf368
+(1 row)
+
+(expect: recovered and settled purely from durable DB state, no re-delivery needed)
+ processing_status 
+-------------------
+ PROCESSED
+(1 row)
+
+RESET
+
+################ FINAL-6K-C03: PROCESSED MUST MEAN INVOICE SETTLEMENT ################
+--- Q10: PaymentAttempt SUCCEEDED but Invoice still OPEN (constructed directly) -> attempt PROCESSED via fn_process_payment_webhook_receipt MUST FAIL (function no longer accepts PROCESSED at all) ---
+SET
+(expect: invalid status error -- PROCESSED not a legal target for this function anymore)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_converge_test_matrix.sql:89: ERROR:  billing: invalid payment_webhook_receipts status PROCESSED for fn_process_payment_webhook_receipt — PROCESSED is settled exclusively via fn_apply_successful_payment_webhook_receipt
+CONTEXT:  PL/pgSQL function fn_process_payment_webhook_receipt(uuid,text,text,timestamp with time zone) line 22 at RAISE
+RESET
+--- Q11: partial-settlement negative test -- construct a fresh attempt SUCCEEDED, invoice OPEN, then attempt full settlement, verify amount/currency/provider guards ---
+SET
+INSERT 0 1
+RESET
+SET
+RESET
+SET
+SET
+RESET
+SET
+ fn_link_payment_provider_transaction 
+--------------------------------------
+ 
+(1 row)
+
+(expect: amount mismatch exception -- settled 9999 vs expected 3000, no settlement)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_converge_test_matrix.sql:107: ERROR:  billing: payment_webhook_receipt 01a050d5-c00b-7b81-8917-170b0a0ab58f amount mismatch (settled=9999.0000, expected=3000.0000) — refusing settlement
+CONTEXT:  PL/pgSQL function fn_apply_successful_payment_webhook_receipt(uuid) line 73 at RAISE
+ status  
+---------
+ PENDING
+(1 row)
+
+ status 
+--------
+ OPEN
+(1 row)
+
+RESET
+--- Q12: rollback proof -- force an exception mid-settlement, verify nothing committed ---
+BEGIN
+SET
+ fn_update_payment_status 
+--------------------------
+ 
+(1 row)
+
+ fn_mark_invoice_paid 
+----------------------
+ 
+(1 row)
+
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_converge_test_matrix.sql:117: ERROR:  division by zero
+ROLLBACK
+(expect after rollback: attempt still whatever it was before -- NOT SUCCEEDED from this aborted txn, invoice still OPEN, no receipt PROCESSED)
+ status  
+---------
+ PENDING
+(1 row)
+
+ status 
+--------
+ OPEN
+(1 row)
+
+
+################ DUPLICATE CONCURRENT SETTLEMENT (idempotent exactly-once) ################
+--- Q13: re-settle the ALREADY-PROCESSED q7 receipt -- must be idempotent, not an error, not a double invoice-paid attempt ---
+SET
+ applied |     resolved_payment_attempt_id      
+---------+--------------------------------------
+ t       | 01a050d5-bffd-7efe-8ced-ed5b67424b36
+(1 row)
+
+RESET
+
+################ PROVIDER/AMOUNT/CURRENCY MISMATCH FAIL-CLOSED (regression, still enforced) ################
+SET
+RESET
+SET
+(expect: FALSE, no exception -- correlation genuinely does not resolve, cross-provider)
+ applied | resolved_payment_attempt_id 
+---------+-----------------------------
+ f       | 
+(1 row)
+
+RESET
+
+################ FINAL-6K-C04: CROSS-PLAN-FAMILY COMMERCIAL PRICING ################
+--- Test A: org creates negotiated agreement for Growth -- expect PASS ---
+SET
+SET
+RESET
+(succeeded if growth_cpa_id is non-null above)
+--- Test B: SAME org creates a SECOND negotiated agreement for Enterprise -- expect PASS (this is the fix) ---
+SET
+SET
+RESET
+(succeeded if enterprise_cpa_id is non-null above -- BEFORE this pass this INSERT would have violated uq_cpa_org)
+--- Test C: org attempts a SECOND agreement for the SAME plan (Growth again) -- expect FAIL (still prohibited) ---
+SET
+SET
+(expect: violates uq_cpa_org_plan)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_converge_test_matrix.sql:161: ERROR:  duplicate key value violates unique constraint "uq_cpa_org_plan"
+DETAIL:  Key (organization_id, base_plan_id)=(11111111-1111-1111-1111-111111111111, 33333333-3333-3333-3333-333333333333) already exists.
+CONTEXT:  SQL statement "INSERT INTO billing.commercial_pricing_agreements
+    (organization_id, base_plan_id, contract_reference, created_by_ref)
+  VALUES (p_organization_id, p_base_plan_id, p_contract_reference, p_created_by_ref)
+  RETURNING id"
+PL/pgSQL function fn_create_commercial_pricing_agreement(uuid,uuid,text,text) line 11 at SQL statement
+RESET
+--- Test D: Growth agreement version cannot reference an Enterprise PlanVersion -- expect FAIL (fn_create_commercial_pricing_agreement_version already validates v_pv_plan_id = v_agreement_plan_id, pre-existing check, unaffected by this pass) ---
+SET
+SET
+(expect: exception -- plan_version does not belong to this agreement's base plan)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_converge_test_matrix.sql:168: ERROR:  billing: plan_version 66666666-6666-6666-6666-666666666666 does not belong to this agreement's base plan 33333333-3333-3333-3333-333333333333
+CONTEXT:  PL/pgSQL function fn_create_commercial_pricing_agreement_version(uuid,uuid,uuid,character,numeric,character,date,date,text,text,text,text,jsonb) line 27 at RAISE
+RESET
+--- Test E: Enterprise agreement version CAN reference the Enterprise PlanVersion -- expect PASS ---
+SET
+SET
+RESET
+(succeeded if enterprise_cpav_id is non-null above)
+SET
+ fn_activate_commercial_pricing_agreement_version 
+--------------------------------------------------
+ 
+(1 row)
+
+RESET
+--- Test G/§13.3 resolution: org+plan-aware agreement selection (the corrected algorithm) picks the Enterprise agreement for an Enterprise-pinned period, NOT any Growth agreement ---
+                  id                  |             base_plan_id             
+--------------------------------------+--------------------------------------
+ 01a050d5-c01b-7efb-8c07-077cf58a3d1c | 44444444-4444-4444-4444-444444444444
+(1 row)
+
+(expect: exactly 1 row -- the Enterprise agreement version, never the Growth one)
+
+################ REGRESSION: PRIVILEGES, CALL_MINUTES, COMMERCIAL PRICING IMMUTABILITY ################
+ app_api_ingress_exec | ingress_exec | app_api_settle_exec | worker_settle_exec | admin_insert 
+----------------------+--------------+---------------------+--------------------+--------------
+ f                    | t            | f                   | t                  | f
+(1 row)
+
+SET
+SET
+(expect: violates check constraint)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_converge_test_matrix.sql:205: ERROR:  new row for relation "usage_events_2026_08" violates check constraint "chk_ue_source_quantity_seconds"
+RESET
+SET
+(expect: permission denied)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_converge_test_matrix.sql:209: ERROR:  permission denied for table commercial_pricing_agreement_versions
+RESET
+=== DONE ===

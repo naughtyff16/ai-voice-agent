@@ -112,7 +112,34 @@ regeneration corrects that. See "Reconciliation" below for details.
 | 099 | 5C.1 | `099_5C1.sql` | `098_5E1` | transactional | 63844 | `3dcf9b245b1a352069d3ff70da2a5af625f968c4ec728adc70ae0265f623310f` |
 | 100 | 5G.1 | `100_5G1.sql` | `099_5C1` | transactional | 80135 | `9b52e7ffac8534faee64f6f9972dc1bc924d95147f3bbc28dd19b30dde2e7f55` |
 | 101 | 5I.1 | `101_5I1.sql` | `100_5G1` | transactional | 59973 | `e23c58d8cc8e233cfb353371b606c91ecdfc90700ce03fd36046c9e43b1f0d89` |
-| 102 | 5H.2 | `102_5H2.sql` | `101_5I1` | transactional | 91847 | `9c995df348eac3569a9b7b18f355ef38565ec013199078ee81eb2f1157d552c5` |
+| 102 | 5H.2 | `102_5H2.sql` | `101_5I1` | transactional | 113742 | `973044259dd3c98587142d955db33485a092cba45806aaf2576a5a77f85fd50d` |
+
+---
+
+## Phase 6K FINAL Convergence, Durability & Commercial-Pricing Remediation (2026-08-30, same day, sixth pass) — `102_5H2.sql` amended in place, PostgreSQL 18.6 re-validated
+
+**`102_5H2.sql` amended in place a sixth time — same policy as the first five passes: confirmed again before this pass began that the file's only prior applications remained disposable/already-deleted PostgreSQL instances, never persistent.** SHA-256/size updated (113742 bytes, `97304425...`, was 91847 bytes, `9c995df3...`).
+
+**Trigger:** a further independent freeze-gate review found the fifth pass's own state left 3 BLOCKERS, 1 SIGNIFICANT commercial-pricing issue, and 1 documentation-consistency issue:
+
+1. **FINAL-6K-C01 (BLOCKER — convergence).** A webhook arriving before the provider's own synchronous API response finished linking `provider_transaction_id` (the documented, expected "callback-before-response" race) had only `FAILED` available as its non-`PROCESSING` outcome — and `FAILED` is terminal, so durable dedup would then permanently strand a real, later-resolvable payment.
+2. **FINAL-6K-C02 (BLOCKER — durable recovery).** The receipt persisted only `payment_provider`/`provider_event_id`/`payload_hash` — nothing that would let a process OTHER than the one that received the original callback (e.g. a reconciliation worker recovering from a crash between this table's own `COMMIT` and a lost Celery enqueue) actually resume processing.
+3. **FINAL-6K-C03 (BLOCKER — settlement atomicity).** The fifth pass's own `payment_attempt.status = 'SUCCEEDED'` check was insufficient: `PaymentAttempt = SUCCEEDED` with `Invoice` still `OPEN` remained a reachable, incorrect path to `PROCESSED`.
+4. **SIGNIFICANT (commercial pricing).** `commercial_pricing_agreements.uq_cpa_org` (`UNIQUE(organization_id)`) made it structurally impossible for an organization to ever negotiate pricing on a second plan family.
+5. **Documentation (DEC-6K-02 wording).** The owner-decision summary's own worked line, read in isolation, could be misread as treating per-call rounded quantity as the invoice's own aggregation source, which it is not and never has been.
+
+**What this pass changes:**
+
+1. `billing.payment_webhook_receipts` gains `provider_transaction_id`, `settled_amount`, `settled_currency`, `event_occurred_at` (normalized, verified, durable — never raw payload, never a secret) and `next_retry_at`; `processing_status` gains a fourth, non-terminal value `RETRY_PENDING` (`chk_pwr_processing`, `chk_pwr_retry_scheduling`); a new index `idx_pwr_retry_due` gives a reconciliation worker a deterministic, provider-redelivery-independent scan key.
+2. `fn_record_payment_webhook_receipt` now accepts and persists the normalized fields at ingress time; its dedup path changes from `ON CONFLICT DO NOTHING` to `ON CONFLICT DO UPDATE ... WHERE processing_status IN ('RECEIVED','RETRY_PENDING')` — a duplicate of an unresolved receipt now reaffirms it (nudges `next_retry_at`) instead of being silently discarded; a duplicate of an already-settled/permanently-failed receipt remains a true no-op.
+3. `fn_process_payment_webhook_receipt` no longer accepts `PROCESSED` as a target status at all (removing the fifth pass's own re-verification hack entirely); its transition table gains `PROCESSING↔RETRY_PENDING` and `RETRY_PENDING→FAILED`; it no longer accepts `p_provider_transaction_id` as a caller parameter — it now reads it from the receipt row itself.
+4. A new function, `fn_apply_successful_payment_webhook_receipt`, is the sole path to `PROCESSED`: one atomic transaction resolves correlation, validates provider/amount/currency against the durably-stored settled values, transitions the payment_attempt to `SUCCEEDED` and the invoice to `PAID` (reusing the frozen `fn_update_payment_status`/`fn_mark_invoice_paid` verbatim, with an idempotent-if-already-`PAID` guard closing the concurrent-duplicate-settlement race), and only then marks the receipt `PROCESSED`.
+5. `commercial_pricing_agreements.uq_cpa_org` → `uq_cpa_org_plan UNIQUE(organization_id, base_plan_id)` — an organization may hold at most one agreement per plan family, any number across different families.
+6. `docs/phase-06-api-design/6K-Billing-Usage-APIs.md` — §13.3's period-open resolution algorithm corrected to join through the plan family explicitly; DEC-6K-02's wording corrected; webhook flow, threat model, invariants, authorization matrix, DB traceability, test matrix, and final status all updated to match.
+
+**Live-database validation status: PostgreSQL 18.6, fully re-validated this pass**, on a genuinely fresh, disposable local instance (`.tmp_pgdata_6kconverge`, port 5566 — stopped and deleted at the end of the batch). Fresh-database `alembic upgrade head`: **PASS, exit 0.** Incremental (`101_5I1` pinned, then `102_5H2` applied alone, separate database): **PASS, exit 0** for both steps. Single Alembic head, `current == head` on both databases. A dedicated end-to-end test matrix — the full callback-before-response convergence sequence (unresolved correlation → `RETRY_PENDING` → duplicate reaffirmation → later linkage → retry → atomic settlement), a genuine crash-recovery scenario (a receipt discovered and settled purely from durable DB state, with no Celery enqueue ever having occurred), the partial-settlement negative test, a forced-rollback atomicity proof, idempotent duplicate/concurrent settlement, provider/amount mismatch fail-closed, and the full cross-plan-family commercial-pricing test set (A-E plus the corrected §13.3 selection algorithm) — **all PASS on the first run, zero test-harness bugs.** Full transcript: `execution_logs/20260830T210000Z_04_6k_converge_output.txt`.
+
+**Consumer:** `docs/phase-06-api-design/6K-Billing-Usage-APIs.md` — closes FINAL-6K-C01 through C05 with live evidence; `PHASE 6K = READY FOR INDEPENDENT FREEZE-GATE REVIEW` reconfirmed under the corrected migration and corrected documentation.
 
 ---
 

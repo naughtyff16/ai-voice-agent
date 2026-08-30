@@ -1,0 +1,38 @@
+################ CRASH RECOVERY: RECEIPT SURVIVES COMMIT WITHOUT EVER BEING ENQUEUED ################
+--- Q8: simulate a receipt that was durably committed but NEVER processed at all (crash before any worker touched it) ---
+SET
+RESET
+(simulated crash: no Celery enqueue occurred -- nothing else happens here)
+--- Q9: reconciliation worker discovers it purely via idx_pwr_status scan, with NO knowledge of the original request ---
+                  id                  | processing_status | provider_transaction_id | settled_amount 
+--------------------------------------+-------------------+-------------------------+----------------
+ 01a050d5-c005-75a7-952a-2a7dfb9bb39b | RECEIVED          | txn_conv_crash          |      2000.0000
+(1 row)
+
+SET
+SET
+RESET
+SET
+ fn_link_payment_provider_transaction 
+--------------------------------------
+ 
+(1 row)
+
+ fn_update_payment_status 
+--------------------------
+ 
+(1 row)
+
+ applied |     resolved_payment_attempt_id      
+---------+--------------------------------------
+ t       | 01a050d5-c006-76cc-b58b-8bf623cdf368
+(1 row)
+
+(expect: recovered and settled purely from durable DB state, no re-delivery needed)
+ processing_status 
+-------------------
+ PROCESSED
+(1 row)
+
+RESET
+

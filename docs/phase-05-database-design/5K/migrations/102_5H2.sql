@@ -249,6 +249,92 @@
 --   app_billing_webhook_ingress role introduced in the third pass
 --   (FINAL-6K-01). Corrected in place to describe the current,
 --   authoritative flow.
+--
+-- SIXTH PASS (2026-08-30, same day) — amended in place a sixth time, same
+--   "never applied to any real database" policy, confirmed again before
+--   this pass began. A further independent freeze-gate review found 3
+--   remaining BLOCKERS, 1 SIGNIFICANT commercial-pricing issue, and 1
+--   documentation-consistency issue in the fifth pass's own state:
+--
+--   FINAL-6K-C01 (BLOCKER — convergence). A webhook arriving before the
+--     provider's own synchronous API response has finished linking
+--     provider_transaction_id (the documented, expected "callback-before-
+--     response" race, not an error condition) had only FAILED available
+--     as a non-PROCESSING outcome — and FAILED is terminal, so durable
+--     dedup would then permanently strand a real, later-resolvable
+--     payment. Fixed: a new non-terminal processing_status, RETRY_PENDING
+--     (with its own next_retry_at scheduling column), lets an unresolved
+--     correlation remain genuinely retryable; fn_process_payment_webhook_
+--     receipt's own transition table now permits PROCESSING↔RETRY_PENDING
+--     cycling before a caller's own governed policy (never hard-coded
+--     here, task §34) ever calls FAILED.
+--   FINAL-6K-C02 (BLOCKER — durable recovery). The receipt persisted only
+--     payment_provider/provider_event_id/payload_hash — none of which let
+--     a process OTHER than the one that received the original callback
+--     (e.g. a periodic reconciliation worker, recovering from a crash
+--     between this table's own COMMIT and the Celery enqueue meant to
+--     follow it) actually resume processing; provider_transaction_id and
+--     the settled amount/currency needed for correlation and validation
+--     existed only as transient function arguments in the live request's
+--     own memory. Fixed: fn_record_payment_webhook_receipt now persists
+--     these as NORMALIZED, VERIFIED columns (provider_transaction_id,
+--     settled_amount, settled_currency, event_occurred_at — never raw
+--     payload, never a secret, task §12) at the moment the receipt itself
+--     becomes durable; a new idx_pwr_retry_due index gives a
+--     reconciliation worker a deterministic scan key
+--     (processing_status = 'RETRY_PENDING' AND next_retry_at <= now())
+--     that needs no provider redelivery to recover from a lost enqueue.
+--     A duplicate delivery of a still-unresolved receipt now reaffirms
+--     (pulls next_retry_at forward) rather than being silently discarded
+--     (fn_record_payment_webhook_receipt's ON CONFLICT DO UPDATE ... WHERE
+--     — task §6); a duplicate of an already-settled/permanently-failed
+--     receipt remains the pre-existing true no-op.
+--   FINAL-6K-C03 (BLOCKER — settlement atomicity). The fifth pass's own
+--     fix required payment_attempt.status = 'SUCCEEDED' before permitting
+--     PROCESSED, but a further independent review found this insufficient:
+--     PaymentAttempt = SUCCEEDED with Invoice still OPEN remained a
+--     reachable, incorrect PROCESSED state, since the payment-attempt
+--     transition and the invoice-paid transition could commit separately.
+--     Fixed: PROCESSED is no longer reachable via fn_process_payment_
+--     webhook_receipt AT ALL — the fifth pass's own re-verification hack
+--     is removed. A new single guarded command,
+--     fn_apply_successful_payment_webhook_receipt, is now the EXCLUSIVE
+--     path to PROCESSED: inside one transaction it resolves correlation,
+--     validates provider/amount/currency, transitions the payment_attempt
+--     to SUCCEEDED (reusing the frozen 057_5H.sql fn_update_payment_status
+--     verbatim) and the invoice to PAID (reusing the frozen
+--     fn_mark_invoice_paid, skipped idempotently if already PAID — closing
+--     the concurrent-duplicate-settlement race, task §39, since that
+--     frozen function has no idempotent-same-state branch of its own), and
+--     only then marks the receipt PROCESSED — a crash or exception at any
+--     point rolls every one of these back together, structurally.
+--   SIGNIFICANT (commercial pricing, task §23-§29). commercial_pricing_
+--     agreements.uq_cpa_org (UNIQUE(organization_id)) made it structurally
+--     impossible for an organization to ever negotiate pricing on a
+--     second plan family — moving from a negotiated Growth agreement to
+--     Enterprise could neither create a second agreement (blocked by this
+--     constraint) nor repoint the existing one (base_plan_id is correctly,
+--     deliberately immutable and must remain so). Fixed: UNIQUE(
+--     organization_id, base_plan_id) — at most one agreement per
+--     organization PER plan family, any number of agreements across
+--     different plan families, each independently immutable. The driving
+--     API document's own §13.3 period-open resolution algorithm (an
+--     application-layer query, not a DB function) is corrected in the same
+--     pass to join through the plan family explicitly rather than
+--     selecting "the org's one agreement" by organization_id alone —
+--     exact PlanVersion pinning (task §25) is otherwise completely
+--     unaffected: an agreement VERSION still pins an exact
+--     base_plan_version_id, unchanged.
+--   Documentation issue (DEC-6K-02 wording, task §30-§31). The owner-
+--     decision summary's own worked implementation line, quoted in
+--     isolation, read as if per-call ROUND(duration_seconds/60,4) were
+--     itself the authoritative invoice billing source — it is not, and
+--     never has been since §12.7a/§22.3's own exact-seconds correction;
+--     the ambiguity was in the DEC-6K-02 summary's own wording, not the
+--     implementation. Corrected in the driving document to state the two
+--     distinct quantities explicitly: source_quantity_seconds (exact,
+--     authoritative) vs. the audit-only per-row quantity display value,
+--     with the invoice's own aggregation formula stated in full.
 -- =================================================================
 
 
@@ -267,7 +353,25 @@ CREATE TABLE billing.commercial_pricing_agreements (
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
   CONSTRAINT pk_cpa            PRIMARY KEY (id),
-  CONSTRAINT uq_cpa_org        UNIQUE (organization_id),
+  -- SIXTH freeze-gate pass (SIGNIFICANT, task §23-§24): the original
+  -- UNIQUE(organization_id) made it structurally impossible for an
+  -- organization to ever receive negotiated pricing on a second plan
+  -- family — moving from a negotiated Growth agreement to Enterprise
+  -- could neither create a second agreement (this constraint blocked it)
+  -- nor repoint the existing one (base_plan_id is immutable by design,
+  -- trg_cpa_identity_immutable below, and must remain so — see rationale
+  -- there). Corrected to UNIQUE(organization_id, base_plan_id): an
+  -- organization may hold at most one agreement PER plan family, and any
+  -- number of agreements across DIFFERENT plan families, each with its
+  -- own independent, immutable history. This does not weaken anything —
+  -- within a single plan family, the exact same "at most one" guarantee
+  -- holds as before; commercial_pricing_agreement_versions' own exact
+  -- base_plan_version_id pin (below) and uq_cpav_id_org (which selection
+  -- queries must always resolve THROUGH, never merely by organization_id
+  -- alone — see the driving API document's §13.3, corrected this pass)
+  -- are what prevent a Growth agreement from ever silently applying to an
+  -- Enterprise subscription; this constraint alone was never that guard.
+  CONSTRAINT uq_cpa_org_plan   UNIQUE (organization_id, base_plan_id),
   -- Composite-FK support target for every child table below (task
   -- requirement: DB-enforced, not application-convention, tenant
   -- consistency between an agreement and everything hanging off it).
@@ -750,25 +854,63 @@ GRANT EXECUTE ON FUNCTION billing.fn_create_payment_attempt(UUID, TEXT)
 -- path — organization_id is populated only once resolved, post-
 -- verification, exactly like audit.domain_event_outbox's own nullable
 -- organization_id column.
+-- SIXTH freeze-gate pass (convergence, durability, atomic settlement):
+-- three normalized columns and a retry-scheduling column are added below,
+-- and processing_status gains a fourth, non-terminal value, RETRY_PENDING
+-- — closing two confirmed blockers a further independent review found:
+--   (a) a receipt whose provider transaction had not yet been linked to a
+--       local payment_attempt (the ordinary "callback arrives before the
+--       provider's own synchronous API response finishes linking it" race,
+--       §4/§9 of the driving task) had only FAILED to transition to —
+--       and FAILED is terminal, so durable dedup would then permanently
+--       suppress the genuine, later-resolvable event. RETRY_PENDING (with
+--       next_retry_at) gives a transient, non-terminal outcome distinct
+--       from a governed permanent FAILED classification.
+--   (b) the receipt stored only payment_provider/provider_event_id/
+--       payload_hash — none of which let a RECONCILIATION WORKER (running
+--       independently of, and later than, the original request process,
+--       e.g. after a crash between this table's own COMMIT and the
+--       Celery enqueue that was meant to follow it) actually resume
+--       processing: the provider_transaction_id and the settled amount/
+--       currency needed to correlate and validate a payment were never
+--       durable, only ever passed as transient function *parameters* by
+--       whichever process handled the request live. provider_transaction_id,
+--       settled_amount, settled_currency, and event_occurred_at are
+--       NORMALIZED, VERIFIED values (never raw payload, never a payment
+--       secret — task §12) captured once at ingress time, so any later
+--       worker — the original one, a retry, or a periodic reconciliation
+--       scan reading purely from this table via idx_pwr_status/
+--       idx_pwr_retry_due below — has everything it needs without ever
+--       requiring the provider to redeliver the event.
 CREATE TABLE billing.payment_webhook_receipts (
-  id                    UUID        NOT NULL DEFAULT gen_uuid_v7(),
-  payment_provider      TEXT        NOT NULL,
-  provider_event_id     TEXT        NOT NULL,
-  received_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  processing_status     TEXT        NOT NULL DEFAULT 'RECEIVED',
-  payload_hash          CHAR(64)    NULL,   -- SHA-256 of the raw, already-verified payload bytes; raw payload itself never stored (5I ADR-5I-010 precedent)
-  payment_attempt_id    UUID        NULL REFERENCES billing.payment_attempts(id),
-  organization_id       UUID        NULL,   -- populated only once payment_attempt_id resolves it (§23) — never trusted from the payload before that
-  attempt_count         INTEGER     NOT NULL DEFAULT 0,
-  last_error            TEXT        NULL,
-  processed_at          TIMESTAMPTZ NULL,
-  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  id                       UUID        NOT NULL DEFAULT gen_uuid_v7(),
+  payment_provider         TEXT        NOT NULL,
+  provider_event_id        TEXT        NOT NULL,
+  received_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  processing_status        TEXT        NOT NULL DEFAULT 'RECEIVED',
+  payload_hash             CHAR(64)    NULL,   -- SHA-256 of the raw, already-verified payload bytes; raw payload itself never stored (5I ADR-5I-010 precedent)
+  provider_transaction_id  TEXT        NULL,   -- normalized, verified provider transaction/payment reference — durable correlation key, independent of any live request process (sixth pass)
+  settled_amount           NUMERIC(18,4) NULL, -- normalized, verified provider-reported settled amount — durable backstop for §30.6's amount check, independent of the original payload (sixth pass)
+  settled_currency         CHAR(3)     NULL,   -- normalized, verified provider-reported currency (sixth pass)
+  event_occurred_at        TIMESTAMPTZ NULL,   -- provider's own reported event timestamp, normalized (sixth pass) — audit/staleness use, no behavior currently keys off it
+  payment_attempt_id       UUID        NULL REFERENCES billing.payment_attempts(id),
+  organization_id          UUID        NULL,   -- populated only once payment_attempt_id resolves it (§23) — never trusted from the payload before that
+  attempt_count            INTEGER     NOT NULL DEFAULT 0,
+  next_retry_at            TIMESTAMPTZ NULL,   -- non-NULL only while RETRY_PENDING (sixth pass) — the durable reconciliation worker's own scan key (idx_pwr_retry_due)
+  last_error               TEXT        NULL,
+  processed_at             TIMESTAMPTZ NULL,
+  created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
   CONSTRAINT pk_pwr                PRIMARY KEY (id),
   CONSTRAINT uq_pwr_provider_event UNIQUE (payment_provider, provider_event_id),  -- NOT DEFERRABLE: the atomic ON CONFLICT dedup gate requires an immediate constraint
-  CONSTRAINT chk_pwr_processing    CHECK (processing_status IN ('RECEIVED','PROCESSING','PROCESSED','FAILED')),
+  CONSTRAINT chk_pwr_processing    CHECK (processing_status IN ('RECEIVED','PROCESSING','RETRY_PENDING','PROCESSED','FAILED')),
   CONSTRAINT chk_pwr_last_error_len CHECK (last_error IS NULL OR length(last_error) <= 2000),
   CONSTRAINT chk_pwr_processed     CHECK ((processing_status IN ('PROCESSED','FAILED')) = (processed_at IS NOT NULL)),
+  -- RETRY_PENDING always carries its own scheduling timestamp; every other
+  -- status never does — a raw writer cannot leave a retryable row with no
+  -- scan key, nor leave scheduling metadata dangling on a settled row.
+  CONSTRAINT chk_pwr_retry_scheduling CHECK ((processing_status = 'RETRY_PENDING') = (next_retry_at IS NOT NULL)),
+  CONSTRAINT chk_pwr_settled_currency CHECK (settled_currency IS NULL OR settled_currency ~ '^[A-Z]{3}$'),
   -- FIFTH freeze-gate pass correction (webhook processing integrity
   -- BLOCKER): a further independent review found fn_process_payment_
   -- webhook_receipt (below) could write processing_status = 'PROCESSED'
@@ -782,16 +924,24 @@ CREATE TABLE billing.payment_webhook_receipts (
   -- organization_id already populated on the very same row, for ANY
   -- writer, including a future raw UPDATE by any role that might ever
   -- hold one. FAILED remains legal with both NULL (an unresolved/unknown
-  -- provider transaction is a governed FAILED outcome, never PROCESSED —
-  -- §6/§9 of the driving task).
+  -- provider transaction is a governed FAILED outcome once retry policy
+  -- is exhausted — §6/§9 of the driving task); RETRY_PENDING (the sixth
+  -- pass's own transient outcome) is likewise legal with both NULL, since
+  -- a still-retryable receipt has, by definition, not yet resolved.
   CONSTRAINT chk_pwr_processed_requires_correlation CHECK (
     processing_status <> 'PROCESSED'
     OR (payment_attempt_id IS NOT NULL AND organization_id IS NOT NULL)
   )
 );
 
-CREATE INDEX idx_pwr_status  ON billing.payment_webhook_receipts (processing_status, received_at);
-CREATE INDEX idx_pwr_attempt ON billing.payment_webhook_receipts (payment_attempt_id) WHERE payment_attempt_id IS NOT NULL;
+CREATE INDEX idx_pwr_status     ON billing.payment_webhook_receipts (processing_status, received_at);
+CREATE INDEX idx_pwr_attempt    ON billing.payment_webhook_receipts (payment_attempt_id) WHERE payment_attempt_id IS NOT NULL;
+-- Sixth pass: the durable reconciliation worker's own scan key — "every
+-- receipt due for a retry attempt right now," independent of whichever
+-- process (if any) originally enqueued it. A crashed/lost Celery enqueue
+-- is recovered by this scan alone; no provider redelivery is required.
+CREATE INDEX idx_pwr_retry_due  ON billing.payment_webhook_receipts (next_retry_at) WHERE processing_status = 'RETRY_PENDING';
+CREATE INDEX idx_pwr_provider_txn ON billing.payment_webhook_receipts (provider_transaction_id) WHERE provider_transaction_id IS NOT NULL;
 
 -- Final ingress architecture (corrected across the third and fourth
 -- freeze-gate passes — this comment previously described an obsolete
@@ -988,33 +1138,74 @@ $$;
 
 GRANT USAGE ON SCHEMA billing TO app_billing_webhook_ingress;
 
+-- Sixth freeze-gate pass: p_provider_transaction_id/p_settled_amount/
+-- p_settled_currency/p_event_occurred_at are added — the SAME normalized,
+-- already-verified values the ingress handler already extracted (never
+-- raw payload, never a secret) are now persisted durably at the moment
+-- the receipt itself becomes durable, not merely held in the live
+-- request's own memory and passed along later as a transient function
+-- argument. This is what makes a receipt independently resumable by a
+-- process that is not the one that originally received the callback —
+-- the durable-recovery fix (task §9/§10).
 CREATE OR REPLACE FUNCTION billing.fn_record_payment_webhook_receipt(
-  p_payment_provider  TEXT,
-  p_provider_event_id TEXT,
-  p_payload_hash       CHAR(64) DEFAULT NULL
+  p_payment_provider          TEXT,
+  p_provider_event_id         TEXT,
+  p_payload_hash               CHAR(64) DEFAULT NULL,
+  p_provider_transaction_id   TEXT DEFAULT NULL,
+  p_settled_amount            NUMERIC(18,4) DEFAULT NULL,
+  p_settled_currency          CHAR(3) DEFAULT NULL,
+  p_event_occurred_at         TIMESTAMPTZ DEFAULT NULL
 ) RETURNS UUID
 SECURITY DEFINER
 LANGUAGE plpgsql SET search_path = billing, pg_catalog AS $$
 DECLARE v_id UUID;
 BEGIN
-  INSERT INTO billing.payment_webhook_receipts (payment_provider, provider_event_id, payload_hash)
-  VALUES (p_payment_provider, p_provider_event_id, p_payload_hash)
-  ON CONFLICT (payment_provider, provider_event_id) DO NOTHING
+  INSERT INTO billing.payment_webhook_receipts
+    (payment_provider, provider_event_id, payload_hash, provider_transaction_id,
+     settled_amount, settled_currency, event_occurred_at)
+  VALUES
+    (p_payment_provider, p_provider_event_id, p_payload_hash, p_provider_transaction_id,
+     p_settled_amount, p_settled_currency, p_event_occurred_at)
+  ON CONFLICT (payment_provider, provider_event_id) DO UPDATE
+    -- Sixth pass (task §6): a duplicate delivery of an ALREADY-SETTLED or
+    -- permanently-FAILED receipt remains a true no-op (the WHERE clause
+    -- below excludes those rows from ever matching, so DO UPDATE simply
+    -- does not fire for them — RETURNING then yields zero rows, exactly
+    -- the pre-existing "already recorded" signal). A duplicate delivery of
+    -- a still-RECEIVED/still-RETRY_PENDING receipt, by contrast, is NOT a
+    -- no-op: it nudges next_retry_at forward to NOW(), which the durable
+    -- reconciliation worker's own idx_pwr_retry_due scan will pick up
+    -- immediately — the redundant delivery is turned into a useful signal
+    -- ("the provider considers this event still outstanding, reaffirm
+    -- processing") rather than being silently discarded, which is exactly
+    -- what task §6 requires ("duplicate → always do nothing" must not be
+    -- used if it makes recovery impossible). The row's own
+    -- processing_status is deliberately NEVER reset by this path — only
+    -- next_retry_at moves.
+    SET next_retry_at = CASE
+                           WHEN billing.payment_webhook_receipts.processing_status = 'RETRY_PENDING' THEN NOW()
+                           ELSE billing.payment_webhook_receipts.next_retry_at  -- RECEIVED stays NULL — chk_pwr_retry_scheduling requires it
+                         END
+    WHERE billing.payment_webhook_receipts.processing_status IN ('RECEIVED', 'RETRY_PENDING')
   RETURNING id INTO v_id;
 
-  RETURN v_id;  -- NULL means "already recorded" (duplicate delivery) — the
-                -- caller's own enqueue-gating logic (6J §24.3's discipline,
-                -- 6K §30.4) must treat a NULL return exactly like a
-                -- zero-row RETURNING result: skip enqueueing async
-                -- processing, proceed straight to the fast-ACK.
+  RETURN v_id;  -- NULL means "duplicate of an already-settled or
+                -- permanently-failed receipt" — the caller's own
+                -- enqueue-gating logic (6J §24.3's discipline, 6K §30.4)
+                -- treats a NULL return exactly like a zero-row RETURNING
+                -- result: skip enqueueing/reaffirming, proceed straight to
+                -- the fast-ACK. A non-NULL id — whether freshly inserted
+                -- OR an existing still-unresolved receipt reaffirmed —
+                -- means "durable attention is warranted," and the caller
+                -- may enqueue/reaffirm processing accordingly.
 END;
 $$;
-REVOKE ALL ON FUNCTION billing.fn_record_payment_webhook_receipt(TEXT, TEXT, CHAR) FROM PUBLIC;
+REVOKE ALL ON FUNCTION billing.fn_record_payment_webhook_receipt(TEXT, TEXT, CHAR, TEXT, NUMERIC, CHAR, TIMESTAMPTZ) FROM PUBLIC;
 -- Deliberately NOT granted to app_api (the finding this pass closes), NOT
 -- to app_worker (too broad, see rationale above), and NOT to
 -- app_platform_admin (mirrors app_voice_reconciler's own precedent —
 -- an automated provider-callback path, not an operator/admin action).
-GRANT EXECUTE ON FUNCTION billing.fn_record_payment_webhook_receipt(TEXT, TEXT, CHAR)
+GRANT EXECUTE ON FUNCTION billing.fn_record_payment_webhook_receipt(TEXT, TEXT, CHAR, TEXT, NUMERIC, CHAR, TIMESTAMPTZ)
   TO app_billing_webhook_ingress;
 
 -- Controlled status-transition + linkage path — mirrors fn_update_
@@ -1026,92 +1217,101 @@ GRANT EXECUTE ON FUNCTION billing.fn_record_payment_webhook_receipt(TEXT, TEXT, 
 -- p_payment_attempt_id/p_organization_id as direct caller-supplied inputs
 -- and wrote them through unvalidated (beyond "don't overwrite once set").
 -- This is unsafe provenance even though the caller is worker/admin-only —
--- nothing forced the linkage to actually be correct. Corrected: the caller
--- supplies only p_provider_transaction_id (extracted from the verified
--- webhook payload); this function independently RESOLVES the originating
--- payment_attempts row (and, through it, the owning organization) from the
--- platform's own authoritative data — a payload-claimed identity is never
--- trusted, only used as a lookup key against data the platform itself
--- created (§29.4's own payment-intent flow). The resolution join also
--- requires the receipt's own payment_provider to match the resolved
--- attempt's payment_provider — a cross-provider linking attempt (a
--- Razorpay-signed receipt somehow resolving to a Cashfree-provider
--- attempt, which should never legitimately happen) fails closed rather
--- than silently linking.
+-- nothing forced the linkage to actually be correct. Corrected: linkage is
+-- resolved internally from the receipt's own durable provider_transaction_id
+-- (sixth pass: now READ FROM THE ROW ITSELF, never re-supplied by the
+-- caller — see below) against the platform's own authoritative data. The
+-- resolution join also requires the receipt's own payment_provider to
+-- match the resolved attempt's payment_provider — a cross-provider linking
+-- attempt fails closed rather than silently linking.
 --
--- FIFTH freeze-gate pass correction (webhook processing integrity
--- BLOCKER): the function previously let the CALLER'S OWN p_new_status
--- argument dictate PROCESSED unconditionally once past the ordinary
--- state-machine-transition check — if a caller asked for PROCESSED while
--- the provider transaction resolved to nothing (v_resolved_attempt_id
--- staying NULL), the function wrote processing_status = 'PROCESSED' with
--- payment_attempt_id/organization_id both NULL anyway, and the durable
--- dedup constraint (uq_pwr_provider_event) then made that outcome
--- PERMANENT: no future genuine retry of the same provider event could
--- ever revisit it. "This function's own job is resolution, not the
--- security-anomaly decision" (the comment previously here) was true for
--- the LINKAGE decision but wrongly extended to the PROCESSED-vs-FAILED
--- decision too — the function must never be a passive scribe for its own
--- terminal success state. Two independent fail-closed checks are added
--- immediately before the UPDATE, both scoped to p_new_status = 'PROCESSED'
--- only (FAILED, including with NULL linkage — an unresolved provider
--- transaction — is untouched and remains exactly as designed, §6/§9 of
--- the driving task): (1) linkage itself must be non-NULL — mirrors the
--- new chk_pwr_processed_requires_correlation table CHECK, defense in
--- depth, not a duplicate no-op; (2) the resolved payment_attempts row's
--- OWN status must already read as 'SUCCEEDED' — not merely "an id was
--- found." This second check is the true atomicity guarantee (not just
--- linkage): §30.2's documented ordering has the caller invoke
--- fn_update_payment_status(...,'SUCCEEDED') and fn_mark_invoice_paid(...)
--- BEFORE this call, in the SAME database transaction — under standard
--- PostgreSQL MVCC read-committed-within-transaction visibility, this
--- SELECT sees that transaction's own prior write. A caller that has not
--- actually committed the financial success first (an out-of-order caller
--- bug, or a caller that split the sequence across separate transactions
--- with the SUCCEEDED write not yet committed) cannot smuggle a PROCESSED
--- receipt through — the SELECT below sees a non-SUCCEEDED status (or the
--- pre-transaction value) and this function raises instead.
+-- SIXTH freeze-gate pass (convergence + settlement-atomicity BLOCKERS):
+-- this function's scope is narrowed and its state machine extended:
+--   1. PROCESSED is no longer reachable through this function at all —
+--      settlement (the success path) is now the exclusive job of
+--      fn_apply_successful_payment_webhook_receipt (below), a single
+--      atomic command that verifies correlation, provider match,
+--      amount/currency, transitions the payment_attempt AND the invoice,
+--      and marks the receipt PROCESSED, all inside ONE transaction. The
+--      fifth pass's own re-verification hack here (re-SELECT the
+--      payment_attempt's status and hope it reads SUCCEEDED) is removed
+--      — it is now structurally impossible to even attempt, since this
+--      function no longer accepts 'PROCESSED' as a target status. This
+--      closes the deeper gap the fifth pass's own fix did not: PaymentAttempt
+--      = SUCCEEDED with Invoice still OPEN could previously still let a
+--      receipt reach PROCESSED (task's own FINAL-6K-C03 finding) — that
+--      path no longer exists.
+--   2. A new non-terminal status, RETRY_PENDING, represents "correlation
+--      did not resolve THIS time, but may resolve on a later attempt" —
+--      the ordinary, expected outcome of the documented callback-before-
+--      response race (task §3/§4): the webhook can genuinely arrive before
+--      the provider's own synchronous API response has finished linking
+--      provider_transaction_id via fn_link_payment_provider_transaction.
+--      Legal transitions: RECEIVED→PROCESSING, PROCESSING→RETRY_PENDING
+--      (transient — retry policy is the CALLER's own governed decision,
+--      task §34, never hard-coded here), RETRY_PENDING→PROCESSING (a
+--      later retry/reconciliation attempt reopens processing), and
+--      PROCESSING→FAILED / RETRY_PENDING→FAILED / RECEIVED→FAILED
+--      (permanent — provider mismatch, malformed event, or governed retry
+--      exhaustion, all still the caller's own classification, never
+--      decided inside this function).
+--   3. p_provider_transaction_id is REMOVED as a caller-supplied parameter
+--      — every call now reads it from the receipt row itself (durable
+--      since fn_record_payment_webhook_receipt, sixth pass). This closes
+--      the crash-recovery gap directly: a reconciliation worker calling
+--      this function days later, having never seen the original request
+--      or its payload, resolves linkage identically to the original async
+--      processor, because the correlation key was never only a transient
+--      argument — it has been durable from the moment of ingress.
 CREATE OR REPLACE FUNCTION billing.fn_process_payment_webhook_receipt(
-  p_receipt_id                UUID,
-  p_new_status                 TEXT,
-  p_provider_transaction_id    TEXT DEFAULT NULL,
-  p_error                      TEXT DEFAULT NULL
+  p_receipt_id       UUID,
+  p_new_status        TEXT,
+  p_error             TEXT DEFAULT NULL,
+  p_next_retry_at     TIMESTAMPTZ DEFAULT NULL
 ) RETURNS TABLE(resolved BOOLEAN, resolved_payment_attempt_id UUID, resolved_organization_id UUID)
 SECURITY DEFINER
 LANGUAGE plpgsql SET search_path = billing, pg_catalog AS $$
 DECLARE
   v_current TEXT;
   v_receipt_provider TEXT;
+  v_provider_transaction_id TEXT;
   v_already_linked_attempt UUID;
   v_already_linked_org UUID;
   v_resolved_attempt_id UUID;
   v_resolved_org UUID;
-  v_attempt_status TEXT;
   v_allowed TEXT[][] := ARRAY[
     ARRAY['RECEIVED', 'PROCESSING'],
-    ARRAY['PROCESSING', 'PROCESSED'],
+    ARRAY['PROCESSING', 'RETRY_PENDING'],
+    ARRAY['RETRY_PENDING', 'PROCESSING'],
     ARRAY['PROCESSING', 'FAILED'],
+    ARRAY['RETRY_PENDING', 'FAILED'],
     ARRAY['RECEIVED', 'FAILED']
   ];
   v_pair TEXT[];
   v_valid BOOLEAN := FALSE;
 BEGIN
-  IF p_new_status NOT IN ('PROCESSING','PROCESSED','FAILED') THEN
-    RAISE EXCEPTION 'billing: invalid payment_webhook_receipts status %', p_new_status;
+  IF p_new_status NOT IN ('PROCESSING','RETRY_PENDING','FAILED') THEN
+    RAISE EXCEPTION 'billing: invalid payment_webhook_receipts status % for fn_process_payment_webhook_receipt — PROCESSED is settled exclusively via fn_apply_successful_payment_webhook_receipt', p_new_status;
+  END IF;
+  IF p_new_status = 'RETRY_PENDING' AND p_next_retry_at IS NULL THEN
+    RAISE EXCEPTION 'billing: p_next_retry_at is required when transitioning to RETRY_PENDING';
   END IF;
 
-  SELECT processing_status, payment_provider, payment_attempt_id, organization_id
-    INTO v_current, v_receipt_provider, v_already_linked_attempt, v_already_linked_org
+  SELECT processing_status, payment_provider, provider_transaction_id, payment_attempt_id, organization_id
+    INTO v_current, v_receipt_provider, v_provider_transaction_id, v_already_linked_attempt, v_already_linked_org
   FROM billing.payment_webhook_receipts WHERE id = p_receipt_id FOR UPDATE;
 
   IF v_current IS NULL THEN
     RAISE EXCEPTION 'billing: payment_webhook_receipt % not found', p_receipt_id;
   END IF;
-  IF v_current IN ('PROCESSED','FAILED') THEN
+  IF v_current = 'FAILED' THEN
     IF v_current = p_new_status THEN
       RETURN QUERY SELECT TRUE, v_already_linked_attempt, v_already_linked_org; RETURN;
     END IF;
-    RAISE EXCEPTION 'billing: payment_webhook_receipt % is terminal (%) — cannot transition to %', p_receipt_id, v_current, p_new_status;
+    RAISE EXCEPTION 'billing: payment_webhook_receipt % is terminal (FAILED) — cannot transition to %', p_receipt_id, p_new_status;
+  END IF;
+  IF v_current = 'PROCESSED' THEN
+    RAISE EXCEPTION 'billing: payment_webhook_receipt % is already PROCESSED — use fn_apply_successful_payment_webhook_receipt for idempotent re-confirmation, not this function', p_receipt_id;
   END IF;
 
   FOREACH v_pair SLICE 1 IN ARRAY v_allowed LOOP
@@ -1121,46 +1321,24 @@ BEGIN
     RAISE EXCEPTION 'billing: transition % -> % not allowed for payment_webhook_receipt %', v_current, p_new_status, p_receipt_id;
   END IF;
 
-  -- Resolve linkage internally, once, on the first call that supplies a
-  -- provider_transaction_id and finds none already linked. Never resolved
-  -- from a caller-supplied attempt/organization id directly.
+  -- Resolve linkage internally, from the receipt's OWN durable
+  -- provider_transaction_id (never a caller-supplied parameter, sixth
+  -- pass). Re-attempted on every call that has not yet resolved — this is
+  -- precisely what makes RETRY_PENDING→PROCESSING a genuine retry rather
+  -- than a no-op: a later call may succeed where an earlier one could not,
+  -- because fn_link_payment_provider_transaction has since run.
   v_resolved_attempt_id := v_already_linked_attempt;
   v_resolved_org := v_already_linked_org;
-  IF v_resolved_attempt_id IS NULL AND p_provider_transaction_id IS NOT NULL THEN
+  IF v_resolved_attempt_id IS NULL AND v_provider_transaction_id IS NOT NULL THEN
     SELECT pa.id, i.organization_id INTO v_resolved_attempt_id, v_resolved_org
     FROM billing.payment_attempts pa
     JOIN billing.invoices i ON i.id = pa.invoice_id
-    WHERE pa.provider_transaction_id = p_provider_transaction_id
+    WHERE pa.provider_transaction_id = v_provider_transaction_id
       AND pa.payment_provider = v_receipt_provider;  -- cross-provider linking fails closed: no row if providers disagree
-    -- v_resolved_attempt_id staying NULL here (unknown transaction
-    -- correlation) is not itself an exception for a p_new_status = 'FAILED'
-    -- call — the caller decides that outcome (typically 'FAILED' with
-    -- p_error naming the UNKNOWN_TRANSACTION_CORRELATION classification,
-    -- 6K §30.6/§36); this function's own job is resolution for THAT case.
-    -- For p_new_status = 'PROCESSED', resolution failing here is instead
-    -- an unconditional fail-closed exception, enforced immediately below —
-    -- PROCESSED is never a passive acceptance of "whatever the caller asked
-    -- for."
-  END IF;
-
-  -- FIFTH freeze-gate pass: PROCESSED requires both a resolved
-  -- correlation AND independent, same-transaction confirmation that the
-  -- correlated payment_attempt has actually reached SUCCEEDED — see the
-  -- header comment above this function for the full rationale. Neither
-  -- check runs for any other p_new_status value.
-  IF p_new_status = 'PROCESSED' THEN
-    IF v_resolved_attempt_id IS NULL OR v_resolved_org IS NULL THEN
-      RAISE EXCEPTION 'billing: payment_webhook_receipt % cannot be marked PROCESSED — no authoritative payment_attempt/organization correlation resolved for provider_transaction_id % (payment_provider = %); transition to FAILED with an UNKNOWN_TRANSACTION_CORRELATION classification instead', p_receipt_id, p_provider_transaction_id, v_receipt_provider;
-    END IF;
-
-    SELECT status INTO v_attempt_status
-    FROM billing.payment_attempts
-    WHERE id = v_resolved_attempt_id
-    FOR SHARE;
-
-    IF v_attempt_status IS DISTINCT FROM 'SUCCEEDED' THEN
-      RAISE EXCEPTION 'billing: payment_webhook_receipt % cannot be marked PROCESSED — resolved payment_attempt % is not in SUCCEEDED status (current = %); the payment-domain financial transition (fn_update_payment_status/fn_mark_invoice_paid) must commit before this receipt may be marked PROCESSED', p_receipt_id, v_resolved_attempt_id, v_attempt_status;
-    END IF;
+    -- Resolution failing here is never itself an exception — it is exactly
+    -- the expected outcome of a transient callback-before-response race,
+    -- and the caller's own governed policy (task §34) decides RETRY_PENDING
+    -- vs. FAILED, not this function.
   END IF;
 
   UPDATE billing.payment_webhook_receipts
@@ -1168,15 +1346,162 @@ BEGIN
       payment_attempt_id = v_resolved_attempt_id,
       organization_id    = v_resolved_org,
       attempt_count       = attempt_count + 1,
+      next_retry_at       = CASE WHEN p_new_status = 'RETRY_PENDING' THEN p_next_retry_at ELSE NULL END,
       last_error          = CASE WHEN p_new_status = 'FAILED' THEN p_error ELSE last_error END,
-      processed_at        = CASE WHEN p_new_status IN ('PROCESSED','FAILED') THEN NOW() ELSE processed_at END
+      processed_at        = CASE WHEN p_new_status = 'FAILED' THEN NOW() ELSE processed_at END
   WHERE id = p_receipt_id;
 
   RETURN QUERY SELECT TRUE, v_resolved_attempt_id, v_resolved_org;
 END;
 $$;
-REVOKE ALL ON FUNCTION billing.fn_process_payment_webhook_receipt(UUID, TEXT, TEXT, TEXT) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION billing.fn_process_payment_webhook_receipt(UUID, TEXT, TEXT, TEXT)
+REVOKE ALL ON FUNCTION billing.fn_process_payment_webhook_receipt(UUID, TEXT, TEXT, TIMESTAMPTZ) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION billing.fn_process_payment_webhook_receipt(UUID, TEXT, TEXT, TIMESTAMPTZ)
+  TO app_worker, app_platform_admin;
+
+-- Sixth freeze-gate pass (settlement-atomicity BLOCKER, task §14-§20): the
+-- ONE guarded command for a successful payment webhook, per the driving
+-- task's own explicitly preferred design ("the safest design is one
+-- guarded server-side command for successful payment settlement"). This
+-- is the ONLY path by which processing_status can ever become PROCESSED —
+-- fn_process_payment_webhook_receipt (above) no longer accepts that target
+-- status at all. Inside ONE transaction: locks the receipt, resolves
+-- correlation from its own durable provider_transaction_id (idempotent —
+-- an already-PROCESSED receipt returns success immediately without
+-- re-running settlement), verifies the provider matches, verifies the
+-- durably-stored settled amount/currency against the payment_attempt's own
+-- authoritative expected values (never trusting a live payload that may
+-- not even be available to a reconciliation worker), transitions the
+-- payment_attempt to SUCCEEDED via the existing, frozen (057_5H.sql)
+-- fn_update_payment_status — reused verbatim, not duplicated — transitions
+-- the invoice to PAID via the existing, frozen fn_mark_invoice_paid
+-- (skipped, not re-invoked, if the invoice already reads PAID — closes the
+-- duplicate-settlement race, task §39, since fn_mark_invoice_paid itself
+-- has no idempotent-return-if-already-PAID branch and would otherwise
+-- raise on a legitimate concurrent duplicate), and ONLY THEN marks the
+-- receipt PROCESSED. A crash or exception at any point before COMMIT rolls
+-- back every one of these together — there is no window in which the
+-- receipt can read PROCESSED while the payment_attempt or invoice do not
+-- also reflect the settled state (task §15-§19).
+CREATE OR REPLACE FUNCTION billing.fn_apply_successful_payment_webhook_receipt(
+  p_receipt_id UUID
+) RETURNS TABLE(applied BOOLEAN, resolved_payment_attempt_id UUID, resolved_organization_id UUID)
+SECURITY DEFINER
+LANGUAGE plpgsql SET search_path = billing, pg_catalog AS $$
+DECLARE
+  v_current TEXT;
+  v_receipt_provider TEXT;
+  v_provider_transaction_id TEXT;
+  v_settled_amount NUMERIC(18,4);
+  v_settled_currency CHAR(3);
+  v_already_linked_attempt UUID;
+  v_already_linked_org UUID;
+  v_resolved_attempt_id UUID;
+  v_resolved_org UUID;
+  v_attempt_provider TEXT;
+  v_invoice_id UUID;
+  v_expected_amount NUMERIC(18,4);
+  v_expected_currency CHAR(3);
+  v_invoice_status TEXT;
+BEGIN
+  SELECT processing_status, payment_provider, provider_transaction_id, settled_amount, settled_currency,
+         payment_attempt_id, organization_id
+    INTO v_current, v_receipt_provider, v_provider_transaction_id, v_settled_amount, v_settled_currency,
+         v_already_linked_attempt, v_already_linked_org
+  FROM billing.payment_webhook_receipts WHERE id = p_receipt_id FOR UPDATE;
+
+  IF v_current IS NULL THEN
+    RAISE EXCEPTION 'billing: payment_webhook_receipt % not found', p_receipt_id;
+  END IF;
+  -- Idempotent: a receipt already settled returns the same outcome without
+  -- re-running settlement — the duplicate-delivery / concurrent-settlement
+  -- race (task §39) resolves to exactly-once here, and to a harmless
+  -- repeat READ on any later duplicate call.
+  IF v_current = 'PROCESSED' THEN
+    RETURN QUERY SELECT TRUE, v_already_linked_attempt, v_already_linked_org; RETURN;
+  END IF;
+  IF v_current = 'FAILED' THEN
+    RAISE EXCEPTION 'billing: payment_webhook_receipt % is terminal (FAILED) — cannot apply successful settlement', p_receipt_id;
+  END IF;
+  -- RECEIVED, PROCESSING, and RETRY_PENDING are all legal precursor states
+  -- — settlement does not require an explicit prior PROCESSING step; it is
+  -- itself the atomic resolve-validate-settle-mark operation.
+
+  IF v_provider_transaction_id IS NULL THEN
+    RAISE EXCEPTION 'billing: payment_webhook_receipt % has no provider_transaction_id recorded — cannot settle; use fn_process_payment_webhook_receipt to record a governed RETRY_PENDING/FAILED outcome instead', p_receipt_id;
+  END IF;
+
+  v_resolved_attempt_id := v_already_linked_attempt;
+  v_resolved_org := v_already_linked_org;
+  IF v_resolved_attempt_id IS NULL THEN
+    SELECT pa.id, i.organization_id, pa.payment_provider, pa.invoice_id, pa.amount_amount, pa.amount_currency
+      INTO v_resolved_attempt_id, v_resolved_org, v_attempt_provider, v_invoice_id, v_expected_amount, v_expected_currency
+    FROM billing.payment_attempts pa
+    JOIN billing.invoices i ON i.id = pa.invoice_id
+    WHERE pa.provider_transaction_id = v_provider_transaction_id
+      AND pa.payment_provider = v_receipt_provider;  -- cross-provider linking fails closed
+  ELSE
+    SELECT pa.payment_provider, pa.invoice_id, pa.amount_amount, pa.amount_currency
+      INTO v_attempt_provider, v_invoice_id, v_expected_amount, v_expected_currency
+    FROM billing.payment_attempts pa WHERE pa.id = v_resolved_attempt_id;
+  END IF;
+
+  IF v_resolved_attempt_id IS NULL THEN
+    -- Unresolved correlation is NOT an exception here — settlement simply
+    -- cannot proceed yet. The caller's own governed retry policy (via
+    -- fn_process_payment_webhook_receipt, task §34) decides RETRY_PENDING
+    -- vs. FAILED; this function's own job is settlement, never that
+    -- decision.
+    RETURN QUERY SELECT FALSE, NULL::UUID, NULL::UUID; RETURN;
+  END IF;
+
+  IF v_attempt_provider IS DISTINCT FROM v_receipt_provider THEN
+    RAISE EXCEPTION 'billing: payment_webhook_receipt % provider mismatch (receipt=%, resolved attempt=%) — refusing settlement', p_receipt_id, v_receipt_provider, v_attempt_provider;
+  END IF;
+  IF v_settled_amount IS NOT NULL AND v_settled_amount IS DISTINCT FROM v_expected_amount THEN
+    RAISE EXCEPTION 'billing: payment_webhook_receipt % amount mismatch (settled=%, expected=%) — refusing settlement', p_receipt_id, v_settled_amount, v_expected_amount;
+  END IF;
+  IF v_settled_currency IS NOT NULL AND v_settled_currency IS DISTINCT FROM v_expected_currency THEN
+    RAISE EXCEPTION 'billing: payment_webhook_receipt % currency mismatch (settled=%, expected=%) — refusing settlement', p_receipt_id, v_settled_currency, v_expected_currency;
+  END IF;
+
+  -- fn_update_payment_status (057_5H.sql, frozen, reused verbatim) is
+  -- itself idempotent for a same-target-state call (returns early if
+  -- already SUCCEEDED) and fails closed for any other terminal state
+  -- (FAILED/CANCELLED) — called unconditionally, its own internal
+  -- SELECT ... FOR UPDATE re-locks and re-reads current state, closing any
+  -- TOCTOU window against this function's own earlier, unlocked read.
+  PERFORM billing.fn_update_payment_status(v_resolved_org, v_resolved_attempt_id, 'SUCCEEDED');
+
+  -- fn_mark_invoice_paid (057_5H.sql, frozen) has NO idempotent-return
+  -- branch of its own — it RAISEs for any non-OPEN status, including
+  -- PAID. Re-checking status here, freshly, under FOR UPDATE (closing the
+  -- same TOCTOU window) before deciding whether to call it is what makes a
+  -- genuine concurrent duplicate settlement idempotent rather than an
+  -- unhandled exception (task §39) — without ever weakening or editing
+  -- the frozen function itself.
+  SELECT status INTO v_invoice_status FROM billing.invoices WHERE id = v_invoice_id FOR UPDATE;
+  IF v_invoice_status = 'OPEN' THEN
+    PERFORM billing.fn_mark_invoice_paid(v_resolved_org, v_invoice_id, v_expected_amount, v_expected_currency);
+  ELSIF v_invoice_status <> 'PAID' THEN
+    RAISE EXCEPTION 'billing: invoice % is in status % — cannot mark PAID as part of webhook settlement', v_invoice_id, v_invoice_status;
+  END IF;
+  -- v_invoice_status = 'PAID' already: idempotent no-op, exactly the
+  -- concurrent-duplicate-settlement outcome task §39 requires.
+
+  UPDATE billing.payment_webhook_receipts
+  SET processing_status  = 'PROCESSED',
+      payment_attempt_id = v_resolved_attempt_id,
+      organization_id    = v_resolved_org,
+      attempt_count       = attempt_count + 1,
+      next_retry_at       = NULL,
+      processed_at        = NOW()
+  WHERE id = p_receipt_id;
+
+  RETURN QUERY SELECT TRUE, v_resolved_attempt_id, v_resolved_org;
+END;
+$$;
+REVOKE ALL ON FUNCTION billing.fn_apply_successful_payment_webhook_receipt(UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION billing.fn_apply_successful_payment_webhook_receipt(UUID)
   TO app_worker, app_platform_admin;
 
 

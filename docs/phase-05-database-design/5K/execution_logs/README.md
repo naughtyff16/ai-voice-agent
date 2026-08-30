@@ -661,3 +661,43 @@ Integrity Remediation" entry and `../validation/
 6K_FINAL_BLOCKER_REMEDIATION_VALIDATION_REPORT.md` (updated by this pass)
 for the consolidated result and the webhook-processing-integrity closure
 evidence.
+
+---
+
+## Phase 6K FINAL Convergence, Durability & Commercial-Pricing Remediation (2026-08-30, same day, sixth pass) — `102_5H2.sql` amended in place, PostgreSQL 18.6 re-validated
+
+A further independent freeze-gate review of the fifth pass's own state found 3 BLOCKERS (callback-before-response could become terminal; a durable receipt could not recover a lost commit→enqueue crash; `PROCESSED` did not guarantee invoice settlement), 1 SIGNIFICANT commercial-pricing issue (an organization could not negotiate pricing across a second plan family), and 1 documentation issue (DEC-6K-02's own worked wording, read in isolation, could be misread). `102_5H2.sql` was amended in place a sixth time (confirmed, before this pass began, that its only prior applications remained disposable/already-deleted instances). A fresh, genuinely new disposable PostgreSQL 18.6 instance was built the same way as every prior batch (`.tmp_pgdata_6kconverge`, port 5566), stopped and deleted at the end.
+
+| File | Command | Purpose |
+|---|---|---|
+| `20260830T210000Z_01_fresh_upgrade_head.log` | `alembic upgrade head` against a genuinely fresh, empty database | Fresh `001 → 102` against the FINAL amended file (checksum `97304425...`, 113742 bytes). Exit 0. |
+| `20260830T210000Z_02_incremental_upgrade.log` | `alembic upgrade 101_5I1` then `alembic upgrade 102_5H2` | Incremental path, exit 0 for both steps. |
+| `20260830T210000Z_03_heads_current_history.log` | `alembic heads`, `alembic current` (both databases) | Single head `102_5H2 (head)`; `current == head` on both databases. |
+| `20260830T210000Z_04_6k_converge_output.txt` | Full targeted test matrix (`6k_converge_test_matrix.sql`) | The complete evidence for this pass. Files `05`-`10` below are labeled excerpts of this same run. |
+| `20260830T210000Z_05_callback_before_response_convergence.txt` | Excerpt of `04` | Q1-Q7: a receipt processed before its provider transaction is linked correctly resolves `RETRY_PENDING` (not terminal `FAILED`); a duplicate delivery while retry-pending reaffirms the same receipt (not a silent no-op); once `fn_link_payment_provider_transaction` runs, a retry correctly resolves and settles — proving the callback-before-response race converges without provider redelivery. |
+| `20260830T210000Z_06_commit_before_enqueue_crash_recovery.txt` | Excerpt of `04` | Q8-Q9: a receipt durably committed but never touched by any worker (simulating a lost Celery enqueue) is discovered purely via the `idx_pwr_status` scan and settled correctly using only durable DB state (`provider_transaction_id`, `settled_amount`) — no re-delivery required. |
+| `20260830T210000Z_07_atomic_settlement_rollback_and_partial_negative.txt` | Excerpt of `04` | Q10-Q12: `PROCESSED` is no longer a legal target for `fn_process_payment_webhook_receipt` at all; an amount mismatch during settlement raises and leaves the payment attempt/invoice untouched; a forced exception mid-settlement, inside an explicit transaction, correctly rolls back the payment-attempt and invoice transitions together. |
+| `20260830T210000Z_08_duplicate_settlement_race.txt` | Excerpt of `04` | Q13: re-invoking `fn_apply_successful_payment_webhook_receipt` on an already-`PROCESSED` receipt is idempotent — same resolved ids returned, no re-settlement attempted, no exception. |
+| `20260830T210000Z_09_cross_plan_commercial_pricing.txt` | Excerpt of `04` | Tests A-E plus the corrected §13.3 selection query: an organization negotiates Growth pricing (PASS), then Enterprise pricing while Growth history is preserved (PASS — previously blocked by `uq_cpa_org`); a second Growth agreement is still rejected (FAIL, `uq_cpa_org_plan`); a Growth agreement version cannot reference an Enterprise `PlanVersion` (FAIL, pre-existing check, unaffected); an Enterprise agreement version can (PASS); the org+plan-aware resolution query returns exactly the Enterprise agreement version for an Enterprise-pinned period, never the Growth one. |
+| `20260830T210000Z_10_privilege_and_grant_regression.txt` | Excerpt of `04` | Regression: the full webhook function/table privilege matrix (`app_api` denied on both `fn_record_payment_webhook_receipt` and the new `fn_apply_successful_payment_webhook_receipt`; `app_billing_webhook_ingress`/`app_worker` correctly granted; `app_platform_admin` still denied `INSERT`); `CALL_MINUTES` `NULL`-seconds rejection; commercial-pricing raw `UPDATE` denial. |
+| `20260830T210000Z_11_final_migration_checksum.txt` | `sha256sum` + `wc -c`, cross-checked against `MIGRATION_MANIFEST.md` row 102 | Proves the manifest checksum matches the exact file bytes just validated above. |
+
+**Results, one by one:**
+
+- **FINAL-6K-C01/C02 (convergence + durable recovery)** — a receipt processed before linkage exists resolves `RETRY_PENDING` with both correlation fields `NULL` (not an error, not terminal); a duplicate delivery of that same still-unresolved receipt correctly returns the SAME receipt id (reaffirmed, not a fresh row, not a silent no-op); once the provider transaction is linked, a retry call — reading `provider_transaction_id` from the row itself, no caller argument — resolves the payment attempt and organization correctly; settlement then succeeds and the invoice reads `PAID`. A second, independent scenario proves genuine crash recovery: a receipt that no worker ever touched (simulating a lost Celery enqueue) is discovered by a plain `idx_pwr_status` scan and settled correctly from durable DB state alone.
+- **FINAL-6K-C03 (settlement atomicity)** — `fn_process_payment_webhook_receipt` rejects `'PROCESSED'` outright as an invalid target status; `fn_apply_successful_payment_webhook_receipt` rejects a settled-amount mismatch (`9999` vs. expected `3000`) before touching either the payment attempt or the invoice, both of which remain `PENDING`/`OPEN` respectively; a forced exception mid-settlement inside an explicit transaction rolls back both the `fn_update_payment_status` and `fn_mark_invoice_paid` calls together, confirmed by re-reading both rows' status after `ROLLBACK`.
+- **Duplicate/concurrent settlement** — a second call to `fn_apply_successful_payment_webhook_receipt` on an already-`PROCESSED` receipt returns the identical resolved ids without re-running any settlement logic or raising.
+- **Provider mismatch (regression)** — a `CASHFREE`-signed receipt with no matching `RAZORPAY` payment attempt resolves `applied = false` with no exception, the pre-existing fail-closed contract, unaffected by this pass's refactor.
+- **FINAL-6K-C04 (cross-plan-family commercial pricing)** — all of Tests A-E pass exactly as specified; the corrected §13.3-equivalent org+plan join returns exactly one row (the Enterprise agreement version) for an Enterprise-pinned period.
+- **Regression** — the full webhook privilege matrix, `CALL_MINUTES` exact-seconds enforcement, and commercial-pricing raw-DML denial are all confirmed unaffected by this pass's structural changes.
+
+**No test-harness bugs this pass** — every assertion matched its expected outcome on the first run.
+
+**Not performed / disclosed limitations (same as prior passes, unchanged):** no real payment-provider HTTP integration test; no genuinely concurrent two-*process* race test (the forced-rollback test and the idempotent-duplicate-settlement test are the deterministic, reproducible equivalents this pass relies on — both exercise the same row-locking primitives (`FOR UPDATE` inside `fn_update_payment_status`/`fn_mark_invoice_paid`, plus this pass's own receipt-level `FOR UPDATE`) that a genuine concurrent race would also exercise); the full first- through fifth-pass regression suites were not re-run verbatim (a targeted regression check covering the boundaries this pass's own change touches was run instead, per the same proportionate-evidence approach every prior pass used).
+
+**Cleanup performed at the end of this batch:** the PostgreSQL 18 server (`.tmp_pgdata_6kconverge`, port 5566) was stopped and its data directory deleted, along with both disposable databases. No pre-existing PostgreSQL instance was touched. The pre-existing `/tmp/5j1_validate_venv` virtual environment was reused, not modified.
+
+See `../MIGRATION_MANIFEST.md`'s "Phase 6K FINAL Convergence, Durability &
+Commercial-Pricing Remediation" entry and `../validation/
+6K_FINAL_BLOCKER_REMEDIATION_VALIDATION_REPORT.md` (updated by this pass)
+for the consolidated result and the FINAL-6K-C01 through C05 closure table.

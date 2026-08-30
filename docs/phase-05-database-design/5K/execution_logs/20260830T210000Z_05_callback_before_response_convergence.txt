@@ -1,0 +1,76 @@
+################ FINAL-6K-C01/C02: CALLBACK-BEFORE-RESPONSE CONVERGENCE + DURABLE RETRY ################
+--- Q1: ingress records receipt WITH normalized provider_transaction_id (durable from the start) ---
+SET
+RESET
+SET
+--- Q2: PROCESSING transition BEFORE the payment_attempt/provider linkage exists yet (the callback-before-response race) ---
+ resolved | resolved_payment_attempt_id | resolved_organization_id 
+----------+-----------------------------+--------------------------
+ t        |                             | 
+(1 row)
+
+--- Q3: caller classifies this as TRANSIENT -- transitions to RETRY_PENDING (NOT terminal FAILED) ---
+ resolved 
+----------
+ t
+(1 row)
+
+ processing_status | has_retry_time | payment_attempt_id 
+-------------------+----------------+--------------------
+ RETRY_PENDING     | t              | 
+(1 row)
+
+RESET
+--- Q4: duplicate webhook delivery WHILE retry-pending -- must NOT create a second receipt, must reaffirm (nudge next_retry_at) ---
+SET
+           dup_reaffirm_id            
+--------------------------------------
+ 01a050d5-bfed-73ee-8587-87dd3c5529bf
+(1 row)
+
+RESET
+(expect: same receipt id returned -- non-NULL, reaffirmed, not a fresh duplicate no-op)
+--- Q5: provider API response NOW links the transaction (the race resolves) ---
+SET
+SET
+RESET
+SET
+ fn_link_payment_provider_transaction 
+--------------------------------------
+ 
+(1 row)
+
+--- Q6: reconciliation retry -- RETRY_PENDING -> PROCESSING, correlation now resolves (reads provider_transaction_id from the ROW, no caller argument needed) ---
+ resolved |     resolved_payment_attempt_id      |       resolved_organization_id       
+----------+--------------------------------------+--------------------------------------
+ t        | 01a050d5-bffd-7efe-8ced-ed5b67424b36 | 11111111-1111-1111-1111-111111111111
+(1 row)
+
+ processing_status |          payment_attempt_id          |           organization_id            
+-------------------+--------------------------------------+--------------------------------------
+ PROCESSING        | 01a050d5-bffd-7efe-8ced-ed5b67424b36 | 11111111-1111-1111-1111-111111111111
+(1 row)
+
+--- Q7: settle atomically -- this is the eventual convergence: no provider redelivery was required ---
+ fn_update_payment_status 
+--------------------------
+ 
+(1 row)
+
+ applied |     resolved_payment_attempt_id      |       resolved_organization_id       
+---------+--------------------------------------+--------------------------------------
+ t       | 01a050d5-bffd-7efe-8ced-ed5b67424b36 | 11111111-1111-1111-1111-111111111111
+(1 row)
+
+ processing_status |          payment_attempt_id          |           organization_id            | has_processed_at 
+-------------------+--------------------------------------+--------------------------------------+------------------
+ PROCESSED         | 01a050d5-bffd-7efe-8ced-ed5b67424b36 | 11111111-1111-1111-1111-111111111111 | t
+(1 row)
+
+ status 
+--------
+ PAID
+(1 row)
+
+RESET
+

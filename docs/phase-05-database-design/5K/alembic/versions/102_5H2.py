@@ -181,6 +181,59 @@ freeze-gate review found one remaining BLOCKER plus a stale SQL comment:
       needed"), stale since the second/third passes' own actual grants.
       Corrected in place to describe the current, authoritative flow.
 
+SIXTH PASS (2026-08-30, same day) — amended in place a sixth time, same
+policy, confirmed again before this pass began. A further independent
+freeze-gate review found 3 BLOCKERS, 1 SIGNIFICANT commercial-pricing
+issue, and 1 documentation issue:
+
+  19. FINAL-6K-C01 (BLOCKER, convergence): the fifth pass's own fix left
+      no non-terminal outcome for the ordinary, expected "callback
+      arrives before the provider API response finishes linking
+      provider_transaction_id" race — only terminal FAILED existed, so a
+      real, later-resolvable payment could be permanently stranded behind
+      the durable dedup gate. Fixed: a new non-terminal processing_status,
+      RETRY_PENDING (with its own next_retry_at scheduling column);
+      fn_process_payment_webhook_receipt's transition table now permits
+      PROCESSING↔RETRY_PENDING and RETRY_PENDING→FAILED, all governed by
+      the caller's own retry policy, never hard-coded here.
+  20. FINAL-6K-C02 (BLOCKER, durable recovery): the receipt persisted only
+      payment_provider/provider_event_id/payload_hash — nothing letting a
+      process OTHER than the original request (e.g. a reconciliation
+      worker recovering from a crash between this table's own COMMIT and
+      a lost Celery enqueue) resume processing. Fixed:
+      fn_record_payment_webhook_receipt now persists normalized, verified
+      provider_transaction_id/settled_amount/settled_currency/
+      event_occurred_at at ingress time (never raw payload, never a
+      secret); a new idx_pwr_retry_due index gives a reconciliation
+      worker a deterministic scan key needing no provider redelivery; a
+      duplicate delivery of a still-unresolved receipt now reaffirms it
+      (ON CONFLICT DO UPDATE ... WHERE, not DO NOTHING) instead of being
+      silently discarded.
+  21. FINAL-6K-C03 (BLOCKER, settlement atomicity): the fifth pass's own
+      payment_attempt.status = 'SUCCEEDED' check was insufficient —
+      PaymentAttempt = SUCCEEDED with Invoice still OPEN remained
+      reachable. Fixed: PROCESSED is no longer reachable via
+      fn_process_payment_webhook_receipt at all (the fifth pass's own
+      re-verification hack is removed); a new function,
+      fn_apply_successful_payment_webhook_receipt, is the sole atomic
+      path — one transaction resolves correlation, validates provider/
+      amount/currency, transitions the payment_attempt to SUCCEEDED and
+      the invoice to PAID (reusing the frozen fn_update_payment_status/
+      fn_mark_invoice_paid verbatim, idempotent-if-already-PAID guard
+      closing the concurrent-duplicate-settlement race), and only then
+      marks the receipt PROCESSED.
+  22. SIGNIFICANT (commercial pricing): commercial_pricing_agreements.
+      uq_cpa_org (UNIQUE(organization_id)) made it structurally
+      impossible for an organization to ever negotiate pricing on a
+      second plan family. Fixed: UNIQUE(organization_id, base_plan_id) —
+      at most one agreement per organization per plan family, any number
+      across different families, each independently immutable.
+  23. Documentation (DEC-6K-02 wording, no SQL change): the owner-decision
+      summary's own worked line, read in isolation, could be misread as
+      treating the per-call rounded quantity as the invoice's own
+      aggregation source. Corrected in the driving document to state both
+      quantities explicitly.
+
 Revision ID: 102_5H2
 Revises: '101_5I1'
 """
@@ -209,7 +262,20 @@ def downgrade() -> None:
         "001_5B). No rollback DDL is authored here; restore from a "
         "database backup taken before this revision if needed. "
         "(Low-risk manual reversal, in dependency order: ALTER TABLE "
-        "billing.payment_webhook_receipts DROP CONSTRAINT "
+        "billing.commercial_pricing_agreements DROP CONSTRAINT "
+        "uq_cpa_org_plan, ADD CONSTRAINT uq_cpa_org UNIQUE (organization_id) "
+        "(only safe if no organization has more than one agreement row -- "
+        "re-opens the cross-plan-family SIGNIFICANT finding if truly "
+        "reverting, not recommended); DROP FUNCTION "
+        "billing.fn_apply_successful_payment_webhook_receipt(UUID) (re-opens "
+        "the settlement-atomicity BLOCKER FINAL-6K-C03 -- not recommended); "
+        "ALTER TABLE billing.payment_webhook_receipts DROP CONSTRAINT "
+        "chk_pwr_retry_scheduling, DROP CONSTRAINT chk_pwr_settled_currency, "
+        "DROP COLUMN next_retry_at, DROP COLUMN event_occurred_at, DROP "
+        "COLUMN settled_currency, DROP COLUMN settled_amount, DROP COLUMN "
+        "provider_transaction_id (re-opens FINAL-6K-C01/C02, the "
+        "convergence and durable-recovery BLOCKERs -- not recommended); "
+        "ALTER TABLE billing.payment_webhook_receipts DROP CONSTRAINT "
         "chk_pwr_processed_requires_correlation (re-opens the webhook "
         "processing integrity BLOCKER if truly reverting -- not "
         "recommended; the fn_process_payment_webhook_receipt fail-closed "
@@ -221,7 +287,8 @@ def downgrade() -> None:
         "DELETE ON billing.payment_webhook_receipts TO app_platform_admin "
         "if truly reverting (re-opens FREEZE-6K-01 -- not recommended); "
         "REVOKE EXECUTE ON "
-        "FUNCTION billing.fn_record_payment_webhook_receipt(TEXT, TEXT, CHAR) "
+        "FUNCTION billing.fn_record_payment_webhook_receipt(TEXT, TEXT, "
+        "CHAR, TEXT, NUMERIC, CHAR, TIMESTAMPTZ) "
         "FROM app_billing_webhook_ingress; DROP ROLE app_billing_webhook_"
         "ingress (only if no other object references it); GRANT back the "
         "REVOKEd frozen-file grants (payment_attempts/usage_events/"

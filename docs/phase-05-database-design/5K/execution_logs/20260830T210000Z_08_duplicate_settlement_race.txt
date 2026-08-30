@@ -1,0 +1,22 @@
+################ DUPLICATE CONCURRENT SETTLEMENT (idempotent exactly-once) ################
+--- Q13: re-settle the ALREADY-PROCESSED q7 receipt -- must be idempotent, not an error, not a double invoice-paid attempt ---
+SET
+ applied |     resolved_payment_attempt_id      
+---------+--------------------------------------
+ t       | 01a050d5-bffd-7efe-8ced-ed5b67424b36
+(1 row)
+
+RESET
+
+################ PROVIDER/AMOUNT/CURRENCY MISMATCH FAIL-CLOSED (regression, still enforced) ################
+SET
+RESET
+SET
+(expect: FALSE, no exception -- correlation genuinely does not resolve, cross-provider)
+ applied | resolved_payment_attempt_id 
+---------+-----------------------------
+ f       | 
+(1 row)
+
+RESET
+

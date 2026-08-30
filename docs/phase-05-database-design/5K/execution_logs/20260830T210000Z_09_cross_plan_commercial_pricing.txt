@@ -1,0 +1,50 @@
+################ FINAL-6K-C04: CROSS-PLAN-FAMILY COMMERCIAL PRICING ################
+--- Test A: org creates negotiated agreement for Growth -- expect PASS ---
+SET
+SET
+RESET
+(succeeded if growth_cpa_id is non-null above)
+--- Test B: SAME org creates a SECOND negotiated agreement for Enterprise -- expect PASS (this is the fix) ---
+SET
+SET
+RESET
+(succeeded if enterprise_cpa_id is non-null above -- BEFORE this pass this INSERT would have violated uq_cpa_org)
+--- Test C: org attempts a SECOND agreement for the SAME plan (Growth again) -- expect FAIL (still prohibited) ---
+SET
+SET
+(expect: violates uq_cpa_org_plan)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_converge_test_matrix.sql:161: ERROR:  duplicate key value violates unique constraint "uq_cpa_org_plan"
+DETAIL:  Key (organization_id, base_plan_id)=(11111111-1111-1111-1111-111111111111, 33333333-3333-3333-3333-333333333333) already exists.
+CONTEXT:  SQL statement "INSERT INTO billing.commercial_pricing_agreements
+    (organization_id, base_plan_id, contract_reference, created_by_ref)
+  VALUES (p_organization_id, p_base_plan_id, p_contract_reference, p_created_by_ref)
+  RETURNING id"
+PL/pgSQL function fn_create_commercial_pricing_agreement(uuid,uuid,text,text) line 11 at SQL statement
+RESET
+--- Test D: Growth agreement version cannot reference an Enterprise PlanVersion -- expect FAIL (fn_create_commercial_pricing_agreement_version already validates v_pv_plan_id = v_agreement_plan_id, pre-existing check, unaffected by this pass) ---
+SET
+SET
+(expect: exception -- plan_version does not belong to this agreement's base plan)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_converge_test_matrix.sql:168: ERROR:  billing: plan_version 66666666-6666-6666-6666-666666666666 does not belong to this agreement's base plan 33333333-3333-3333-3333-333333333333
+CONTEXT:  PL/pgSQL function fn_create_commercial_pricing_agreement_version(uuid,uuid,uuid,character,numeric,character,date,date,text,text,text,text,jsonb) line 27 at RAISE
+RESET
+--- Test E: Enterprise agreement version CAN reference the Enterprise PlanVersion -- expect PASS ---
+SET
+SET
+RESET
+(succeeded if enterprise_cpav_id is non-null above)
+SET
+ fn_activate_commercial_pricing_agreement_version 
+--------------------------------------------------
+ 
+(1 row)
+
+RESET
+--- Test G/§13.3 resolution: org+plan-aware agreement selection (the corrected algorithm) picks the Enterprise agreement for an Enterprise-pinned period, NOT any Growth agreement ---
+                  id                  |             base_plan_id             
+--------------------------------------+--------------------------------------
+ 01a050d5-c01b-7efb-8c07-077cf58a3d1c | 44444444-4444-4444-4444-444444444444
+(1 row)
+
+(expect: exactly 1 row -- the Enterprise agreement version, never the Growth one)
+

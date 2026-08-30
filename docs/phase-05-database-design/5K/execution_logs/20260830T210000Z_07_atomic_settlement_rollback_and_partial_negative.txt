@@ -1,0 +1,63 @@
+################ FINAL-6K-C03: PROCESSED MUST MEAN INVOICE SETTLEMENT ################
+--- Q10: PaymentAttempt SUCCEEDED but Invoice still OPEN (constructed directly) -> attempt PROCESSED via fn_process_payment_webhook_receipt MUST FAIL (function no longer accepts PROCESSED at all) ---
+SET
+(expect: invalid status error -- PROCESSED not a legal target for this function anymore)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_converge_test_matrix.sql:89: ERROR:  billing: invalid payment_webhook_receipts status PROCESSED for fn_process_payment_webhook_receipt — PROCESSED is settled exclusively via fn_apply_successful_payment_webhook_receipt
+CONTEXT:  PL/pgSQL function fn_process_payment_webhook_receipt(uuid,text,text,timestamp with time zone) line 22 at RAISE
+RESET
+--- Q11: partial-settlement negative test -- construct a fresh attempt SUCCEEDED, invoice OPEN, then attempt full settlement, verify amount/currency/provider guards ---
+SET
+INSERT 0 1
+RESET
+SET
+RESET
+SET
+SET
+RESET
+SET
+ fn_link_payment_provider_transaction 
+--------------------------------------
+ 
+(1 row)
+
+(expect: amount mismatch exception -- settled 9999 vs expected 3000, no settlement)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_converge_test_matrix.sql:107: ERROR:  billing: payment_webhook_receipt 01a050d5-c00b-7b81-8917-170b0a0ab58f amount mismatch (settled=9999.0000, expected=3000.0000) — refusing settlement
+CONTEXT:  PL/pgSQL function fn_apply_successful_payment_webhook_receipt(uuid) line 73 at RAISE
+ status  
+---------
+ PENDING
+(1 row)
+
+ status 
+--------
+ OPEN
+(1 row)
+
+RESET
+--- Q12: rollback proof -- force an exception mid-settlement, verify nothing committed ---
+BEGIN
+SET
+ fn_update_payment_status 
+--------------------------
+ 
+(1 row)
+
+ fn_mark_invoice_paid 
+----------------------
+ 
+(1 row)
+
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_converge_test_matrix.sql:117: ERROR:  division by zero
+ROLLBACK
+(expect after rollback: attempt still whatever it was before -- NOT SUCCEEDED from this aborted txn, invoice still OPEN, no receipt PROCESSED)
+ status  
+---------
+ PENDING
+(1 row)
+
+ status 
+--------
+ OPEN
+(1 row)
+
+

@@ -1,11 +1,11 @@
 # Phase 6K FINAL Blocker Remediation — Validation Report
 
-**Date:** 2026-08-30 (five passes, same day)
-**Migration:** `102_5H2.sql` (Alembic revision `102_5H2`, `down_revision = '101_5I1'`) — new revision in its first pass; **amended in place** in its second, third, fourth, and fifth passes (§0/§19/§25/§32 below), never applied to a persistent database at any point
-**PostgreSQL:** 18.6, genuinely fresh disposable local instances (all five passes)
+**Date:** 2026-08-30 (six passes, same day)
+**Migration:** `102_5H2.sql` (Alembic revision `102_5H2`, `down_revision = '101_5I1'`) — new revision in its first pass; **amended in place** in its second through sixth passes (§0/§19/§25/§32/§39 below), never applied to a persistent database at any point
+**PostgreSQL:** 18.6, genuinely fresh disposable local instances (all six passes)
 **Driving document:** `docs/phase-06-api-design/6K-Billing-Usage-APIs.md` (Phase 6K, Billing + Usage APIs)
-**Consolidated manifest entries:** `docs/phase-05-database-design/5K/MIGRATION_MANIFEST.md`, "Phase 6K FINAL Blocker Remediation", "Phase 6K FINAL Freeze-Gate Remediation", "Phase 6K FINAL Two-Issue Freeze Remediation", "Phase 6K FINAL Freeze-Gate Remediation Pass", and "Phase 6K FINAL Webhook Processing Integrity Remediation" sections
-**Raw execution logs:** `docs/phase-05-database-design/5K/execution_logs/`, prefixes `20260830T020000Z_` (first pass, 9 files), `20260830T060000Z_` (second pass, 5 files), `20260830T090000Z_` (third pass, 1 file), `20260830T150000Z_` (fourth pass, 9 files), and `20260830T180000Z_` (fifth pass, 10 files)
+**Consolidated manifest entries:** `docs/phase-05-database-design/5K/MIGRATION_MANIFEST.md`, "Phase 6K FINAL Blocker Remediation", "Phase 6K FINAL Freeze-Gate Remediation", "Phase 6K FINAL Two-Issue Freeze Remediation", "Phase 6K FINAL Freeze-Gate Remediation Pass", "Phase 6K FINAL Webhook Processing Integrity Remediation", and "Phase 6K FINAL Convergence, Durability & Commercial-Pricing Remediation" sections
+**Raw execution logs:** `docs/phase-05-database-design/5K/execution_logs/`, prefixes `20260830T020000Z_` (first pass, 9 files), `20260830T060000Z_` (second pass, 5 files), `20260830T090000Z_` (third pass, 1 file), `20260830T150000Z_` (fourth pass, 9 files), `20260830T180000Z_` (fifth pass, 10 files), and `20260830T210000Z_` (sixth pass, 11 files)
 
 ---
 
@@ -473,7 +473,7 @@ Full transcripts: `execution_logs/20260830T180000Z_01` through `_10` (indexed in
 
 ---
 
-## 38. Webhook Processing Integrity Closure and Fifth-Pass Freeze Recommendation
+## 38. Webhook Processing Integrity Closure and Fifth-Pass Freeze Recommendation (SUPERSEDED — see §39 onward)
 
 | Finding | Fix | Evidence |
 |---|---|---|
@@ -488,3 +488,91 @@ Both fifth-pass findings are fixed and live-evidenced, on top of the first throu
 **Successful processing atomicity, answered directly (task §H):** a receipt cannot become `PROCESSED` if the financial transition fails or has not yet committed, because the function's own final check re-reads the correlated `payment_attempt`'s status inside the same transaction under standard PostgreSQL MVCC visibility — a status that is not `SUCCEEDED` (whether never attempted, still pending, or genuinely failed) causes the function to raise instead of writing `PROCESSED`. "An id was found" is structurally insufficient; only a committed `SUCCEEDED` financial state satisfies the check.
 
 **This is the fifth and, per this pass's own live evidence, current recommendation — not a claim that no further review is warranted. Independent freeze-gate review remains the authority that declares `FROZEN`.**
+
+**This recommendation was itself found incomplete by a further independent freeze-gate review — see §39 onward. It is superseded by §44's recommendation, not retracted from the record.**
+
+---
+
+## 39. What the Fifth Pass Missed — Disclosed, Not Hidden
+
+A further independent freeze-gate review found **3 BLOCKERS, 1 SIGNIFICANT commercial-pricing issue, and 1 documentation issue** the fifth pass's own §38 did not catch:
+
+1. **Callback-before-response could become permanently terminal (FINAL-6K-C01).** The fifth pass closed the "PROCESSED without settlement" hole but never asked what happens when correlation genuinely fails to resolve on the FIRST attempt — the ordinary, expected outcome of a webhook arriving before the provider's own synchronous API response finishes linking `provider_transaction_id`. The only non-`PROCESSING` outcome available was `FAILED`, and `FAILED` is terminal — durable dedup (`uq_pwr_provider_event`) would then permanently strand a real, later-resolvable payment behind an unrecoverable receipt.
+2. **A durable receipt could not survive a commit→enqueue crash (FINAL-6K-C02).** The receipt was durable as a ROW, but not durable as PROCESSABLE INFORMATION — it stored only `payment_provider`/`provider_event_id`/`payload_hash`, none of which a process other than the original request (e.g. a reconciliation worker recovering from a crashed/lost Celery enqueue) could use to actually resume processing. `provider_transaction_id` and the settled amount/currency existed only as transient function arguments in the live request's own memory.
+3. **`PROCESSED` still did not prove invoice settlement (FINAL-6K-C03).** The fifth pass's own fix required `payment_attempt.status = 'SUCCEEDED'` — a real improvement, but insufficient: `PaymentAttempt = SUCCEEDED` with `Invoice` still `OPEN` remained reachable, since those two transitions could still commit separately under the fifth pass's own design (the caller sequenced three separate function calls, only the last of which the fifth pass's fix re-verified).
+4. **Commercial pricing could not follow an organization across a plan-family change (SIGNIFICANT).** `uq_cpa_org` (`UNIQUE(organization_id)`) — present since the very first pass and never itself flagged by any of the five prior reviews — made it structurally impossible for an organization that negotiated Growth pricing to ever negotiate Enterprise pricing later, since a second agreement row was blocked and the first agreement's `base_plan_id` is (correctly, deliberately) immutable.
+5. **DEC-6K-02's own summary wording was ambiguous (documentation).** The owner-decision section's worked implementation line, read in isolation, did not clearly distinguish the per-row audit/display quantity from the invoice's own authoritative aggregation source — an ambiguity in the SUMMARY's wording, not in the actual implementation (§12.7a/§22.3 have specified exact-seconds aggregation since the second pass).
+
+All five are fixed in the sixth pass — evidence in §40–§43, closure in §44.
+
+---
+
+## 40. Sixth Pass — Scope
+
+Per §39's disclosed findings: `102_5H2.sql` was amended in place a sixth time (confirmed before this pass began that its only prior applications remained disposable/already-deleted PostgreSQL instances — never persistent).
+
+## 41. Sixth Pass — Environment
+
+Same disposable-instance approach as every prior pass: `.tmp_pgdata_6kconverge`, PostgreSQL 18.6, port 5566, `voice_agent_6kconverge` (primary), `voice_agent_6kconverge_incr` (incremental-path). The same `/tmp/5j1_validate_venv` toolchain was reused unmodified. Stopped and deleted at the end of the batch.
+
+## 42. Sixth Pass — Migration Integrity
+
+| Test | Result |
+|---|---|
+| Fresh `001_5B → 102_5H2` (sixth-amendment file) | **PASS**, exit 0 |
+| Incremental `101_5I1 → 102_5H2` (separate database) | **PASS**, exit 0 |
+| `alembic heads` / `current` (both databases) | Single head, `102_5H2 (head)`, `current == head` |
+| Final checksum vs. `MIGRATION_MANIFEST.md` row 102 | **Match** — `973044259dd3c98587142d955db33485a092cba45806aaf2576a5a77f85fd50d`, 113742 bytes |
+
+## 43. Sixth Pass — The Fix and Test Evidence
+
+**Schema:** `payment_webhook_receipts` gains `provider_transaction_id`, `settled_amount`, `settled_currency`, `event_occurred_at` (normalized, verified, durable), `next_retry_at`, and a fourth `processing_status` value `RETRY_PENDING` (with `chk_pwr_retry_scheduling` and a new `idx_pwr_retry_due` scan index). `commercial_pricing_agreements.uq_cpa_org` → `uq_cpa_org_plan UNIQUE(organization_id, base_plan_id)`.
+
+**Functions:** `fn_record_payment_webhook_receipt` persists the normalized fields and its dedup path reaffirms (rather than silently discards) a duplicate of a still-unresolved receipt. `fn_process_payment_webhook_receipt` no longer accepts `PROCESSED` at all, gains `PROCESSING↔RETRY_PENDING`/`RETRY_PENDING→FAILED` transitions, and reads `provider_transaction_id` from the row rather than a caller argument. A new function, `fn_apply_successful_payment_webhook_receipt`, is the sole atomic path to `PROCESSED`, reusing the frozen `fn_update_payment_status`/`fn_mark_invoice_paid` internally with an idempotent-if-already-`PAID` guard.
+
+Full transcripts: `execution_logs/20260830T210000Z_01` through `_11`. Every assertion below passed on the first run — zero test-harness bugs this pass:
+
+| Finding | Test | Result |
+|---|---|---|
+| FINAL-6K-C01 | `PROCESSING` before linkage exists | **PASS** — resolves, both ids `NULL`, not an error |
+| FINAL-6K-C01 | Transition to `RETRY_PENDING` (not `FAILED`) | **PASS** — non-terminal, `next_retry_at` set |
+| FINAL-6K-C02 | Duplicate delivery while `RETRY_PENDING` | **PASS** — same receipt id returned, reaffirmed, no second row |
+| FINAL-6K-C01 | Retry after `fn_link_payment_provider_transaction` runs | **PASS** — resolves correctly, reading `provider_transaction_id` from the row |
+| FINAL-6K-C01/C03 | Atomic settlement after resolution | **PASS** — `PROCESSED`, invoice `PAID` |
+| FINAL-6K-C02 | Crash recovery: receipt never touched by any worker, discovered via `idx_pwr_status` scan | **PASS** — settled correctly, no re-delivery needed |
+| FINAL-6K-C03 | `fn_process_payment_webhook_receipt(..., 'PROCESSED')` | **PASS (rejected)** — invalid target status |
+| FINAL-6K-C03 | Settlement with mismatched settled amount | **PASS (rejected)** — attempt stays `PENDING`, invoice stays `OPEN` |
+| FINAL-6K-C03 | Forced exception mid-settlement, explicit transaction | **PASS** — `ROLLBACK` leaves attempt/invoice untouched |
+| Regression | Duplicate/concurrent settlement of an already-`PROCESSED` receipt | **PASS** — idempotent, no re-run, no exception |
+| Regression | Cross-provider correlation | **PASS** — resolves `FALSE`, no exception |
+| SIGNIFICANT | Org negotiates Growth (A), then Enterprise (B) | **PASS** — both succeed, `uq_cpa_org` no longer blocks the second |
+| SIGNIFICANT | Second Growth agreement (C) | **PASS (rejected)** — `uq_cpa_org_plan` violation |
+| SIGNIFICANT | Growth agreement version referencing Enterprise `PlanVersion` (D) | **PASS (rejected)** — pre-existing `fn_create_commercial_pricing_agreement_version` check, unaffected |
+| SIGNIFICANT | Enterprise agreement version referencing Enterprise `PlanVersion` (E) | **PASS** |
+| SIGNIFICANT | Corrected org+plan selection query | **PASS** — exactly one row, the Enterprise agreement version |
+| Regression | Webhook privilege matrix (`app_api` denied on both functions; `app_billing_webhook_ingress`/`app_worker` granted; `app_platform_admin` `INSERT` denied) | **PASS** |
+| Regression | `CALL_MINUTES` `NULL`-seconds rejection; commercial-pricing raw `UPDATE` denial | **PASS** |
+
+**Not performed / disclosed limitations:** no real payment-provider HTTP integration test; no genuinely concurrent two-*process* race test (the forced-rollback and idempotent-duplicate-settlement tests are the deterministic equivalents, exercising the same row-locking primitives a genuine race would); the full first- through fifth-pass regression suites were not re-run verbatim (a targeted regression check was run instead, per the same proportionate-evidence approach every prior pass used).
+
+---
+
+## 44. FINAL-6K-C01 Through C05 Closure Table and Sixth-Pass Freeze Recommendation
+
+| ID | Finding | Fix | Evidence |
+|---|---|---|---|
+| FINAL-6K-C01 (BLOCKER) | Callback-before-response could become terminal | New non-terminal `RETRY_PENDING` status; duplicate delivery reaffirms an unresolved receipt | §43, callback-before-response tests |
+| FINAL-6K-C02 (BLOCKER) | Durable receipt could not recover a commit→enqueue crash | Normalized, durable `provider_transaction_id`/`settled_amount`/`settled_currency` columns; `idx_pwr_retry_due` reconciliation scan key | §43, crash-recovery test |
+| FINAL-6K-C03 (BLOCKER) | `PROCESSED` did not guarantee invoice settlement | `fn_apply_successful_payment_webhook_receipt` — the sole, atomic, single-transaction path to `PROCESSED` | §43, atomicity/rollback/partial-settlement tests |
+| FINAL-6K-C04 (SIGNIFICANT) | One organization could not negotiate pricing across different plan families | `uq_cpa_org` → `uq_cpa_org_plan UNIQUE(organization_id, base_plan_id)`; §13.3 resolution corrected to join through the plan family | §43, Tests A-E, resolution query |
+| FINAL-6K-C05 (documentation) | DEC-6K-02 wording ambiguous about per-call quantity | Owner-decision summary corrected to state both quantities explicitly | `6K-Billing-Usage-APIs.md` §48 |
+
+`PHASE 6K = READY FOR INDEPENDENT FREEZE-GATE REVIEW`.
+
+All five sixth-pass findings are fixed and live-evidenced, on top of the first through fifth passes' own already-closed items (§8, §17, §24, §31, §38 — unaffected by this pass except where the fix itself strengthened the same functions/constraints). Migration `102_5H2` (amended in place, sixth pass) passes fresh and incremental application on PostgreSQL 18.6, single head, checksum-verified against the manifest. No frozen document or frozen migration (001–101) was altered — every correction is additive within this same, still-unapplied file.
+
+**Final convergence proof, answered directly (task §54):** can a callback arrive before the provider API response and still settle later? **Yes** (§43, callback-before-response tests). Can a transient unknown transaction become permanently lost immediately? **No** — `RETRY_PENDING` is non-terminal. Can a committed receipt survive loss of the original Celery enqueue? **Yes** (§43, crash-recovery test). Does processing require provider redelivery for recovery? **No** — the reconciliation scan reads purely durable DB state. Can a receipt become `PROCESSED` while the invoice remains `OPEN`? **No** — structurally impossible via the sole settlement path. Can `PaymentAttempt` success, invoice-paid, and receipt-`PROCESSED` diverge because of a transaction rollback? **No** — proven by the forced-rollback test. Is successful settlement exactly-once under duplicate/concurrent paths? **Yes** — proven idempotent.
+
+**Final commercial-pricing proof, answered directly (task §55):** can one organization have negotiated pricing for Plan A? **Yes.** Can the same organization later have negotiated pricing for Plan B while preserving Plan A's history? **Yes** — the fix. Can a Plan A agreement silently apply to Plan B? **No** — `fn_create_commercial_pricing_agreement_version`'s own pre-existing plan-family check, plus the corrected org+plan resolution query. Does each agreement version still pin an exact `PlanVersion`? **Yes** — unchanged. Do historical invoices remain unchanged? **Yes** — no historical row was touched by this pass (both new agreements are freshly created, DRAFT/ACTIVE going forward only).
+
+**This is the sixth and, per this pass's own live evidence, current recommendation — not a claim that no further review is warranted. Independent freeze-gate review remains the authority that declares `FROZEN`.**
