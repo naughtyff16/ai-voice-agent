@@ -110,6 +110,48 @@ docs/phase-05-database-design/5K/validation/
       §20 security-model intent); app_api's INSERT on refunds revoked
       (contradicted 6K's own "no tenant-facing refund creation" design).
 
+THIRD PASS (2026-08-30, same day) — amended in place a third time, same
+policy, confirmed again before this pass began. A further independent
+freeze-gate review found two remaining issues:
+
+  13. FINAL-6K-01 (BLOCKER): fn_record_payment_webhook_receipt() (added
+      by the second pass) was still granted EXECUTE to app_api — the
+      general tenant-facing runtime role could still call it and pre-
+      claim/poison a real provider event ID. Fixed: a new, minimal role,
+      app_billing_webhook_ingress (LOGIN, NOT BYPASSRLS, no table DML,
+      USAGE on schema billing + EXECUTE on exactly this one function),
+      mirroring the existing voice.app_voice_reconciler precedent
+      (099_5C1.sql) exactly — neither app_api, app_worker, nor
+      app_platform_admin retains EXECUTE.
+  14. FINAL-6K-02 (SIGNIFICANT): usage_events.chk_ue_source_quantity_
+      seconds only enforced non-negativity, never that a CALL_MINUTES
+      row actually carries a non-NULL source_quantity_seconds. Fixed:
+      the CHECK now also requires metric <> 'CALL_MINUTES' OR
+      source_quantity_seconds IS NOT NULL, added at full validation
+      strength (no historical rows exist for this never-applied
+      migration's own new column).
+
+FOURTH PASS (2026-08-30, same day) — amended in place a fourth time, same
+policy, confirmed again before this pass began. A further independent
+freeze-gate review found one remaining schema/grant issue plus a
+documentation-consistency issue:
+
+  15. FREEZE-6K-01 (BLOCKER): billing.payment_webhook_receipts still
+      granted app_platform_admin full SELECT/INSERT/UPDATE/DELETE
+      directly on the table — even with EXECUTE on the ingress function
+      closed (item 13), a platform-admin session could bypass it
+      entirely via a raw table write, pre-claiming/poisoning a real
+      provider event ID or rewriting/deleting receipt rows outright.
+      Fixed: INSERT/UPDATE/DELETE revoked from app_platform_admin;
+      SELECT retained (narrow, read-only support/incident-response
+      allowance). No role holds DELETE on this table at all.
+  16. FREEZE-6K-02 (BLOCKER, documentation only, no SQL change): the
+      authoritative 6K-Billing-Usage-APIs.md still normatively described
+      fn_record_payment_webhook_receipt as app_api-reachable/callable in
+      its own ADR-6K-15 and one live-validation-table row, stale
+      relative to item 13's own fix. Corrected in the document; no
+      migration content change.
+
 Revision ID: 102_5H2
 Revises: '101_5I1'
 """
@@ -137,7 +179,16 @@ def downgrade() -> None:
         "package (same forward-only policy as every revision since "
         "001_5B). No rollback DDL is authored here; restore from a "
         "database backup taken before this revision if needed. "
-        "(Low-risk manual reversal, in dependency order: GRANT back the "
+        "(Low-risk manual reversal, in dependency order: ALTER TABLE "
+        "billing.usage_events DROP CONSTRAINT chk_ue_source_quantity_seconds "
+        "(re-add the original non-negative-only version if truly reverting "
+        "-- not recommended, re-opens FINAL-6K-02); GRANT INSERT, UPDATE, "
+        "DELETE ON billing.payment_webhook_receipts TO app_platform_admin "
+        "if truly reverting (re-opens FREEZE-6K-01 -- not recommended); "
+        "REVOKE EXECUTE ON "
+        "FUNCTION billing.fn_record_payment_webhook_receipt(TEXT, TEXT, CHAR) "
+        "FROM app_billing_webhook_ingress; DROP ROLE app_billing_webhook_"
+        "ingress (only if no other object references it); GRANT back the "
         "REVOKEd frozen-file grants (payment_attempts/usage_events/"
         "cost_entries/invoice_lines/tax_lines/credits/credit_ledger_entries/"
         "refunds INSERT, per the SQL file's own Part G) if truly reverting; "

@@ -1,0 +1,240 @@
+Timing is off.
+Pager usage is off.
+=== FIXTURE SETUP ===
+SET
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+RESET
+
+################ FREEZE-6K-01: PLATFORM-ADMIN RAW WEBHOOK-RECEIPT DML BOUNDARY ################
+--- Q1: final grant matrix on the TABLE itself ---
+ app_api_select | app_api_insert | app_api_update | app_api_delete | ingress_select | ingress_insert | ingress_update | ingress_delete | worker_select | worker_insert | worker_update | worker_delete | admin_select | admin_insert | admin_update | admin_delete 
+----------------+----------------+----------------+----------------+----------------+----------------+----------------+----------------+---------------+---------------+---------------+---------------+--------------+--------------+--------------+--------------
+ f              | f              | f              | f              | f              | f              | f              | f              | t             | f             | f             | f             | t            | f            | f            | f
+(1 row)
+
+--- Q2: function grant matrix (regression re-confirm, FINAL-6K-01) ---
+ app_api_exec | app_worker_exec | app_platform_admin_exec | ingress_exec 
+--------------+-----------------+-------------------------+--------------
+ f            | f               | f                       | t
+(1 row)
+
+--- Q3: app_platform_admin direct INSERT MUST FAIL ---
+SET
+(expect: permission denied)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_freeze_test_matrix.sql:51: ERROR:  permission denied for table payment_webhook_receipts
+RESET
+--- seed one legitimate receipt as the trusted ingress role ---
+SET
+              seeded_id               
+--------------------------------------
+ 01a05094-5545-726a-888a-8a99978844ae
+(1 row)
+
+RESET
+--- Q4: app_platform_admin direct UPDATE MUST FAIL ---
+SET
+(expect: permission denied)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_freeze_test_matrix.sql:62: ERROR:  permission denied for table payment_webhook_receipts
+RESET
+--- Q5: app_platform_admin direct DELETE MUST FAIL ---
+SET
+(expect: permission denied)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_freeze_test_matrix.sql:68: ERROR:  permission denied for table payment_webhook_receipts
+RESET
+--- Q6: app_platform_admin SELECT is intentionally retained (read-only support/incident-response) ---
+SET
+(expect: succeeds, 1 row)
+ payment_provider |  provider_event_id  | processing_status 
+------------------+---------------------+-------------------
+ RAZORPAY         | evt_freeze_seed_001 | RECEIVED
+(1 row)
+
+RESET
+--- Q7: app_api direct SELECT/INSERT/UPDATE/DELETE/EXECUTE MUST ALL FAIL (regression) ---
+SET
+SET
+(expect: permission denied)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_freeze_test_matrix.sql:81: ERROR:  permission denied for table payment_webhook_receipts
+(expect: permission denied)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_freeze_test_matrix.sql:83: ERROR:  permission denied for table payment_webhook_receipts
+(expect: permission denied)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_freeze_test_matrix.sql:85: ERROR:  permission denied for table payment_webhook_receipts
+(expect: permission denied)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_freeze_test_matrix.sql:87: ERROR:  permission denied for table payment_webhook_receipts
+(expect: permission denied)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_freeze_test_matrix.sql:89: ERROR:  permission denied for function fn_record_payment_webhook_receipt
+RESET
+--- Q8: app_billing_webhook_ingress direct table INSERT/UPDATE/DELETE/SELECT MUST ALL FAIL (function-only surface) ---
+SET
+(expect: permission denied)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_freeze_test_matrix.sql:95: ERROR:  permission denied for table payment_webhook_receipts
+(expect: permission denied)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_freeze_test_matrix.sql:97: ERROR:  permission denied for table payment_webhook_receipts
+(expect: permission denied)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_freeze_test_matrix.sql:99: ERROR:  permission denied for table payment_webhook_receipts
+(expect: permission denied, no SELECT grant either)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_freeze_test_matrix.sql:101: ERROR:  permission denied for table payment_webhook_receipts
+RESET
+--- Q9: app_worker direct INSERT/UPDATE/DELETE MUST ALL FAIL; SELECT retained ---
+SET
+(expect: permission denied)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_freeze_test_matrix.sql:107: ERROR:  permission denied for table payment_webhook_receipts
+(expect: permission denied)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_freeze_test_matrix.sql:109: ERROR:  permission denied for table payment_webhook_receipts
+(expect: permission denied)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_freeze_test_matrix.sql:111: ERROR:  permission denied for table payment_webhook_receipts
+(expect: succeeds, SELECT retained for reconciliation scanning)
+ count 
+-------
+     1
+(1 row)
+
+RESET
+
+################ POSITIVE CONTROLLED-PATH TEST (§8 of the task) ################
+--- Q10: trusted ingress creates a fresh receipt; duplicate is a no-op ---
+SET
+              first_call              
+--------------------------------------
+ 01a05094-5550-7bdd-83b6-b6b92e305ee7
+(1 row)
+
+(duplicate -- expect NULL)
+ dup_call 
+----------
+ 
+(1 row)
+
+RESET
+--- Q11: async trusted processor (app_worker) resolves + transitions state through the controlled function ---
+SET
+SET
+RESET
+SET
+ fn_link_payment_provider_transaction 
+--------------------------------------
+ 
+(1 row)
+
+ resolved |     resolved_payment_attempt_id      |       resolved_organization_id       
+----------+--------------------------------------+--------------------------------------
+ t        | 01a05094-5556-7b28-adf6-f61ca0d159f3 | 11111111-1111-1111-1111-111111111111
+(1 row)
+
+ resolved |     resolved_payment_attempt_id      |       resolved_organization_id       
+----------+--------------------------------------+--------------------------------------
+ t        | 01a05094-5556-7b28-adf6-f61ca0d159f3 | 11111111-1111-1111-1111-111111111111
+(1 row)
+
+RESET
+(expect: attempt_id above resolves back correctly)
+ linkage_correct 
+-----------------
+ t
+(1 row)
+
+--- Q12: unauthorized roles cannot mutate the now-PROCESSED receipt (final confirmation) ---
+SET
+(expect: permission denied)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_freeze_test_matrix.sql:147: ERROR:  permission denied for table payment_webhook_receipts
+RESET
+SET
+(expect: permission denied)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_freeze_test_matrix.sql:151: ERROR:  permission denied for table payment_webhook_receipts
+RESET
+
+################ REGRESSION SMOKE TESTS (task §19) ################
+--- R1: Payment attempt — app_api direct INSERT denied; guarded creation succeeds ---
+SET
+SET
+(expect: permission denied)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_freeze_test_matrix.sql:162: ERROR:  permission denied for table payment_attempts
+RESET
+SET
+SET
+(expect: succeeds -- guarded creation on a DIFFERENT, still-unpaid invoice)
+ guarded_create_ok 
+-------------------
+ t
+(1 row)
+
+RESET
+--- R2: CALL_MINUTES exact-seconds regression ---
+SET
+SET
+(expect: violates check constraint)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_freeze_test_matrix.sql:175: ERROR:  new row for relation "usage_events_2026_08" violates check constraint "chk_ue_source_quantity_seconds"
+(expect: violates check constraint)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_freeze_test_matrix.sql:178: ERROR:  new row for relation "usage_events_2026_08" violates check constraint "chk_ue_source_quantity_seconds"
+(expect: succeeds)
+    metric    | source_quantity_seconds 
+--------------+-------------------------
+ CALL_MINUTES |                 60.0000
+(1 row)
+
+INSERT 0 1
+DO
+ agg_1000x1s 
+-------------
+     16.6667
+(1 row)
+
+ single_1000s 
+--------------
+      16.6667
+(1 row)
+
+RESET
+--- R3: Commercial pricing — raw lifecycle UPDATE/DELETE denied for app_platform_admin (permission-boundary regression) ---
+SET
+(expect: permission denied -- raw UPDATE bypass, even against a non-existent row: privilege checked before row lookup)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_freeze_test_matrix.sql:198: ERROR:  permission denied for table commercial_pricing_agreement_versions
+(expect: permission denied -- historical DELETE)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_freeze_test_matrix.sql:200: ERROR:  permission denied for table commercial_pricing_agreement_versions
+RESET
+--- R3b: Commercial pricing — controlled create/version/activate functional flow still succeeds end to end ---
+SET
+SET
+(expect: succeeds -- controlled activation)
+ fn_activate_commercial_pricing_agreement_version 
+--------------------------------------------------
+ 
+(1 row)
+
+ status 
+--------
+ ACTIVE
+(1 row)
+
+RESET
+SET
+(expect: permission denied -- historical delete of a now-ACTIVE version)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_freeze_test_matrix.sql:214: ERROR:  permission denied for table commercial_pricing_agreement_versions
+RESET
+--- R4: Late usage — function still exists, still worker-callable (grant-level regression check) ---
+                 proname                 | worker_exec 
+-----------------------------------------+-------------
+ fn_create_late_usage_billing_adjustment | t
+(1 row)
+
+--- R5: Suspension / recovery — payment-attempt-creation grant unaffected (app_api retains it; app_worker retains it) ---
+ worker_grant | app_api_grant 
+--------------+---------------
+ t            | t
+(1 row)
+
+
+################ SECURITY DEFINER FINAL AUDIT ################
+               proname                |                     grantees                     
+--------------------------------------+--------------------------------------------------
+ fn_create_payment_attempt            | {app_api,app_platform_admin,app_worker,postgres}
+ fn_link_payment_provider_transaction | {app_platform_admin,app_worker,postgres}
+ fn_process_payment_webhook_receipt   | {app_platform_admin,app_worker,postgres}
+ fn_record_payment_webhook_receipt    | {app_billing_webhook_ingress,postgres}
+(4 rows)
+
+=== DONE ===

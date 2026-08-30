@@ -1,0 +1,129 @@
+Timing is off.
+Pager usage is off.
+=== FIXTURE SETUP ===
+SET
+INSERT 0 1
+RESET
+
+################ FINAL-6K-01: WEBHOOK INGRESS ROLE BOUNDARY ################
+--- role exists, minimal surface ---
+           rolname           | rolcanlogin | rolbypassrls 
+-----------------------------+-------------+--------------
+ app_billing_webhook_ingress | t           | f
+(1 row)
+
+--- grant matrix: only app_billing_webhook_ingress has EXECUTE ---
+ app_api_exec | app_worker_exec | app_platform_admin_exec | app_billing_webhook_ingress_exec | public_exec 
+--------------+-----------------+-------------------------+----------------------------------+-------------
+ f            | f               | f                       | t                                | f
+(1 row)
+
+--- Q1: app_api CANNOT invoke the ingress function (BLOCKER test) ---
+SET
+(expect: permission denied for function fn_record_payment_webhook_receipt)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_final2_test_matrix.sql:28: ERROR:  permission denied for function fn_record_payment_webhook_receipt
+RESET
+--- Q2: app_api still cannot SELECT/INSERT the table directly (regression check) ---
+SET
+SET
+(expect: permission denied)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_final2_test_matrix.sql:35: ERROR:  permission denied for table payment_webhook_receipts
+(expect: permission denied)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_final2_test_matrix.sql:37: ERROR:  permission denied for table payment_webhook_receipts
+RESET
+--- Q3: app_worker also cannot invoke the ingress function (too broad, per rationale) ---
+SET
+(expect: permission denied)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_final2_test_matrix.sql:43: ERROR:  permission denied for function fn_record_payment_webhook_receipt
+RESET
+--- Q4: app_platform_admin also cannot invoke it (mirrors app_voice_reconciler precedent) ---
+SET
+(expect: permission denied)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_final2_test_matrix.sql:49: ERROR:  permission denied for function fn_record_payment_webhook_receipt
+RESET
+--- Q5: the TRUSTED role CAN invoke it, and dedup still works ---
+SET
+              first_call              
+--------------------------------------
+ 01a05071-cdb3-7781-bdfe-fea7f3be2943
+(1 row)
+
+(duplicate -- expect NULL)
+ dup_call 
+----------
+ 
+(1 row)
+
+RESET
+--- Q6: trusted role has no other table privilege (minimal surface, no broad billing access) ---
+ pa_select | pwr_select | inv_select 
+-----------+------------+------------
+ f         | f          | f
+(1 row)
+
+
+################ FINAL-6K-02: CALL_MINUTES EXACT-SECONDS ENFORCEMENT ################
+SET
+SET
+--- Q7: CALL_MINUTES with source_quantity_seconds = NULL must FAIL ---
+(expect: new row for relation "usage_events" violates check constraint "chk_ue_source_quantity_seconds")
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_final2_test_matrix.sql:74: ERROR:  new row for relation "usage_events_2026_08" violates check constraint "chk_ue_source_quantity_seconds"
+--- Q8: CALL_MINUTES with negative source_quantity_seconds must FAIL ---
+(expect: violates check constraint)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_final2_test_matrix.sql:79: ERROR:  new row for relation "usage_events_2026_08" violates check constraint "chk_ue_source_quantity_seconds"
+--- Q9: CALL_MINUTES with valid source_quantity_seconds succeeds ---
+    metric    | quantity | source_quantity_seconds 
+--------------+----------+-------------------------
+ CALL_MINUTES |   2.1167 |                127.0000
+(1 row)
+
+INSERT 0 1
+--- Q10: non-CALL_MINUTES metric with source_quantity_seconds NULL still succeeds (no over-broad restriction) ---
+     metric     | quantity | source_quantity_seconds 
+----------------+----------+-------------------------
+ CAMPAIGN_CALLS |   1.0000 |                        
+(1 row)
+
+INSERT 0 1
+--- Q11: aggregation equivalence, reconfirmed under the now-mandatory-seconds regime ---
+DO
+ agg_1000x1s 
+-------------
+     16.6667
+(1 row)
+
+ single_1000s 
+--------------
+      16.6667
+(1 row)
+
+DO
+ agg_100x7s 
+------------
+    11.6667
+(1 row)
+
+ single_700s 
+-------------
+     11.6667
+(1 row)
+
+RESET
+--- Q12: app_api still cannot insert usage_events at all (regression check, unrelated to this fix but must not have regressed) ---
+SET
+SET
+(expect: permission denied)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_final2_test_matrix.sql:120: ERROR:  permission denied for table usage_events
+RESET
+
+################ REGRESSION SMOKE TEST: PRIOR 6K FIXES UNCHANGED ################
+SET
+SET
+(expect: permission denied -- FB-6K-05 unaffected)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_final2_test_matrix.sql:129: ERROR:  permission denied for table payment_attempts
+RESET
+SET
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_final2_test_matrix.sql:133: ERROR:  billing: base_plan_id <NULL> is not an active plan
+CONTEXT:  PL/pgSQL function fn_create_commercial_pricing_agreement(uuid,uuid,text,text) line 8 at RAISE
+RESET
+=== DONE ===

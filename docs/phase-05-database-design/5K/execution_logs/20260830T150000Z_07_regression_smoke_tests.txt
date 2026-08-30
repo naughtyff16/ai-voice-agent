@@ -1,0 +1,81 @@
+################ REGRESSION SMOKE TESTS (task §19) ################
+--- R1: Payment attempt — app_api direct INSERT denied; guarded creation succeeds ---
+SET
+SET
+(expect: permission denied)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_freeze_test_matrix.sql:162: ERROR:  permission denied for table payment_attempts
+RESET
+SET
+SET
+(expect: succeeds -- guarded creation on a DIFFERENT, still-unpaid invoice)
+ guarded_create_ok 
+-------------------
+ t
+(1 row)
+
+RESET
+--- R2: CALL_MINUTES exact-seconds regression ---
+SET
+SET
+(expect: violates check constraint)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_freeze_test_matrix.sql:175: ERROR:  new row for relation "usage_events_2026_08" violates check constraint "chk_ue_source_quantity_seconds"
+(expect: violates check constraint)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_freeze_test_matrix.sql:178: ERROR:  new row for relation "usage_events_2026_08" violates check constraint "chk_ue_source_quantity_seconds"
+(expect: succeeds)
+    metric    | source_quantity_seconds 
+--------------+-------------------------
+ CALL_MINUTES |                 60.0000
+(1 row)
+
+INSERT 0 1
+DO
+ agg_1000x1s 
+-------------
+     16.6667
+(1 row)
+
+ single_1000s 
+--------------
+      16.6667
+(1 row)
+
+RESET
+--- R3: Commercial pricing — raw lifecycle UPDATE/DELETE denied for app_platform_admin (permission-boundary regression) ---
+SET
+(expect: permission denied -- raw UPDATE bypass, even against a non-existent row: privilege checked before row lookup)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_freeze_test_matrix.sql:198: ERROR:  permission denied for table commercial_pricing_agreement_versions
+(expect: permission denied -- historical DELETE)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_freeze_test_matrix.sql:200: ERROR:  permission denied for table commercial_pricing_agreement_versions
+RESET
+--- R3b: Commercial pricing — controlled create/version/activate functional flow still succeeds end to end ---
+SET
+SET
+(expect: succeeds -- controlled activation)
+ fn_activate_commercial_pricing_agreement_version 
+--------------------------------------------------
+ 
+(1 row)
+
+ status 
+--------
+ ACTIVE
+(1 row)
+
+RESET
+SET
+(expect: permission denied -- historical delete of a now-ACTIVE version)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_freeze_test_matrix.sql:214: ERROR:  permission denied for table commercial_pricing_agreement_versions
+RESET
+--- R4: Late usage — function still exists, still worker-callable (grant-level regression check) ---
+                 proname                 | worker_exec 
+-----------------------------------------+-------------
+ fn_create_late_usage_billing_adjustment | t
+(1 row)
+
+--- R5: Suspension / recovery — payment-attempt-creation grant unaffected (app_api retains it; app_worker retains it) ---
+ worker_grant | app_api_grant 
+--------------+---------------
+ t            | t
+(1 row)
+
+

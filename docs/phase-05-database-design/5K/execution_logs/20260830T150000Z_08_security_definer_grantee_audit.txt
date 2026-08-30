@@ -1,0 +1,10 @@
+################ SECURITY DEFINER FINAL AUDIT ################
+               proname                |                     grantees                     
+--------------------------------------+--------------------------------------------------
+ fn_create_payment_attempt            | {app_api,app_platform_admin,app_worker,postgres}
+ fn_link_payment_provider_transaction | {app_platform_admin,app_worker,postgres}
+ fn_process_payment_webhook_receipt   | {app_platform_admin,app_worker,postgres}
+ fn_record_payment_webhook_receipt    | {app_billing_webhook_ingress,postgres}
+(4 rows)
+
+=== DONE ===

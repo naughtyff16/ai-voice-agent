@@ -139,6 +139,63 @@
 --   fn_billing_apply_credit — the grants had never actually matched that
 --   stated intent); app_api's direct INSERT on refunds is revoked
 --   (contradicted 6K's own "no tenant-facing refund creation" design).
+--
+-- THIRD PASS (2026-08-30, same day) — amended in place a third time, same
+--   "never applied to any real database" policy, confirmed again before
+--   this pass began. A further independent freeze-gate review found the
+--   prior pass's own fixes were incomplete in two places:
+--
+--   FINAL-6K-01 (BLOCKER). fn_record_payment_webhook_receipt() (added by
+--     the second pass to close FB-6K-03/04) was granted EXECUTE to
+--     app_api alongside app_platform_admin — meaning the general tenant-
+--     facing runtime role could still CALL the function and pre-claim/
+--     poison a real provider event ID via UNIQUE (payment_provider,
+--     provider_event_id), even though it could no longer reach the
+--     table directly. Fixed: a new, minimal role,
+--     app_billing_webhook_ingress (LOGIN, NOT BYPASSRLS, no table DML,
+--     USAGE on schema billing + EXECUTE on exactly this one function),
+--     mirroring voice.fn_reconcile_dispatch_from_provider()'s own
+--     app_voice_reconciler precedent (099_5C1.sql §B1) exactly — neither
+--     app_api, app_worker, nor app_platform_admin retains EXECUTE.
+--   FINAL-6K-02 (SIGNIFICANT). usage_events.chk_ue_source_quantity_seconds
+--     only enforced non-negativity, never that a CALL_MINUTES row
+--     actually carries a non-NULL source_quantity_seconds — a worker bug
+--     could insert metric='CALL_MINUTES' with source_quantity_seconds
+--     NULL, silently losing DEC-6K-02's exact-aggregation guarantee at
+--     the structural level (falling back to whatever the ingestion
+--     consumer's own convention happened to do, not a DB-enforced
+--     invariant). Fixed: the CHECK constraint now also requires
+--     metric <> 'CALL_MINUTES' OR source_quantity_seconds IS NOT NULL —
+--     added at full validation strength (this column has no pre-existing
+--     historical rows anywhere, since the whole migration remains
+--     unapplied), no NOT VALID/backfill sequencing required.
+--
+-- FOURTH PASS (2026-08-30, same day) — amended in place a fourth time, same
+--   "never applied to any real database" policy, confirmed again before
+--   this pass began. A further independent freeze-gate review found the
+--   third pass's own webhook-ingress hardening still left one raw
+--   privilege gap:
+--
+--   FREEZE-6K-01 (BLOCKER). billing.payment_webhook_receipts granted
+--     app_platform_admin full SELECT/INSERT/UPDATE/DELETE (Part C, below).
+--     Closing app_api's and app_worker's/app_platform_admin's EXECUTE on
+--     fn_record_payment_webhook_receipt (the third pass's FINAL-6K-01 fix)
+--     did not close THIS path — a platform-admin session could still
+--     bypass the dedicated ingress function entirely via a raw table
+--     write: pre-claim/poison (payment_provider, provider_event_id),
+--     overwrite processing_status/payment_attempt_id/organization_id/
+--     last_error, or DELETE a receipt row outright, rewriting the
+--     platform's own webhook ingestion history (security/audit evidence).
+--     Fixed: INSERT/UPDATE/DELETE revoked from app_platform_admin on this
+--     table; SELECT is retained (a narrow, read-only, legitimate support/
+--     incident-response need — investigating a tenant's disputed/stuck
+--     payment by reading the receipt's own state — that does not
+--     undermine the ingress/processing write-isolation invariant this
+--     table exists to guarantee). No role — not app_api, not
+--     app_billing_webhook_ingress, not app_worker, not
+--     app_platform_admin — holds DELETE on this table; a future
+--     archival/retention need is a separately governed operation, never
+--     an ordinary runtime grant.
 -- =================================================================
 
 
@@ -774,7 +831,72 @@ GRANT EXECUTE ON FUNCTION billing.fn_link_payment_provider_transaction(UUID, UUI
 --     designed; a payload that fails verification never reaches this call
 --     at all.
 GRANT SELECT ON billing.payment_webhook_receipts TO app_worker, app_readonly;
-GRANT SELECT, INSERT, UPDATE, DELETE ON billing.payment_webhook_receipts TO app_platform_admin;
+
+-- FINAL freeze-gate correction (FREEZE-6K-01, fourth amendment): the
+-- prior state granted app_platform_admin full SELECT/INSERT/UPDATE/DELETE
+-- here. INSERT/UPDATE/DELETE are removed — even though app_platform_admin
+-- cannot EXECUTE fn_record_payment_webhook_receipt (it is granted to
+-- app_billing_webhook_ingress alone, immediately below), a raw table
+-- grant would let a platform-admin session bypass that dedicated ingress
+-- path entirely: pre-claim/poison a real (payment_provider,
+-- provider_event_id) pair, overwrite processing_status/payment_attempt_id/
+-- organization_id/last_error, or DELETE a receipt row outright — rewriting
+-- the platform's own webhook ingestion history, which is security/audit
+-- evidence (§30.2 of the API document). Platform-admin authority is not
+-- authority to rewrite provider webhook ingestion history. SELECT is
+-- retained: a legitimate, narrow support/incident-response need exists
+-- (investigating a specific tenant's disputed/stuck payment by reading
+-- the receipt's own processing_status/attempt_count/last_error), it is
+-- read-only, and it does not undermine the ingress/processing write
+-- isolation this table's whole design exists to guarantee. No DELETE
+-- path exists for any runtime role, including app_platform_admin — a
+-- future archival/retention need is a separately governed operation, not
+-- an ordinary runtime grant (task's own instruction: do not introduce
+-- deletion merely for convenience).
+GRANT SELECT ON billing.payment_webhook_receipts TO app_platform_admin;
+
+-- FINAL two-issue freeze remediation (FINAL-6K-01): app_api still held
+-- EXECUTE on fn_record_payment_webhook_receipt below, even after losing
+-- its direct table grants — meaning the general tenant-facing runtime
+-- role could still call the function and pre-claim/poison a provider
+-- event ID (UNIQUE (payment_provider, provider_event_id) consumed before
+-- the genuine webhook arrives, causing the real delivery to be silently
+-- treated as a duplicate). Closed with a new, narrowly-scoped role,
+-- mirroring voice.fn_reconcile_dispatch_from_provider()'s own
+-- app_voice_reconciler precedent (099_5C1.sql §B1) exactly:
+--
+-- WHY A NEW ROLE, RATHER THAN GRANTING BACK TO app_worker: app_worker is
+-- a broad, shared-by-many-functions role (subscription renewal, invoice
+-- generation, usage aggregation, credit issuance, commercial-pricing
+-- lifecycle...). Granting it EXECUTE here would mean every one of those
+-- unrelated worker code paths could also record a provider webhook
+-- receipt, for no reason connected to its actual job — the same
+-- "broader than a single function needs" problem 099_5C1.sql's own
+-- rationale rejected app_worker for. app_platform_admin (BYPASSRLS) is
+-- also not granted this function — mirroring app_voice_reconciler's own
+-- precedent exactly (its analogous function is granted to
+-- app_voice_reconciler ALONE, not also to app_platform_admin) — an
+-- automated, high-frequency, unauthenticated-by-JWT inbound-webhook path
+-- has no legitimate need for platform-admin/BYPASSRLS power.
+--
+-- app_billing_webhook_ingress is therefore a new, minimal role: LOGIN
+-- (matching this catalog's own established convention — every existing
+-- role, including app_voice_reconciler, is a directly-connectable LOGIN
+-- role), NOT BYPASSRLS, no table DML of any kind, no membership in any
+-- other role. Its entire privilege surface is exactly: USAGE on schema
+-- billing, and EXECUTE on exactly one function. A real deployment
+-- authenticates its trusted, provider-webhook-verifying inbound HTTP
+-- handler as this role, using a distinct credential from the generic
+-- app_api credential every ordinary tenant request uses.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_billing_webhook_ingress') THEN
+    CREATE ROLE app_billing_webhook_ingress LOGIN;
+  END IF;
+END
+$$;
+
+GRANT USAGE ON SCHEMA billing TO app_billing_webhook_ingress;
 
 CREATE OR REPLACE FUNCTION billing.fn_record_payment_webhook_receipt(
   p_payment_provider  TEXT,
@@ -798,8 +920,12 @@ BEGIN
 END;
 $$;
 REVOKE ALL ON FUNCTION billing.fn_record_payment_webhook_receipt(TEXT, TEXT, CHAR) FROM PUBLIC;
+-- Deliberately NOT granted to app_api (the finding this pass closes), NOT
+-- to app_worker (too broad, see rationale above), and NOT to
+-- app_platform_admin (mirrors app_voice_reconciler's own precedent —
+-- an automated provider-callback path, not an operator/admin action).
 GRANT EXECUTE ON FUNCTION billing.fn_record_payment_webhook_receipt(TEXT, TEXT, CHAR)
-  TO app_api, app_platform_admin;
+  TO app_billing_webhook_ingress;
 
 -- Controlled status-transition + linkage path — mirrors fn_update_
 -- payment_status's own state-machine-guard pattern. app_worker-only:
@@ -1261,8 +1387,26 @@ GRANT EXECUTE ON FUNCTION billing.fn_create_late_usage_billing_adjustment(
 -- SUM(quantity) pattern unchanged.
 ALTER TABLE billing.usage_events
   ADD COLUMN source_quantity_seconds NUMERIC(18,4) NULL;
+
+-- FINAL two-issue freeze remediation (FINAL-6K-02): the original CHECK
+-- only enforced non-negativity — it never actually required
+-- source_quantity_seconds to be present for CALL_MINUTES rows, so a
+-- worker bug (or a future code path this document does not itself
+-- write) could still insert metric='CALL_MINUTES' with
+-- source_quantity_seconds=NULL, silently losing the exact-aggregation
+-- guarantee DEC-6K-02/§22.3 depends on structurally, not just by
+-- ingestion-consumer convention. Strengthened below to make this
+-- impossible at the DB layer for every new row: this migration has
+-- never been applied to any real database (§0/header), so
+-- source_quantity_seconds itself has no pre-existing historical rows to
+-- reconcile — the constraint is added directly at full validation
+-- strength (no NOT VALID/backfill sequencing is needed for a column
+-- introduced in this same, not-yet-applied migration).
 ALTER TABLE billing.usage_events
-  ADD CONSTRAINT chk_ue_source_quantity_seconds CHECK (source_quantity_seconds IS NULL OR source_quantity_seconds >= 0);
+  ADD CONSTRAINT chk_ue_source_quantity_seconds CHECK (
+    (metric <> 'CALL_MINUTES' OR source_quantity_seconds IS NOT NULL)
+    AND (source_quantity_seconds IS NULL OR source_quantity_seconds >= 0)
+  );
 -- Partitioned parent table: ADD COLUMN/ADD CONSTRAINT here apply
 -- automatically to every existing and future partition — no per-partition
 -- DDL required (standard PostgreSQL partitioned-table behavior).

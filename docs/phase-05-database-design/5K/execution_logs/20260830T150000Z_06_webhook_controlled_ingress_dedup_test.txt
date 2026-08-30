@@ -1,0 +1,52 @@
+################ POSITIVE CONTROLLED-PATH TEST (§8 of the task) ################
+--- Q10: trusted ingress creates a fresh receipt; duplicate is a no-op ---
+SET
+              first_call              
+--------------------------------------
+ 01a05094-5550-7bdd-83b6-b6b92e305ee7
+(1 row)
+
+(duplicate -- expect NULL)
+ dup_call 
+----------
+ 
+(1 row)
+
+RESET
+--- Q11: async trusted processor (app_worker) resolves + transitions state through the controlled function ---
+SET
+SET
+RESET
+SET
+ fn_link_payment_provider_transaction 
+--------------------------------------
+ 
+(1 row)
+
+ resolved |     resolved_payment_attempt_id      |       resolved_organization_id       
+----------+--------------------------------------+--------------------------------------
+ t        | 01a05094-5556-7b28-adf6-f61ca0d159f3 | 11111111-1111-1111-1111-111111111111
+(1 row)
+
+ resolved |     resolved_payment_attempt_id      |       resolved_organization_id       
+----------+--------------------------------------+--------------------------------------
+ t        | 01a05094-5556-7b28-adf6-f61ca0d159f3 | 11111111-1111-1111-1111-111111111111
+(1 row)
+
+RESET
+(expect: attempt_id above resolves back correctly)
+ linkage_correct 
+-----------------
+ t
+(1 row)
+
+--- Q12: unauthorized roles cannot mutate the now-PROCESSED receipt (final confirmation) ---
+SET
+(expect: permission denied)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_freeze_test_matrix.sql:147: ERROR:  permission denied for table payment_webhook_receipts
+RESET
+SET
+(expect: permission denied)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_freeze_test_matrix.sql:151: ERROR:  permission denied for table payment_webhook_receipts
+RESET
+

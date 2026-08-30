@@ -1,0 +1,11 @@
+Phase 6K FINAL Freeze-Gate Remediation Pass (fourth pass) — final migration checksum
+Generated: 2026-08-30 (repository-relative; validates docs/phase-05-database-design/5K/migrations/102_5H2.sql)
+
+=== SHA-256 ===
+3ea497b0a0727cc39c0ef0d4c0781f21139727aa6959198d788f48ee85dd7259 *docs/phase-05-database-design/5K/migrations/102_5H2.sql
+
+=== byte size ===
+82365 docs/phase-05-database-design/5K/migrations/102_5H2.sql
+
+=== cross-check against MIGRATION_MANIFEST.md row 102 ===
+115:| 102 | 5H.2 | `102_5H2.sql` | `101_5I1` | transactional | 82365 | `3ea497b0a0727cc39c0ef0d4c0781f21139727aa6959198d788f48ee85dd7259` |
