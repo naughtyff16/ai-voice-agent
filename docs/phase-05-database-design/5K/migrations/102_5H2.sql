@@ -65,6 +65,80 @@
 --      migration adds no pg_cron job, matching the platform's existing
 --      no-DB-scheduled-job convention, 5J §077's own precedent) re-tries
 --      activation once effective_from arrives.
+--
+-- SECOND PASS (2026-08-30, same day — amended in place, per the same
+--   "never applied to any real database" policy 086_5H1/101_5I1's own
+--   amendment history already established for this codebase; confirmed
+--   before this pass began — the only prior applications of this file
+--   were against genuinely disposable, already-deleted local PostgreSQL
+--   18.6 validation instances). An independent freeze-gate review found
+--   5 further BLOCKERS and 1 SIGNIFICANT issue in this file's own first
+--   pass, none previously caught:
+--
+--   FB-6K-01/02. commercial_pricing_agreements/...agreement_versions
+--      granted app_platform_admin full raw INSERT/UPDATE/DELETE. Because
+--      fn_cpav_immutability's guard list deliberately excludes status/
+--      effective_to/activated_at/status_reason (they must remain mutable
+--      FOR the lifecycle functions), a raw UPDATE by app_platform_admin
+--      could activate/supersede/expire a version, or rewrite its
+--      effective dates, bypassing every lifecycle rule entirely — and no
+--      trigger fired on DELETE at all, so a non-DRAFT (financially
+--      effective) version could simply be erased. Fixed: Part A's own
+--      GRANT statements are corrected in place to SELECT-only for every
+--      role including app_platform_admin — SECURITY DEFINER functions
+--      never need the caller's own table grants (they execute as their
+--      owner), so Part D's functions are completely unaffected.
+--   FB-6K-03/04. payment_webhook_receipts granted app_api both SELECT
+--      (cross-tenant metadata exposure — the table carries no RLS by
+--      design) and raw INSERT (a compromised/buggy tenant-facing path
+--      could pre-claim a real provider event ID or inject fabricated
+--      receipts). Fixed: both grants removed; a new, narrow
+--      fn_record_payment_webhook_receipt() accepts only the three
+--      ingress-safe fields (never organization_id/payment_attempt_id/
+--      processing_status).
+--   FB-6K-05. billing.payment_attempts (055_5H.sql, frozen, unedited)
+--      grants app_api direct INSERT — dangerous under 6K's own payment-
+--      intent API, since a raw insert can supply invoice_id/amount/
+--      currency/provider/status directly; RLS proves tenant ownership
+--      only, never that the amount matches the invoice's own unpaid
+--      balance. Fixed: REVOKE (a later-migration statement, not an edit
+--      of 055_5H.sql) + new fn_create_payment_attempt(), the first
+--      app_api-callable billing SECURITY DEFINER function in this
+--      schema, deriving every financial value server-side and binding
+--      tenant context via organization.current_tenant_id() with no
+--      p_organization_id parameter to forge in the first place.
+--   FB-6K-06. Per-call CALL_MINUTES rounding (ROUND(seconds/60, 4) at
+--      usage_events insert time, then SUM()'d into usage_records) is not
+--      mathematically equivalent to DEC-6K-02's own "exact seconds/60"
+--      mandate once aggregated: 1000 one-second calls, rounded per-call,
+--      sum to 16.7000 minutes; the true aggregate (1000/60, rounded
+--      once) is 16.6667 — a real, provable overstatement. Fixed: new
+--      nullable usage_events.source_quantity_seconds column preserves
+--      the exact pre-conversion seconds value; aggregation is corrected
+--      to sum exact seconds first and round once, never per call.
+--   SIGNIFICANT (not separately FB-numbered by the review, folded into
+--      the FB-6K-05 fix). fn_process_payment_webhook_receipt originally
+--      accepted p_payment_attempt_id/p_organization_id as direct
+--      caller-supplied inputs, writing them through with only a "don't
+--      overwrite once set" guard — unsafe provenance even for a
+--      worker/admin-only caller. Fixed: the function now takes
+--      p_provider_transaction_id instead and independently RESOLVES the
+--      originating payment_attempts row (and, through it, the owning
+--      organization) from the platform's own data, cross-checking that
+--      the receipt's own payment_provider matches the resolved attempt's
+--      provider (a cross-provider linkage attempt fails closed).
+--
+--   Broader least-privilege audit (task's own explicit mandate, beyond
+--   the 6 items above): app_api's unnecessary direct INSERT on
+--   usage_events, cost_entries, invoice_lines, and tax_lines (none ever
+--   legitimately reached by a tenant-facing code path under 6K's own
+--   architecture) is revoked; app_worker's direct INSERT on credits and
+--   credit_ledger_entries is revoked (reconciling the executed grants
+--   with 5H's OWN already-stated security-model intent, §20 of the 5H
+--   schema document, that credits are created only via
+--   fn_billing_apply_credit — the grants had never actually matched that
+--   stated intent); app_api's direct INSERT on refunds is revoked
+--   (contradicted 6K's own "no tenant-facing refund creation" design).
 -- =================================================================
 
 
@@ -127,12 +201,25 @@ CREATE POLICY rls_cpa_tenant ON billing.commercial_pricing_agreements
   USING (organization_id = organization.current_tenant_id())
   WITH CHECK (organization_id = organization.current_tenant_id());
 
--- Tenant may SELECT (read-only visibility of their own negotiated
--- relationship, task §95); no INSERT/UPDATE/DELETE for app_api or
--- app_worker — platform-admin (commercial-management) path only, via
--- the functions in Part D.
-GRANT SELECT ON billing.commercial_pricing_agreements TO app_api, app_worker, app_readonly;
-GRANT SELECT, INSERT, UPDATE, DELETE ON billing.commercial_pricing_agreements TO app_platform_admin;
+-- FINAL freeze-gate correction (FB-6K-01/02): SECURITY DEFINER functions run
+-- as their OWNER, not the calling role — they never need the caller to hold
+-- direct table grants. Unlike several OTHER 5H financial tables (invoices,
+-- payment_attempts, credits), which deliberately retain app_platform_admin's
+-- full raw CRUD as a documented "operational corrections" escape hatch
+-- (ADR-5H-006), commercial pricing agreements carry a materially different
+-- risk profile: a single raw UPDATE/DELETE here can directly manufacture
+-- below-market negotiated pricing or erase a binding commercial term with no
+-- lifecycle guard in the way, not merely correct an already-bounded,
+-- already-audited financial record after the fact. This table therefore has
+-- NO raw-DML escape hatch at all, for ANY role including app_platform_admin —
+-- every mutation, including by platform-admin/commercial-management actors,
+-- goes through the four guarded functions in Part D, which remain fully
+-- functional despite this (they execute as the function owner). SELECT-only
+-- for every application role; genuine emergency repair (e.g. a mis-entered
+-- contract_reference before activation) requires re-issuing the SECURITY
+-- DEFINER create sequence, itself immutable, audited history — never a
+-- silent overwrite.
+GRANT SELECT ON billing.commercial_pricing_agreements TO app_api, app_worker, app_readonly, app_platform_admin;
 
 -- ----------------------------------------------------------------
 CREATE TABLE billing.commercial_pricing_agreement_versions (
@@ -233,8 +320,20 @@ CREATE POLICY rls_cpav_tenant ON billing.commercial_pricing_agreement_versions
   USING (organization_id = organization.current_tenant_id())
   WITH CHECK (organization_id = organization.current_tenant_id());
 
-GRANT SELECT ON billing.commercial_pricing_agreement_versions TO app_api, app_worker, app_readonly;
-GRANT SELECT, INSERT, UPDATE, DELETE ON billing.commercial_pricing_agreement_versions TO app_platform_admin;
+-- FINAL freeze-gate correction (FB-6K-01/02, same rationale as
+-- commercial_pricing_agreements above): NO raw DML for any role, including
+-- app_platform_admin. Every lifecycle transition (activate/expire) and every
+-- version creation happens exclusively through Part D's guarded functions,
+-- which are unaffected by this REVOKE since SECURITY DEFINER functions run
+-- as their owner. This closes the specific bypass class the freeze-gate
+-- review found: fn_cpav_immutability's trigger only ever guarded the
+-- FINANCIAL fields once a row left DRAFT — it never restricted WHO could
+-- still freely UPDATE status/effective_to/activated_at/status_reason via
+-- raw SQL, or DELETE a non-DRAFT row outright (no trigger fires on DELETE
+-- at all). Removing all non-SELECT grants closes both gaps at once, for
+-- every role, unconditionally — not just for the DRAFT-vs-non-DRAFT cases
+-- the immutability trigger already handled.
+GRANT SELECT ON billing.commercial_pricing_agreement_versions TO app_api, app_worker, app_readonly, app_platform_admin;
 
 -- ----------------------------------------------------------------
 CREATE TABLE billing.commercial_pricing_metrics (
@@ -292,8 +391,15 @@ CREATE POLICY rls_cpm_tenant ON billing.commercial_pricing_metrics
   USING (organization_id = organization.current_tenant_id())
   WITH CHECK (organization_id = organization.current_tenant_id());
 
-GRANT SELECT ON billing.commercial_pricing_metrics TO app_api, app_worker, app_readonly;
-GRANT SELECT, INSERT, UPDATE, DELETE ON billing.commercial_pricing_metrics TO app_platform_admin;
+-- FINAL freeze-gate correction: consistent with the two tables above — no
+-- raw DML for any role. fn_cpm_parent_draft_guard already blocked
+-- post-activation INSERT/UPDATE/DELETE for every role including
+-- app_platform_admin (live-confirmed in the prior validation pass); removing
+-- the raw grants entirely additionally closes the DRAFT-stage case (a
+-- metric row can no longer be hand-crafted outside
+-- fn_create_commercial_pricing_agreement_version's own JSONB-array path,
+-- consistent with "no arbitrary SQL/expressions in pricing," task §69).
+GRANT SELECT ON billing.commercial_pricing_metrics TO app_api, app_worker, app_readonly, app_platform_admin;
 
 
 -- =================================================================
@@ -407,6 +513,119 @@ ALTER TABLE billing.payment_attempts
 ALTER TABLE billing.payment_attempts
   ADD CONSTRAINT chk_pa_method_kind CHECK (payment_method_kind IS NULL OR payment_method_kind IN
     ('CARD','UPI','NETBANKING','WALLET','MANDATE','BANK_TRANSFER'));
+
+-- FINAL freeze-gate correction (FB-6K-05): billing.payment_attempts has
+-- carried `GRANT SELECT, INSERT ON billing.payment_attempts TO app_api,
+-- app_worker;` since the frozen 055_5H.sql — unchanged, unedited here.
+-- Under 6K's own payment-intent API this became financially dangerous: a
+-- raw app_api INSERT can supply invoice_id, amount, currency, provider,
+-- and status directly, and RLS proves only tenant ownership, never that
+-- the amount equals the invoice's authoritative unpaid balance, that the
+-- currency matches the invoice, or that the provider is server-selected
+-- policy rather than caller choice. REVOKE (not an edit of 055_5H.sql —
+-- a later migration statement, exactly the established pattern
+-- 087_5B1/096_5B2/101_5I1 already used to harden frozen grants) + a
+-- guarded creation function below that derives every financial value
+-- itself, matching the same discipline already applied to invoices/
+-- credits/payment status transitions elsewhere in 5H.
+REVOKE INSERT ON billing.payment_attempts FROM app_api;
+
+-- fn_create_payment_attempt: the sole tenant-reachable path to create a
+-- local payment_attempts row. Deliberately takes NO p_organization_id
+-- parameter at all — organization is derived exclusively from
+-- organization.current_tenant_id() (the same interactive-session tenant
+-- binding 6A §9.1's pipeline already establishes before this function is
+-- ever reachable), eliminating the tenant-forgery vector by construction
+-- rather than by an internal equality check a future edit could
+-- accidentally drop. This is the FIRST app_api-callable billing
+-- SECURITY DEFINER function in this schema (every other one, §9.1 of the
+-- API document, is worker/admin-only) — held to the strictest possible
+-- construction for exactly that reason.
+--
+-- Every financial value is derived server-side: amount = invoice's own
+-- unpaid balance (total_due_amount - amount_paid_amount, FOR UPDATE-
+-- locked to serialize a concurrent duplicate call), currency = invoice's
+-- own currency, provider = a fixed server-side policy (V1: single default
+-- per the platform's own INR-first design, 4I §13.1 — no BillingAccount-
+-- level payment-provider-policy column exists yet to read from; documented
+-- here rather than inventing one). p_payment_method_hint is accepted for
+-- API-contract completeness (6K §29.4's own request body shape) but is
+-- inert at the DB layer — never written anywhere; it exists only for the
+-- calling service to shape which checkout screen the provider opens on,
+-- entirely outside this function's own responsibility.
+--
+-- Cross-tenant/nonexistent invoice_id and a not-`OPEN` invoice both raise
+-- the same generic "not payable" class of exception — the calling API
+-- layer maps both to the same 404/409-shaped response (task §11's own
+-- "generic not-found semantics" requirement), never distinguishing
+-- "doesn't exist" from "isn't yours."
+CREATE OR REPLACE FUNCTION billing.fn_create_payment_attempt(
+  p_invoice_id            UUID,
+  p_payment_method_hint   TEXT DEFAULT NULL
+) RETURNS TABLE(payment_attempt_id UUID, payment_provider TEXT, amount_amount NUMERIC(18,4), amount_currency CHAR(3))
+SECURITY DEFINER
+LANGUAGE plpgsql SET search_path = billing, organization, pg_catalog AS $$
+DECLARE
+  v_tenant_id UUID;
+  v_invoice_org UUID;
+  v_status TEXT;
+  v_total_due NUMERIC(18,4);
+  v_amount_paid NUMERIC(18,4);
+  v_currency CHAR(3);
+  v_remaining NUMERIC(18,4);
+  v_provider TEXT;
+  v_existing_nonterminal UUID;
+  v_id UUID;
+BEGIN
+  v_tenant_id := organization.current_tenant_id();
+  IF v_tenant_id IS NULL THEN
+    RAISE EXCEPTION 'billing: no tenant context set';
+  END IF;
+
+  SELECT organization_id, status, total_due_amount, amount_paid_amount, currency
+    INTO v_invoice_org, v_status, v_total_due, v_amount_paid, v_currency
+  FROM billing.invoices
+  WHERE id = p_invoice_id
+  FOR UPDATE;
+
+  IF v_invoice_org IS NULL OR v_invoice_org <> v_tenant_id THEN
+    RAISE EXCEPTION 'billing: invoice % not found', p_invoice_id;  -- deliberately identical wording/shape whether the invoice does not exist or belongs to a different tenant
+  END IF;
+  IF v_status <> 'OPEN' THEN
+    RAISE EXCEPTION 'billing: invoice % is not payable (status = %)', p_invoice_id, v_status;
+  END IF;
+
+  SELECT id INTO v_existing_nonterminal
+  FROM billing.payment_attempts
+  WHERE invoice_id = p_invoice_id AND status IN ('INITIATED','PENDING')
+  LIMIT 1;
+  IF v_existing_nonterminal IS NOT NULL THEN
+    RAISE EXCEPTION 'billing: invoice % already has a non-terminal payment attempt %', p_invoice_id, v_existing_nonterminal;
+  END IF;
+
+  v_remaining := v_total_due - v_amount_paid;
+  IF v_remaining <= 0 THEN
+    RAISE EXCEPTION 'billing: invoice % has no remaining balance', p_invoice_id;
+  END IF;
+
+  -- Server-side provider policy resolution — V1: single default provider
+  -- (RAZORPAY, 4I §13.1's own V1 decision). A future BillingAccount-level
+  -- payment-provider-policy column, if added, would be read here instead;
+  -- the client never supplies this value under any circumstance.
+  v_provider := 'RAZORPAY';
+
+  INSERT INTO billing.payment_attempts
+    (organization_id, invoice_id, payment_provider, status, amount_amount, amount_currency)
+  VALUES
+    (v_tenant_id, p_invoice_id, v_provider, 'INITIATED', v_remaining, v_currency)
+  RETURNING id INTO v_id;
+
+  RETURN QUERY SELECT v_id, v_provider, v_remaining, v_currency;
+END;
+$$;
+REVOKE ALL ON FUNCTION billing.fn_create_payment_attempt(UUID, TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION billing.fn_create_payment_attempt(UUID, TEXT)
+  TO app_api, app_worker, app_platform_admin;
 
 -- ----------------------------------------------------------------
 -- Durable, atomically-deduplicated inbound payment-webhook receipt
@@ -525,25 +744,99 @@ REVOKE ALL ON FUNCTION billing.fn_link_payment_provider_transaction(UUID, UUID, 
 GRANT EXECUTE ON FUNCTION billing.fn_link_payment_provider_transaction(UUID, UUID, TEXT, TEXT, TEXT)
   TO app_worker, app_platform_admin;
 
-GRANT INSERT ON billing.payment_webhook_receipts TO app_api;
-GRANT SELECT ON billing.payment_webhook_receipts TO app_api, app_worker, app_readonly;
+-- FINAL freeze-gate correction (FB-6K-03/04): the original design granted
+-- app_api both SELECT and raw INSERT directly on this table. Both are
+-- removed:
+--   * SELECT: app_api is the general TENANT-facing runtime role (every
+--     ordinary HTTP request, 6A §9.1) — this table carries no RLS (§ above),
+--     so a broad app_api SELECT grant would let any authenticated tenant
+--     session read every organization's provider/event-id/payment-attempt/
+--     failure metadata. Ordinary tenant endpoints (GET /billing/payments,
+--     §29.6) already serve payment state from the RLS-protected
+--     payment_attempts table — they have no legitimate need to read this
+--     table at all, so no application capability is lost.
+--   * INSERT: an app_api-executed raw INSERT is dangerous in a different
+--     way — a compromised or merely buggy tenant-facing code path reachable
+--     through app_api's own DB session could pre-claim a real provider
+--     event ID (poisoning the dedup key before the genuine webhook arrives,
+--     causing the real delivery to be silently treated as a duplicate) or
+--     inject fabricated receipt rows. Fixed below with a narrow SECURITY
+--     DEFINER ingress function that accepts only the three fields available
+--     BEFORE any tenant/financial identity is known — never organization_id,
+--     payment_attempt_id, or processing_status — so even a full compromise
+--     of the inbound HTTP handler's own request-shaping logic cannot use
+--     this path to manufacture financial state, only to record "a
+--     (possibly bogus, but signature-unverified-payload-only) delivery
+--     arrived." Verification (PaymentProviderPort.verify_webhook, §30.2 of
+--     the API document) happens in the calling code BEFORE this function is
+--     ever invoked — this function is not itself a security boundary
+--     against a forged payload, only the durability/dedup layer, exactly as
+--     designed; a payload that fails verification never reaches this call
+--     at all.
+GRANT SELECT ON billing.payment_webhook_receipts TO app_worker, app_readonly;
 GRANT SELECT, INSERT, UPDATE, DELETE ON billing.payment_webhook_receipts TO app_platform_admin;
+
+CREATE OR REPLACE FUNCTION billing.fn_record_payment_webhook_receipt(
+  p_payment_provider  TEXT,
+  p_provider_event_id TEXT,
+  p_payload_hash       CHAR(64) DEFAULT NULL
+) RETURNS UUID
+SECURITY DEFINER
+LANGUAGE plpgsql SET search_path = billing, pg_catalog AS $$
+DECLARE v_id UUID;
+BEGIN
+  INSERT INTO billing.payment_webhook_receipts (payment_provider, provider_event_id, payload_hash)
+  VALUES (p_payment_provider, p_provider_event_id, p_payload_hash)
+  ON CONFLICT (payment_provider, provider_event_id) DO NOTHING
+  RETURNING id INTO v_id;
+
+  RETURN v_id;  -- NULL means "already recorded" (duplicate delivery) — the
+                -- caller's own enqueue-gating logic (6J §24.3's discipline,
+                -- 6K §30.4) must treat a NULL return exactly like a
+                -- zero-row RETURNING result: skip enqueueing async
+                -- processing, proceed straight to the fast-ACK.
+END;
+$$;
+REVOKE ALL ON FUNCTION billing.fn_record_payment_webhook_receipt(TEXT, TEXT, CHAR) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION billing.fn_record_payment_webhook_receipt(TEXT, TEXT, CHAR)
+  TO app_api, app_platform_admin;
 
 -- Controlled status-transition + linkage path — mirrors fn_update_
 -- payment_status's own state-machine-guard pattern. app_worker-only:
 -- these transitions happen only inside the async webhook-processing
 -- task (§30.2), never from the synchronous inbound HTTP request path.
+--
+-- FINAL freeze-gate correction (FB-6K-07): the original signature accepted
+-- p_payment_attempt_id/p_organization_id as direct caller-supplied inputs
+-- and wrote them through unvalidated (beyond "don't overwrite once set").
+-- This is unsafe provenance even though the caller is worker/admin-only —
+-- nothing forced the linkage to actually be correct. Corrected: the caller
+-- supplies only p_provider_transaction_id (extracted from the verified
+-- webhook payload); this function independently RESOLVES the originating
+-- payment_attempts row (and, through it, the owning organization) from the
+-- platform's own authoritative data — a payload-claimed identity is never
+-- trusted, only used as a lookup key against data the platform itself
+-- created (§29.4's own payment-intent flow). The resolution join also
+-- requires the receipt's own payment_provider to match the resolved
+-- attempt's payment_provider — a cross-provider linking attempt (a
+-- Razorpay-signed receipt somehow resolving to a Cashfree-provider
+-- attempt, which should never legitimately happen) fails closed rather
+-- than silently linking.
 CREATE OR REPLACE FUNCTION billing.fn_process_payment_webhook_receipt(
-  p_receipt_id           UUID,
-  p_new_status            TEXT,
-  p_payment_attempt_id    UUID DEFAULT NULL,
-  p_organization_id       UUID DEFAULT NULL,
-  p_error                 TEXT DEFAULT NULL
-) RETURNS BOOLEAN
+  p_receipt_id                UUID,
+  p_new_status                 TEXT,
+  p_provider_transaction_id    TEXT DEFAULT NULL,
+  p_error                      TEXT DEFAULT NULL
+) RETURNS TABLE(resolved BOOLEAN, resolved_payment_attempt_id UUID, resolved_organization_id UUID)
 SECURITY DEFINER
 LANGUAGE plpgsql SET search_path = billing, pg_catalog AS $$
 DECLARE
   v_current TEXT;
+  v_receipt_provider TEXT;
+  v_already_linked_attempt UUID;
+  v_already_linked_org UUID;
+  v_resolved_attempt_id UUID;
+  v_resolved_org UUID;
   v_allowed TEXT[][] := ARRAY[
     ARRAY['RECEIVED', 'PROCESSING'],
     ARRAY['PROCESSING', 'PROCESSED'],
@@ -557,14 +850,17 @@ BEGIN
     RAISE EXCEPTION 'billing: invalid payment_webhook_receipts status %', p_new_status;
   END IF;
 
-  SELECT processing_status INTO v_current
+  SELECT processing_status, payment_provider, payment_attempt_id, organization_id
+    INTO v_current, v_receipt_provider, v_already_linked_attempt, v_already_linked_org
   FROM billing.payment_webhook_receipts WHERE id = p_receipt_id FOR UPDATE;
 
   IF v_current IS NULL THEN
     RAISE EXCEPTION 'billing: payment_webhook_receipt % not found', p_receipt_id;
   END IF;
   IF v_current IN ('PROCESSED','FAILED') THEN
-    IF v_current = p_new_status THEN RETURN TRUE; END IF;  -- idempotent no-op on same terminal state
+    IF v_current = p_new_status THEN
+      RETURN QUERY SELECT TRUE, v_already_linked_attempt, v_already_linked_org; RETURN;
+    END IF;
     RAISE EXCEPTION 'billing: payment_webhook_receipt % is terminal (%) — cannot transition to %', p_receipt_id, v_current, p_new_status;
   END IF;
 
@@ -575,22 +871,38 @@ BEGIN
     RAISE EXCEPTION 'billing: transition % -> % not allowed for payment_webhook_receipt %', v_current, p_new_status, p_receipt_id;
   END IF;
 
-  -- organization_id may only ever be SET once resolved (never overwritten to
-  -- a different value afterward — the trust-anchor moment happens exactly once).
+  -- Resolve linkage internally, once, on the first call that supplies a
+  -- provider_transaction_id and finds none already linked. Never resolved
+  -- from a caller-supplied attempt/organization id directly.
+  v_resolved_attempt_id := v_already_linked_attempt;
+  v_resolved_org := v_already_linked_org;
+  IF v_resolved_attempt_id IS NULL AND p_provider_transaction_id IS NOT NULL THEN
+    SELECT pa.id, i.organization_id INTO v_resolved_attempt_id, v_resolved_org
+    FROM billing.payment_attempts pa
+    JOIN billing.invoices i ON i.id = pa.invoice_id
+    WHERE pa.provider_transaction_id = p_provider_transaction_id
+      AND pa.payment_provider = v_receipt_provider;  -- cross-provider linking fails closed: no row if providers disagree
+    -- v_resolved_attempt_id staying NULL here (unknown transaction
+    -- correlation) is not itself an exception — the caller decides the
+    -- outcome (typically p_new_status = 'FAILED' with p_error naming the
+    -- UNKNOWN_TRANSACTION_CORRELATION classification, 6K §30.6/§36); this
+    -- function's own job is resolution, not the security-anomaly decision.
+  END IF;
+
   UPDATE billing.payment_webhook_receipts
   SET processing_status  = p_new_status,
-      payment_attempt_id = COALESCE(payment_attempt_id, p_payment_attempt_id),
-      organization_id    = COALESCE(organization_id, p_organization_id),
+      payment_attempt_id = v_resolved_attempt_id,
+      organization_id    = v_resolved_org,
       attempt_count       = attempt_count + 1,
       last_error          = CASE WHEN p_new_status = 'FAILED' THEN p_error ELSE last_error END,
       processed_at        = CASE WHEN p_new_status IN ('PROCESSED','FAILED') THEN NOW() ELSE processed_at END
   WHERE id = p_receipt_id;
 
-  RETURN TRUE;
+  RETURN QUERY SELECT TRUE, v_resolved_attempt_id, v_resolved_org;
 END;
 $$;
-REVOKE ALL ON FUNCTION billing.fn_process_payment_webhook_receipt(UUID, TEXT, UUID, UUID, TEXT) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION billing.fn_process_payment_webhook_receipt(UUID, TEXT, UUID, UUID, TEXT)
+REVOKE ALL ON FUNCTION billing.fn_process_payment_webhook_receipt(UUID, TEXT, TEXT, TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION billing.fn_process_payment_webhook_receipt(UUID, TEXT, TEXT, TEXT)
   TO app_worker, app_platform_admin;
 
 
@@ -917,3 +1229,103 @@ GRANT EXECUTE ON FUNCTION billing.fn_create_late_usage_billing_adjustment(
 -- (086_5H1.sql — app_worker must go through fn_create_billing_adjustment
 -- OR, for the late-usage case specifically, this new function; direct
 -- INSERT remains unavailable to app_worker either way).
+
+
+-- =================================================================
+-- PART F — Exact-Aggregate Call-Minute Billing (FB-6K-06)
+-- =================================================================
+-- Confirmed defect: DEC-6K-02's own "exact duration_seconds / 60" mandate
+-- was previously implemented by rounding EACH call's own quantity to 4
+-- decimal minutes at usage_events insert time, then summing those already-
+-- rounded values into usage_records.quantity_used (5H's own existing QP-06
+-- aggregation pattern, unchanged DDL). Per-call rounding before summation
+-- is NOT mathematically equivalent to summing exact values and rounding
+-- once: 1000 calls of 1 second each, rounded per-call, sum to 16.7000
+-- minutes (1000 x ROUND(1/60, 4) = 1000 x 0.0167); the true aggregate is
+-- 1000/60 = 16.6666... which itself rounds to 16.6667 — a real, provable
+-- overstatement of the customer's exact usage, violating DEC-6K-02.
+--
+-- Fixed with one additive, nullable column: the exact pre-conversion
+-- source quantity (seconds, for CALL_MINUTES; reserved generically for any
+-- future metric with the same lossless-aggregation requirement) is
+-- preserved on the raw usage_events row, separate from `quantity` (which
+-- keeps its existing per-row, already-rounded value for audit/display of
+-- that single call only — never used as the billing aggregation input for
+-- this metric class). The billing usage-aggregation algorithm (6K §22.3)
+-- is corrected to SUM(source_quantity_seconds) — an exact sum, since
+-- seconds figures are summed before any rounding is ever applied — and
+-- convert to minutes with a SINGLE ROUND(..., 4) at the end, never per row.
+-- Metrics that need no such correction (CAMPAIGN_CALLS, WORKFLOW_EXECUTIONS,
+-- etc. — already-exact integer counts with no fractional-unit-conversion
+-- step) simply leave this column NULL and continue using the existing
+-- SUM(quantity) pattern unchanged.
+ALTER TABLE billing.usage_events
+  ADD COLUMN source_quantity_seconds NUMERIC(18,4) NULL;
+ALTER TABLE billing.usage_events
+  ADD CONSTRAINT chk_ue_source_quantity_seconds CHECK (source_quantity_seconds IS NULL OR source_quantity_seconds >= 0);
+-- Partitioned parent table: ADD COLUMN/ADD CONSTRAINT here apply
+-- automatically to every existing and future partition — no per-partition
+-- DDL required (standard PostgreSQL partitioned-table behavior).
+
+
+-- =================================================================
+-- PART G — Broader Least-Privilege Hardening (Task's Own §12 Audit)
+-- =================================================================
+-- The freeze-gate review's own broader audit mandate, beyond the 7 named
+-- findings: every direct app_api/app_worker DML grant on a billing table
+-- was re-inspected for whether the grantee can supply an authoritative
+-- financial value, and whether a guarded function already exists (or
+-- should) as the correct sole path. None of the statements below edit a
+-- frozen 001-101 file — every one is a REVOKE issued by this later,
+-- still-unapplied migration, the same established pattern
+-- 087_5B1/096_5B2/101_5I1 already used.
+--
+-- usage_events / cost_entries: app_api's direct INSERT (050_5H.sql /
+-- 051_5H.sql) is unnecessary under 6K's own architecture — usage
+-- ingestion and cost recording are EXCLUSIVELY app_worker (Celery
+-- consumer) responsibilities (6K §22.1/§35); no application code path
+-- ever legitimately reaches either table as app_api. Removing the grant
+-- closes "usage-event forgery" (6K §40's own named threat) at the DB
+-- layer, not merely at the "no endpoint was built for it" layer.
+REVOKE INSERT ON billing.usage_events FROM app_api;
+REVOKE INSERT ON billing.cost_entries FROM app_api;
+
+-- invoice_lines / tax_lines: app_api's direct INSERT (054_5H.sql) is
+-- unnecessary — invoice-line and tax-line creation happens exclusively
+-- inside the invoice-generation worker's own transaction (6K §26.2); no
+-- 6K tenant-facing endpoint ever creates a line. app_worker's own grant
+-- is retained (it is the legitimate, intended writer).
+REVOKE INSERT ON billing.invoice_lines FROM app_api;
+REVOKE INSERT ON billing.tax_lines FROM app_api;
+
+-- credits / credit_ledger_entries: 5H's OWN stated security model (§20 of
+-- the schema document) already declares "Credits created only via
+-- SECURITY DEFINER fn_billing_apply_credit" — but the executed grants
+-- (053_5H.sql) contradicted that stated intent by giving app_worker
+-- direct INSERT on BOTH tables (app_api's INSERT on `credits` was already
+-- correctly revoked by 053_5H.sql itself; credit_ledger_entries was not).
+-- A tenant-facing bug reaching app_worker's own credit_ledger_entries
+-- INSERT grant (or any bug in app_worker's own code) could otherwise
+-- manufacture arbitrary account credit by inserting a positive-amount
+-- ledger row directly, bypassing fn_billing_apply_credit entirely — this
+-- is squarely "financial authority," reconciled here with 5H's own
+-- already-declared intent, not a new restriction invented from nothing.
+REVOKE INSERT ON billing.credits FROM app_worker;
+REVOKE INSERT ON billing.credit_ledger_entries FROM app_api, app_worker;
+
+-- refunds: app_api's direct INSERT (055_5H.sql) directly contradicts 6K
+-- §31.2's own explicit design ("no tenant-facing refund creation in V1")
+-- — an ordinary tenant session could otherwise self-issue a refund up to
+-- the full original payment amount (bounded only by fn_validate_refund_
+-- amount's own trigger, which checks the sum against the original
+-- payment but enforces no approval/authorization step at all). Revoked
+-- for app_api; app_worker's own grant is retained as the path 6M's
+-- future admin/support refund surface will use (5H's own existing
+-- fn_validate_refund_amount trigger remains the amount guard on that
+-- path) — a dedicated SECURITY DEFINER refund-creation function is a
+-- disclosed FUTURE ENHANCEMENT (task explicitly permits "if raw INSERT
+-- is retained for [a legitimate internal path], prove that no
+-- financially effective row can be manufactured [by the ordinary tenant
+-- role]" — satisfied here for app_api; app_worker is a trusted service
+-- principal, not a tenant-reachable one).
+REVOKE INSERT ON billing.refunds FROM app_api;

@@ -1,11 +1,26 @@
 # Phase 6K FINAL Blocker Remediation — Validation Report
 
-**Date:** 2026-08-30
-**Migration:** `102_5H2.sql` (Alembic revision `102_5H2`, `down_revision = '101_5I1'`) — **new**, not an in-place amendment
-**PostgreSQL:** 18.6, genuinely fresh disposable local instance
-**Driving document:** `docs/phase-06-api-design/6K-Billing-Usage-APIs.md` (Phase 6K, Billing + Usage APIs, FINAL Blocker Remediation pass)
-**Consolidated manifest entry:** `docs/phase-05-database-design/5K/MIGRATION_MANIFEST.md`, "Phase 6K FINAL Blocker Remediation" section
-**Raw execution logs:** `docs/phase-05-database-design/5K/execution_logs/`, prefix `20260830T020000Z_` (9 files), indexed in `execution_logs/README.md`
+**Date:** 2026-08-30 (two passes, same day)
+**Migration:** `102_5H2.sql` (Alembic revision `102_5H2`, `down_revision = '101_5I1'`) — new revision in its first pass; **amended in place** in its second pass (§0 below), never applied to a persistent database at any point
+**PostgreSQL:** 18.6, genuinely fresh disposable local instances (both passes)
+**Driving document:** `docs/phase-06-api-design/6K-Billing-Usage-APIs.md` (Phase 6K, Billing + Usage APIs)
+**Consolidated manifest entries:** `docs/phase-05-database-design/5K/MIGRATION_MANIFEST.md`, "Phase 6K FINAL Blocker Remediation" and "Phase 6K FINAL Freeze-Gate Remediation" sections
+**Raw execution logs:** `docs/phase-05-database-design/5K/execution_logs/`, prefixes `20260830T020000Z_` (first pass, 9 files) and `20260830T060000Z_` (second pass, 5 files)
+
+---
+
+## 0. What the First Pass Missed — Disclosed, Not Hidden
+
+An independent freeze-gate review of this report's own first pass (§1–§10 below, originally written after the `20260830T020000Z_` evidence) found **5 BLOCKERS and 1 SIGNIFICANT issue** the first pass did not catch, despite its own stated "extremely conservative" standard. Recorded here explicitly, before the fixes, so the miss is not hidden by the fact that it is now closed:
+
+1. **Commercial-pricing lifecycle raw-DML bypass.** The first pass's own `commercial_pricing_agreement_versions` design granted `app_platform_admin` full `INSERT`/`UPDATE`/`DELETE`, matching 5H's *general* "operational corrections" precedent for other financial tables (invoices, payment_attempts, credits). But `fn_cpav_immutability`'s own guard list deliberately left `status`/`effective_to`/`activated_at` mutable (they must remain so *for the lifecycle functions*) — the first pass never noticed this meant a raw `UPDATE` by `app_platform_admin` could activate/supersede/expire a version directly, bypassing every lifecycle rule the same pass had just built. No trigger fired on `DELETE` at all.
+2. **`payment_webhook_receipts` tenant exposure.** The first pass granted `app_api` both `SELECT` and raw `INSERT` on a table it had itself designed with no RLS — the first pass's own §12.4 commentary said "no RLS by design" but never connected that to what a broad `app_api` grant on an RLS-less table actually means for cross-tenant read exposure, nor to what a raw `INSERT` grant means for dedup-key poisoning.
+3. **`payment_attempts` raw INSERT.** The first pass fixed the confirmed `provider_transaction_id NOT NULL` defect but never re-examined whether `app_api`'s own pre-existing (055_5H.sql, frozen) `INSERT` grant on the same table was still safe once a payment-intent API existed to actually reach it through — it was not.
+4. **Webhook receipt linkage provenance.** The first pass's own `fn_process_payment_webhook_receipt()` accepted `p_payment_attempt_id`/`p_organization_id` as direct parameters, writing them through with only a "don't overwrite once set" guard — the first pass's own §9.1 audit standard ("every new function independently re-validates its target row's organization_id") was not actually applied to this function's own *linkage-setting* inputs, only to its *lookup* inputs.
+5. **Call-minute quantization drift.** The first pass implemented DEC-6K-02 as `ROUND(duration_seconds/60, 4)` applied per call, then summed via the existing `SUM(quantity)` aggregation — and asserted this satisfied "exact seconds/60" without checking whether per-row rounding survives aggregation. It does not (§5 below quantifies the exact drift).
+6. **(Significant) Broader least-privilege audit never performed.** The first pass's own §9.1 SECURITY DEFINER audit did not extend to a general grant audit across every other billing table — several other `app_api`/`app_worker` grants (on `usage_events`, `cost_entries`, `invoice_lines`, `tax_lines`, `credits`, `credit_ledger_entries`, `refunds`) were left unexamined despite being reachable by the same trust boundaries the seven items above were found in.
+
+All six are fixed in the second pass — evidence in §11–§16 below, blocker-closure table in §17.
 
 ---
 
@@ -158,8 +173,86 @@ No blocker was found `NOT APPLICABLE` without evidence — every one of the 23 w
 - A genuinely concurrent two-process race test for `commercial_pricing_agreement_version` activation (the `SELECT ... FOR UPDATE` pattern is the same already-precedented idiom `webhooks.fn_claim_delivery`/`audit.fn_claim_outbox_events` use; not independently re-proven under real concurrency here).
 - Exhaustive coverage of every one of the task's ~46 named sub-tests across all five matrices — the 28 tests actually run were selected to cover every distinct invariant and every confirmed defect; several near-duplicate sub-cases (e.g. every individual second between 1–127 seconds for call-minute rounding) were not each individually executed as a live query, since the underlying arithmetic (`duration_seconds / 60`, `NUMERIC(18,4)`, banker's rounding already established platform-wide by 5H §7) is not migration-specific behavior to re-prove per input value.
 
-## 10. Freeze Recommendation
+## 10. Freeze Recommendation (First Pass — SUPERSEDED, see §11 onward)
 
 `PHASE 6K = READY FOR INDEPENDENT FREEZE-GATE REVIEW`.
 
 All four owner decisions are recorded FINAL. Every confirmed blocker (23 from the task's own checklist, plus 5 additionally found during this pass's own adversarial review) is fixed and live-evidenced. Migration `102_5H2` passes fresh and incremental application on PostgreSQL 18.6, single head, linear history. No frozen document (6A–6J) or frozen migration (001–101) was altered. Remaining items are explicitly non-blocking forward dependencies (DEP-6K-01/02: `TOOL_EXECUTIONS`/`KNOWLEDGE_RETRIEVALS` usage producers not yet built anywhere upstream; DEP-6K-03: a manual billing-account suspend/reactivate override function, not required by any V1 business rule; DEP-6K-04: 6C's own tax-profile endpoint existence, unverified but not duplicated here) — recorded in the driving document's own §46.1, not silently omitted.
+
+**This recommendation was itself found incomplete by an independent freeze-gate review — see §0 and §11 onward. It is superseded by §17's recommendation, not retracted from the record.**
+
+---
+
+## 11. Second Pass — Scope
+
+Per §0's disclosed findings: `102_5H2.sql` was amended in place a second time (confirmed before this pass began that its only prior applications remained disposable/already-deleted PostgreSQL instances — never persistent). This section covers the second pass's own environment, changes, and evidence, in the same rigor as §1–§9 covered the first.
+
+## 12. Second Pass — Environment
+
+Identical approach to §2, a genuinely new disposable instance: `.tmp_pgdata_6kfb`, PostgreSQL 18.6, port 5561, `voice_agent_6kfb` (primary), `voice_agent_6kfb_incr` (incremental-path), `voice_agent_6kfb_regress` (full original-suite regression). Same `/tmp/5j1_validate_venv` toolchain, reused unmodified. Stopped and deleted at the end of the batch.
+
+## 13. Second Pass — Migration Integrity
+
+| Test | Result |
+|---|---|
+| Fresh `001_5B → 102_5H2` (corrected file) | **PASS**, exit 0 |
+| Incremental `101_5I1 → 102_5H2` (separate database) | **PASS**, exit 0 |
+| `alembic heads` / `current` | Single head, `102_5H2 (head)` |
+
+Evidence: the upgrade transcripts are reproduced in this response's own tool-call record for this pass; per this codebase's own established convention (e.g. the first pass's own `_07`/`_08` files), the fresh/incremental console output for this second pass is captured inline in the batch's interactive session rather than as a separately named file, since `execution_logs/20260830T060000Z_01` through `_05` (§15) already carry the full functional/security/regression evidence that supersedes a bare migration-only transcript. Both runs' exit codes were 0 and both reached `102_5H2 (head)`, confirmed identically to the first pass's own `_04`–`_09` results (§3), now against the amended file.
+
+## 14. Second Pass — What Changed in the Schema
+
+See `docs/phase-06-api-design/6K-Billing-Usage-APIs.md` §12 (fully rewritten to match the amended file) for the complete, exact DDL. Summary: `commercial_pricing_agreements`/`...agreement_versions`/`...metrics` now grant `SELECT` only to every role; `payment_webhook_receipts` no longer grants `app_api` `SELECT` or `INSERT`, replaced by `fn_record_payment_webhook_receipt()`; `billing.payment_attempts` (055_5H.sql, unedited) has `app_api`'s `INSERT` revoked by this later migration, replaced by `fn_create_payment_attempt()`; `fn_process_payment_webhook_receipt()`'s signature changed to derive linkage internally; `usage_events` gains `source_quantity_seconds`; `app_api`'s `INSERT` on `usage_events`/`cost_entries`/`invoice_lines`/`tax_lines`/`refunds` and `app_worker`'s `INSERT` on `credits`/`credit_ledger_entries` are revoked.
+
+## 15. Second Pass — Test Evidence
+
+Full transcripts: `execution_logs/20260830T060000Z_01` through `_05` (indexed in `execution_logs/README.md`'s own "Phase 6K FINAL Freeze-Gate Remediation" entry). Summary, one row per finding:
+
+| Finding | Test | Result |
+|---|---|---|
+| FB-6K-01 | Raw `UPDATE` toward lifecycle-shaped fields by `app_platform_admin`, on both `commercial_pricing_agreement_versions` and `commercial_pricing_agreements` | **PASS** — `permission denied`, both |
+| FB-6K-02 | Raw `DELETE` of an `ACTIVE` version, and of a `DRAFT` version, by `app_platform_admin` | **PASS** — `permission denied`, both |
+| FB-6K-01/02 positive control | Legitimate create→draft→activate path | **PASS** — unaffected |
+| FB-6K-01/02 grant matrix | `has_table_privilege()` for `app_platform_admin` on all three pricing tables | **PASS** — zero `INSERT`/`UPDATE`/`DELETE` |
+| FB-6K-03 | `app_api` `SELECT` on `payment_webhook_receipts` | **PASS** — `permission denied` |
+| FB-6K-04 | `app_api` raw `INSERT` on `payment_webhook_receipts` | **PASS** — `permission denied` |
+| FB-6K-03/04 positive control | `fn_record_payment_webhook_receipt()` as `app_api` — succeeds, dedups, `app_worker` retains `SELECT` for async processing | **PASS** |
+| FB-6K-05 | `app_api` raw `INSERT` on `payment_attempts` | **PASS** — `permission denied` |
+| FB-6K-05 positive control | `fn_create_payment_attempt()` — amount exactly matches invoice remaining balance (₹12,345.6700), currency/provider server-derived, duplicate-non-terminal rejected, cross-tenant invoice rejected (generic not-found), no-tenant-context rejected | **PASS**, all sub-cases |
+| Significant (linkage) | `fn_process_payment_webhook_receipt()` resolves `payment_attempt_id`/`organization_id` from `provider_transaction_id`, matching the real attempt exactly; cross-provider receipt resolves `NULL`, recorded `FAILED`/`UNKNOWN_TRANSACTION_CORRELATION` | **PASS** |
+| FB-6K-06 | 1000×1s calls: buggy `SUM(quantity)` = 16.7000 (bug reproduced, matches the review's own predicted figure exactly); fixed `SUM(source_quantity_seconds)/60` rounded once = 16.6667 = single 1000s-call figure | **PASS** |
+| FB-6K-06 (second case) | 100×7s calls vs. 1×700s call | **PASS** — both 11.6667 |
+| Broader audit | `app_api` `INSERT` denied on `cost_entries`/`invoice_lines`/`tax_lines`/`refunds`; `app_worker` `INSERT` denied on `credits`/`credit_ledger_entries`; `fn_billing_apply_credit()` unaffected | **PASS**, all |
+| Regression | Complete, unmodified 28-test first-pass suite re-run verbatim on a fresh database | **PASS** — every positive control reproduces identically; every negative test still fails (several now at the grant layer instead of inside a trigger — confirmed the intended stronger outcome, not a regression) |
+| Regression (LLM idempotency) | Metric-suffix fix re-confirmed under the now-correct `app_worker` role | **PASS** |
+
+Four test-harness bugs were found and disclosed during this pass (not migration bugs): two missing `SET app.tenant_id` calls before RLS-scoped reads, and two test blocks written against `app_api` for operations the fix under test had itself correctly moved to `app_worker` — the first script's raw output (`_01`) is preserved showing exactly where these occurred; clean corrected evidence is in `_02` and `_05`.
+
+## 16. Second Pass — `SECURITY DEFINER` Inventory Update
+
+Two functions changed shape (`fn_process_payment_webhook_receipt`'s parameter list; a new `fn_create_payment_attempt` and `fn_record_payment_webhook_receipt` added). Grant posture for all: `PUBLIC EXECUTE = false` (unchanged discipline). `fn_create_payment_attempt` and `fn_record_payment_webhook_receipt` are the **only two** billing functions in this schema granted to `app_api` — both deliberately and narrowly scoped (the former derives every financial value server-side with no forgeable tenant parameter; the latter accepts only three ingress-safe, non-financial fields). Every other function remains `app_worker`/`app_platform_admin`-only, unchanged from §6.
+
+## 17. Second Pass — Blocker Closure Table
+
+| ID | Finding | Status | Evidence |
+|---|---|---|---|
+| FB-6K-01 | Raw commercial-pricing lifecycle `UPDATE` bypass | **FIXED** | §15, Q36.1 |
+| FB-6K-02 | Non-`DRAFT` commercial agreement version `DELETE` | **FIXED** | §15, Q36.2/Q36.3 |
+| FB-6K-03 | `app_api` global `SELECT` on payment webhook receipts | **FIXED** | §15, Q37.1 |
+| FB-6K-04 | `app_api` raw `INSERT` on payment webhook receipts | **FIXED** | §15, Q37.2 |
+| FB-6K-05 | `app_api` raw `INSERT` on payment attempts | **FIXED** | §15, Q38.1 |
+| FB-6K-06 | Per-call 4-decimal `CALL_MINUTES` quantization drift | **FIXED** | §15, Q40.1/Q40.2 |
+| FB-6K-07 | Webhook receipt organization/payment-attempt linkage not derived strongly enough | **FIXED** | §15, Q39.1/Q39.2 |
+
+## 18. Second-Pass Freeze Recommendation
+
+`PHASE 6K = READY FOR INDEPENDENT FREEZE-GATE REVIEW`.
+
+All seven second-pass findings (FB-6K-01 through FB-6K-07) are fixed and live-evidenced, on top of the first pass's own already-closed 23-item checklist (§8, unaffected by this pass except where explicitly noted as now-stronger). Migration `102_5H2` (amended in place, second pass) passes fresh and incremental application on PostgreSQL 18.6, single head. No frozen document or frozen migration (001–101) was altered — every correction to a pre-existing grant is a `REVOKE` issued by this later migration, never an edit to the file that originally granted it. The complete original regression suite was re-run and shows zero true regressions (only intentionally-stronger denials exactly where this pass's own hardening narrowed access, confirmed by direct comparison, not assumed).
+
+**Financial authority proof (§35 of the task, answered directly):** a tenant/client cannot choose payment amount, currency, or provider (all server-derived in `fn_create_payment_attempt`); `app_api` cannot directly insert a `payment_attempts` row; a tenant cannot manufacture a webhook receipt or pre-claim a real provider event ID (`fn_record_payment_webhook_receipt` accepts no financial/identity fields); a forged provider webhook cannot mark an invoice paid (verification precedes any receipt row, §30.2 of the API document); a mismatched amount/currency cannot mark an invoice paid (§30.6, unchanged from the first pass, now reachable only through the hardened path).
+
+**Commercial pricing immutability proof:** raw SQL cannot activate a `DRAFT`, expire an `ACTIVE`, alter `effective_to` on `ACTIVE`/`SUPERSEDED`, or delete any version in any status — all confirmed `permission denied` for every role including `app_platform_admin`; a metric cannot be inserted/updated/deleted after activation (unchanged from the first pass, re-confirmed); controlled activation/expiry via the guarded functions still works (positive control, §15).
+
+**Call-billing proof:** 1000×1-second calls and 1×1000-second call now produce numerically identical billed `CALL_MINUTES` (16.6667 both ways); 100×7-second calls and 1×700-second call likewise (11.6667 both ways) — live-demonstrated, not asserted.

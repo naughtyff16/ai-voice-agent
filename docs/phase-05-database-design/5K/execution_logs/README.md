@@ -515,3 +515,45 @@ validation passes used).
 See `../MIGRATION_MANIFEST.md`'s Phase 6K entry and
 `../validation/6K_FINAL_BLOCKER_REMEDIATION_VALIDATION_REPORT.md` for the
 consolidated result and the full blocker-closure table.
+
+---
+
+## Phase 6K FINAL Freeze-Gate Remediation (2026-08-30, same day, second pass) — `102_5H2.sql` amended in place, PostgreSQL 18.6 re-validated
+
+An independent freeze-gate review of the prior batch's own `102_5H2.sql`
+found 5 BLOCKERS and 1 SIGNIFICANT issue it had missed (FB-6K-01 through
+FB-6K-07 — full list in `../validation/
+6K_FINAL_BLOCKER_REMEDIATION_VALIDATION_REPORT.md`), plus authorized a
+broader least-privilege audit. `102_5H2.sql` was amended in place a second
+time (confirmed, before this pass began, that its only prior applications
+were disposable/already-deleted instances — never a persistent database);
+`down_revision`/revision id unchanged. A fresh, genuinely new disposable
+PostgreSQL 18.6 instance was built the same way as every prior batch
+(`.tmp_pgdata_6kfb`, port 5561), stopped and deleted at the end.
+
+| File | Command | Purpose |
+|---|---|---|
+| `20260830T060000Z_01_6k_freeze_gate_test_matrix_output.txt` | Primary freeze-gate test script (`6k_fb_test_matrix.sql`) — Q36 (lifecycle raw-DML bypass), Q37 (webhook receipt isolation), Q38 (server-authoritative payment-attempt creation), Q39 (webhook linkage derivation), Q40 (exact-aggregate call billing), broader-audit spot checks | The core new-finding test suite. Found 4 test-harness bugs mid-run (a missing `SET app.tenant_id` before two RLS-scoped reads, and two blocks written against `app_api` for operations the very fix under test correctly moved to `app_worker`) — disclosed, not silently corrected; re-run cleanly in file `02`. |
+| `20260830T060000Z_02_6k_freeze_gate_fixups_output.txt` | Corrected re-run of FB-6K-06, FB-6K-07, and the refund-grant check | Clean, unambiguous evidence for the three findings the first script's own bugs obscured. |
+| `20260830T060000Z_03_regression_original_matrix_output.txt` / `20260830T060000Z_04_regression_original_fixups_output.txt` | The complete, *unmodified* 28-test suite from the first `102_5H2` pass, re-run verbatim against the corrected file on a fresh database | Regression proof — every test that passed before still passes; every test that now shows a *new* `permission denied` does so exactly where this pass's own hardening intentionally narrowed access (confirmed by direct comparison against the first pass's own recorded expectations, not assumed). |
+| `20260830T060000Z_05_llm_metric_suffix_reconfirm.txt` | Isolated re-run of the LLM `source_event_id`-suffix idempotency fix under `app_worker` (the role the broader audit correctly narrowed usage-event ingestion to) | Clean confirmation this specific first-pass fix is unaffected by the second pass's privilege changes. |
+
+**Results, one by one:**
+
+- **FB-6K-01/02** — a raw `UPDATE` toward `ACTIVE`/`CLOSED`-shaped lifecycle fields and a raw `DELETE` of both an `ACTIVE` and a `DRAFT` `commercial_pricing_agreement_version` row, all attempted as `app_platform_admin` directly: **all three `permission denied`**, live-confirmed. The legitimate `create → draft → activate` path (unaffected, since `SECURITY DEFINER` functions execute as their owner) still succeeds end to end. `has_table_privilege()` confirms zero `INSERT`/`UPDATE`/`DELETE` for `app_platform_admin` on all three pricing tables.
+- **FB-6K-03/04** — `app_api` denied both `SELECT` and raw `INSERT` on `payment_webhook_receipts`; `fn_record_payment_webhook_receipt()` (the only path `app_api` retains) succeeds, dedups a duplicate delivery, and — confirmed by the function's own parameter list — has no way to accept `organization_id`/`payment_attempt_id`/`processing_status` as input. `app_worker` retains `SELECT` (needed for async processing).
+- **FB-6K-05** — `app_api` denied raw `INSERT` on `payment_attempts`. `fn_create_payment_attempt()` succeeds and the resulting row's `amount_amount` (₹12,345.6700) exactly matches the test invoice's own `total_due_amount`, `currency` matches the invoice, `provider` is server-selected — no client-supplied financial value reached the row. A second call while a non-terminal attempt exists is rejected; a cross-tenant `invoice_id` and a call with no tenant context set are both rejected with the same generic "not found"/fail-closed shape.
+- **Significant (webhook linkage)** — `fn_process_payment_webhook_receipt()` correctly *resolves* `payment_attempt_id`/`organization_id` from a supplied `provider_transaction_id`, matching the real originating attempt exactly (`payment_attempt_id` in the result matches the fixture's own `pay_att_id`, cross-checked directly); a receipt claiming the wrong provider for a real `provider_transaction_id` resolves to `NULL` (fails closed) and is recorded `FAILED`/`UNKNOWN_TRANSACTION_CORRELATION`.
+- **FB-6K-06** — live-reproduced the exact drift the review predicted: `SUM(quantity)` over 1000 one-second calls (each pre-rounded) totals **16.7000** minutes; `SUM(source_quantity_seconds)/60` rounded once totals **16.6667**, identically matching a single 1000-second call rounded once. A second case (100 × 7-second calls vs. one 700-second call) matches identically at **11.6667** both ways.
+- **Broader audit** — `app_api` denied raw `INSERT` on `cost_entries`/`invoice_lines`/`tax_lines`/`refunds`; `app_worker` denied raw `INSERT` on `credits`/`credit_ledger_entries`; `fn_billing_apply_credit()` (the correct path) still succeeds unaffected.
+
+**Regression (files `03`/`04`):** the complete, unmodified first-pass test suite (all 28 original tests, both files) was re-run verbatim on a fresh database built from the corrected `102_5H2.sql`. Every previously-passing positive-control test (`T3` create/activate, `T9`'s valid-pin branch, `T10`, `T11`, `T12`'s exact half-open boundary, `T13` historical resolution, `T22` late-usage adjustment) reproduces identically. Every previously-passing negative test still fails — several now fail at the `GRANT` layer (`permission denied`) instead of inside a trigger (`RAISE EXCEPTION`), which is the *intended*, strictly stronger outcome of closing FB-6K-01/02 (the trigger no longer gets a chance to fire because the grant is gone first). Tests that exercised now-intentionally-revoked capabilities (the original `T18` reading `payment_webhook_receipts` as `app_api`, `T20` inserting `usage_events` as `app_api`) now correctly show `permission denied` — confirmed, by inspection, to be exactly the broader-audit fix working as designed, not an unrelated regression; both underlying pieces of logic (webhook dedup, LLM-metric-suffix idempotency) were independently re-confirmed under the now-correct role (file `05` for the latter).
+
+**Not performed / disclosed limitations (same as the first pass, unchanged):** no real payment-provider HTTP integration test; no genuinely concurrent two-process race test for agreement-version activation; no exhaustive re-run of every one of the task's ~90 named sub-tests across all seven blockers (the sub-tests actually run were selected to cover every distinct invariant and every confirmed defect, consistent with the first pass's own stated selection criterion).
+
+**Cleanup performed at the end of this batch:** the PostgreSQL 18 server (`.tmp_pgdata_6kfb`, port 5561) was stopped and its data directory deleted. No pre-existing PostgreSQL instance was touched. The pre-existing `/tmp/5j1_validate_venv` virtual environment was reused, not modified.
+
+See `../MIGRATION_MANIFEST.md`'s "Phase 6K FINAL Freeze-Gate Remediation"
+entry and `../validation/6K_FINAL_BLOCKER_REMEDIATION_VALIDATION_REPORT.md`
+(updated by this pass) for the consolidated result and the full FB-6K-01
+through FB-6K-07 blocker-closure table.

@@ -1,0 +1,36 @@
+Pager usage is off.
+=== LLM metric-suffix idempotency, reconfirmed under app_worker (the correct role post-hardening) ===
+SET
+SET
+      metric       | quantity 
+-------------------+----------
+ LLM_PROMPT_TOKENS | 500.0000
+(1 row)
+
+INSERT 0 1
+        metric         | quantity 
+-----------------------+----------
+ LLM_COMPLETION_TOKENS | 300.0000
+(1 row)
+
+INSERT 0 1
+(confirm: BOTH rows exist)
+        metric         | quantity 
+-----------------------+----------
+ LLM_COMPLETION_TOKENS | 300.0000
+ LLM_PROMPT_TOKENS     | 500.0000
+(2 rows)
+
+(replay of the exact same fixed-scheme event -- no duplicate)
+ metric | quantity 
+--------+----------
+(0 rows)
+
+INSERT 0 0
+ should_be_1 
+-------------
+           1
+(1 row)
+
+RESET
+=== DONE ===

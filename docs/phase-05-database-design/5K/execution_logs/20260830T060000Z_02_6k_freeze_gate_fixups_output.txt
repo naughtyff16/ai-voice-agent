@@ -1,0 +1,102 @@
+Timing is off.
+Pager usage is off.
+=== FB-6K-07-FIX: resolve pay_att_id correctly (tenant context was missing) ===
+SET
+SET
+pay_att_id: 01a04f64-fb42-7787-9cfc-fc146dbdf3af
+ fn_link_payment_provider_transaction 
+--------------------------------------
+ 
+(1 row)
+
+ status  | provider_transaction_id 
+---------+-------------------------
+ PENDING | pay_fb_test_001
+(1 row)
+
+RESET
+--- Q39.1-FIX: fn_process_payment_webhook_receipt resolves attempt/org from provider_transaction_id ---
+SET
+RESET
+SET
+ resolved |     resolved_payment_attempt_id      |       resolved_organization_id       
+----------+--------------------------------------+--------------------------------------
+ t        | 01a04f64-fb42-7787-9cfc-fc146dbdf3af | 11111111-1111-1111-1111-111111111111
+(1 row)
+
+(expect: resolved_payment_attempt_id == pay_att_id above, resolved_organization_id == org_a -- via app_platform_admin read, since app_worker/app_api cannot SELECT this table)
+RESET
+SET
+          payment_attempt_id          |           organization_id            | processing_status 
+--------------------------------------+--------------------------------------+-------------------
+ 01a04f64-fb42-7787-9cfc-fc146dbdf3af | 11111111-1111-1111-1111-111111111111 | PROCESSING
+(1 row)
+
+RESET
+(cross-check: payment_attempt_id above must equal)
+01a04f64-fb42-7787-9cfc-fc146dbdf3af
+--- Q39.2-FIX: cross-provider linkage fails closed -- a CASHFREE-labeled receipt cannot resolve a RAZORPAY-provider transaction id ---
+SET
+RESET
+SET
+ resolved | resolved_payment_attempt_id | resolved_organization_id 
+----------+-----------------------------+--------------------------
+ t        |                             | 
+(1 row)
+
+(expect: resolved_payment_attempt_id IS NULL -- the real pay_fb_test_001 attempt is RAZORPAY, this receipt claims CASHFREE)
+RESET
+SET
+ payment_attempt_id | organization_id | processing_status |           last_error            
+--------------------+-----------------+-------------------+---------------------------------
+                    |                 | FAILED            | UNKNOWN_TRANSACTION_CORRELATION
+(1 row)
+
+RESET
+
+=== FB-6K-06-FIX: exact-aggregate call-minute billing (as app_worker, the correct role, with tenant context) ===
+SET
+SET
+DO
+(the OLD, buggy aggregation -- SUM(quantity), each already rounded per-call -- overstates usage)
+ old_buggy_sum_minutes 
+-----------------------
+               16.7000
+(1 row)
+
+(the FIXED aggregation -- SUM(source_quantity_seconds), exact, converted ONCE)
+ fixed_sum_minutes 
+-------------------
+           16.6667
+(1 row)
+
+(reference: a SINGLE 1000-second call, converted once)
+ single_1000s_call_minutes 
+---------------------------
+                   16.6667
+(1 row)
+
+(PASS CRITERION: fixed_sum_minutes must EQUAL single_1000s_call_minutes; old_buggy_sum_minutes must NOT)
+DO
+(100 x 7-second calls, fixed aggregation)
+ fixed_100x7s_minutes 
+----------------------
+              11.6667
+(1 row)
+
+(reference: 1 x 700-second call)
+ single_700s_call_minutes 
+--------------------------
+                  11.6667
+(1 row)
+
+(PASS CRITERION: fixed_100x7s_minutes must EQUAL single_700s_call_minutes)
+RESET
+
+=== BROADER AUDIT REFUND CHECK (pay_att_id now correctly resolved) ===
+SET
+SET
+(expect: permission denied for table refunds)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_fb_test_fixups.sql:83: ERROR:  permission denied for table refunds
+RESET
+=== DONE-FIX ===

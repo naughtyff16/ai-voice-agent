@@ -1,0 +1,64 @@
+Timing is off.
+Pager usage is off.
+=== T8-FIX: cross-org composite-FK rejection (corrected tenant context) ===
+SET
+SET
+INSERT 0 1
+sub_b_id: 01a04f66-5498-7390-9f82-82996d9032b9
+(expect: FK violation -- org_b period cannot reference the org_a agreement version -- fk_bp_cpav has no (org_a-agreement-version-id, org_b) row)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_test_matrix_fixups.sql:16: ERROR:  billing: billing_periods row's plan_version_id (44444444-4444-4444-4444-444444444441) does not match its pinned commercial_pricing_agreement_version's base_plan_version_id (<NULL>)
+CONTEXT:  PL/pgSQL function fn_bp_agreement_plan_consistency() line 11 at RAISE
+RESET
+=== T11-FIX: confirm org B first-version activation (corrected tenant context for the read-back) ===
+SET
+                  id                  | status | effective_from |           organization_id            
+--------------------------------------+--------+----------------+--------------------------------------
+ 01a04f66-53f0-7dcd-8027-27a8044eb4c3 | ACTIVE | 2099-01-01     | 22222222-2222-2222-2222-222222222222
+(1 row)
+
+RESET
+=== T24-FIX: SECURITY DEFINER inventory, corrected PUBLIC-EXECUTE check via proacl/aclexplode ===
+                     proname                      | security_definer |         search_path_setting         | public_can_execute | app_api_can_execute | app_worker_can_execute | app_platform_admin_can_execute | app_readonly_can_execute 
+--------------------------------------------------+------------------+-------------------------------------+--------------------+---------------------+------------------------+--------------------------------+--------------------------
+ fn_activate_commercial_pricing_agreement_version | t                | {"search_path=billing, pg_catalog"} | f                  | f                   | t                      | t                              | f
+ fn_bp_agreement_plan_consistency                 | f                | {"search_path=billing, pg_catalog"} | f                  | f                   | f                      | f                              | f
+ fn_cpa_identity_immutable                        | f                | {"search_path=billing, pg_catalog"} | f                  | f                   | f                      | f                              | f
+ fn_cpav_immutability                             | f                | {"search_path=billing, pg_catalog"} | f                  | f                   | f                      | f                              | f
+ fn_cpm_parent_draft_guard                        | f                | {"search_path=billing, pg_catalog"} | f                  | f                   | f                      | f                              | f
+ fn_create_commercial_pricing_agreement           | t                | {"search_path=billing, pg_catalog"} | f                  | f                   | t                      | t                              | f
+ fn_create_commercial_pricing_agreement_version   | t                | {"search_path=billing, pg_catalog"} | f                  | f                   | t                      | t                              | f
+ fn_create_late_usage_billing_adjustment          | t                | {"search_path=billing, pg_catalog"} | f                  | f                   | t                      | t                              | f
+ fn_expire_commercial_pricing_agreement_version   | t                | {"search_path=billing, pg_catalog"} | f                  | f                   | t                      | t                              | f
+ fn_link_payment_provider_transaction             | t                | {"search_path=billing, pg_catalog"} | f                  | f                   | t                      | t                              | f
+ fn_process_payment_webhook_receipt               | t                | {"search_path=billing, pg_catalog"} | f                  | f                   | t                      | t                              | f
+(11 rows)
+
+=== T26: table-level grant audit for the four new tables -- app_api must have SELECT only ===
+                relname                | app_api_select | app_api_insert | app_api_update | app_api_delete | app_worker_insert | app_worker_update | admin_update 
+---------------------------------------+----------------+----------------+----------------+----------------+-------------------+-------------------+--------------
+ commercial_pricing_agreement_versions | t              | f              | f              | f              | f                 | f                 | f
+ commercial_pricing_agreements         | t              | f              | f              | f              | f                 | f                 | f
+ commercial_pricing_metrics            | t              | f              | f              | f              | f                 | f                 | f
+ payment_webhook_receipts              | f              | f              | f              | f              | f                 | f                 | t
+(4 rows)
+
+=== T27: payment_attempts direct-UPDATE denial confirmed for BOTH app_api and app_worker (unchanged 055_5H revoke) ===
+ app_api_can_update | app_worker_can_update 
+--------------------+-----------------------
+ f                  | f
+(1 row)
+
+=== T28: RLS enabled+forced on all four new tables ===
+                relname                | rls_enabled | rls_forced 
+---------------------------------------+-------------+------------
+ commercial_pricing_agreement_versions | t           | t
+ commercial_pricing_agreements         | t           | t
+ commercial_pricing_metrics            | t           | t
+(3 rows)
+
+         relname          | rls_enabled | rls_forced 
+--------------------------+-------------+------------
+ payment_webhook_receipts | f           | f
+(1 row)
+
+=== DONE-FIX ===

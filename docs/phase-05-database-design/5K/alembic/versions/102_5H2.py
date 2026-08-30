@@ -60,13 +60,55 @@ Every new SECURITY DEFINER function follows the exact grant pattern
 same remediation pass's own audit, docs/phase-06-api-design/
 6K-Billing-Usage-APIs.md §9.1): app_worker/app_platform_admin EXECUTE
 only, REVOKE ALL FROM PUBLIC, explicit SET search_path — never granted
-to app_api. No existing 5H table, column, constraint, index, function,
-or grant from migrations 001-101 is altered, except the two documented,
-additive ALTER TABLE statements in item 4 above (DROP NOT NULL, ADD
-COLUMN) — nothing is edited "in place" the way 086_5H1/101_5I1's own
-amendment history did with not-yet-applied content; 001-101 are treated
-as frozen and applied, per this remediation pass's own explicit
-instruction.
+to app_api, with exactly one deliberate exception (item 7 below). No
+existing 5H table, column, constraint, index, function, or grant from
+migrations 001-101 is altered — every correction to a frozen grant is a
+REVOKE statement issued by this later, still-unapplied migration
+(087_5B1/096_5B2/101_5I1's own established pattern), never an edit to
+the original file.
+
+SECOND PASS (2026-08-30, same day) — amended in place, same policy as
+086_5H1/101_5I1 (confirmed before this pass began: this file's only
+prior applications were against genuinely disposable, already-deleted
+local PostgreSQL 18.6 validation instances, never a persistent
+database). An independent freeze-gate review found 5 BLOCKERS and 1
+SIGNIFICANT issue the first pass missed — full narrative in the SQL
+file's own header comment and in
+docs/phase-05-database-design/5K/validation/
+6K_FINAL_BLOCKER_REMEDIATION_VALIDATION_REPORT.md:
+
+  7. commercial_pricing_agreements/...agreement_versions/...metrics
+     lose ALL non-SELECT grants for every role including
+     app_platform_admin (FB-6K-01/02) — SECURITY DEFINER functions
+     never needed the caller's own table grants, so items 1's four
+     lifecycle functions are unaffected; only the raw-DML bypass class
+     is closed.
+  8. billing.payment_webhook_receipts loses app_api's SELECT and INSERT
+     (FB-6K-03/04); a new, narrow fn_record_payment_webhook_receipt()
+     — the one function in this migration granted to app_api — replaces
+     the raw INSERT path, accepting only the three ingress-safe fields.
+  9. billing.payment_attempts (055_5H.sql, frozen, unedited) loses
+     app_api's INSERT (FB-6K-05); a new fn_create_payment_attempt() —
+     the first app_api-callable billing SECURITY DEFINER function in
+     this schema — derives every financial value server-side and binds
+     tenant context via organization.current_tenant_id() with no
+     p_organization_id parameter to forge.
+  10. fn_process_payment_webhook_receipt's signature changes: it no
+      longer accepts p_payment_attempt_id/p_organization_id as direct
+      input (the significant, non-FB-numbered finding) — it now takes
+      p_provider_transaction_id and internally resolves + cross-
+      validates the linkage against the platform's own data.
+  11. billing.usage_events gains source_quantity_seconds (FB-6K-06) —
+      exact pre-conversion seconds preserved for lossless CALL_MINUTES
+      aggregation; per-call rounding before summation is confirmed
+      mathematically non-equivalent to DEC-6K-02's own exact-seconds
+      mandate once many calls are aggregated.
+  12. Broader least-privilege audit: app_api's unnecessary INSERT on
+      usage_events/cost_entries/invoice_lines/tax_lines revoked;
+      app_worker's INSERT on credits/credit_ledger_entries revoked
+      (reconciling the executed grants with 5H's own already-stated
+      §20 security-model intent); app_api's INSERT on refunds revoked
+      (contradicted 6K's own "no tenant-facing refund creation" design).
 
 Revision ID: 102_5H2
 Revises: '101_5I1'
@@ -95,13 +137,24 @@ def downgrade() -> None:
         "package (same forward-only policy as every revision since "
         "001_5B). No rollback DDL is authored here; restore from a "
         "database backup taken before this revision if needed. "
-        "(Low-risk manual reversal, in dependency order: DROP FUNCTION "
+        "(Low-risk manual reversal, in dependency order: GRANT back the "
+        "REVOKEd frozen-file grants (payment_attempts/usage_events/"
+        "cost_entries/invoice_lines/tax_lines/credits/credit_ledger_entries/"
+        "refunds INSERT, per the SQL file's own Part G) if truly reverting; "
+        "ALTER TABLE billing.usage_events DROP CONSTRAINT "
+        "chk_ue_source_quantity_seconds, DROP COLUMN "
+        "source_quantity_seconds; DROP FUNCTION "
+        "billing.fn_create_payment_attempt(UUID, TEXT); DROP FUNCTION "
+        "billing.fn_record_payment_webhook_receipt(TEXT, TEXT, CHAR); "
+        "GRANT back commercial_pricing_agreements/...agreement_versions/"
+        "...metrics INSERT/UPDATE/DELETE to app_platform_admin if truly "
+        "reverting (re-opens FB-6K-01/02 — not recommended); DROP FUNCTION "
         "billing.fn_create_late_usage_billing_adjustment(UUID, UUID, TEXT, "
         "NUMERIC, CHAR, TEXT, UUID, TEXT, JSONB); ALTER TABLE "
         "billing.billing_adjustments DROP COLUMN late_usage_provenance, "
         "DROP COLUMN late_usage_metric, DROP COLUMN "
         "late_usage_billing_period_id; DROP FUNCTION "
-        "billing.fn_process_payment_webhook_receipt(UUID, TEXT, UUID, UUID, "
+        "billing.fn_process_payment_webhook_receipt(UUID, TEXT, TEXT, "
         "TEXT); DROP TABLE billing.payment_webhook_receipts; ALTER TABLE "
         "billing.payment_attempts DROP CONSTRAINT chk_pa_method_kind, DROP "
         "COLUMN payment_method_kind; ALTER TABLE billing.payment_attempts "
