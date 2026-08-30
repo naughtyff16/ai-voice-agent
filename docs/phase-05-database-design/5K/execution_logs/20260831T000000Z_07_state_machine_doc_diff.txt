@@ -1,0 +1,10 @@
+Phase 6K FINAL Documentation Consistency Cleanup (eighth pass) — §30.7 state-machine sentence fix, isolated
+Generated: 2026-08-30 (repository-relative; docs/phase-06-api-design/6K-Billing-Usage-APIs.md §30.7)
+
+=== OLD (stale, pre-sixth-pass vocabulary, missing RETRY_PENDING) ===
+...is a **separate, new, smaller** machine — `RECEIVED → PROCESSING → PROCESSED | FAILED` — governing only "have we finished handling this delivery"...
+
+=== NEW (points to the canonical §30.2a table instead of duplicating it) ===
+...is a **separate machine** — five states, including the non-terminal `RETRY_PENDING` — governing only "have we finished handling this delivery"... See §30.2a for the canonical, current state/transition table (`RECEIVED → PROCESSING → RETRY_PENDING → PROCESSING → PROCESSED` or `→ FAILED` — not reproduced here a second time, to avoid two documents of record drifting apart).
+
+This is the ONLY substantive text change made to 6K-Billing-Usage-APIs.md in this pass.

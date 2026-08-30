@@ -1,0 +1,29 @@
+################ FAILURE-EVENT CANNOT SETTLE TEST ################
+SET
+RESET
+SET
+SET
+RESET
+SET
+ fn_link_payment_provider_transaction 
+--------------------------------------
+ 
+(1 row)
+
+(expect: FAIL -- event kind is PAYMENT_FAILED, not PAYMENT_SUCCEEDED)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_final_test_matrix.sql:89: ERROR:  billing: payment_webhook_receipt 01a050fb-2af0-7a83-a253-53bccb1102b3 has normalized_event_kind = PAYMENT_FAILED — only a PAYMENT_SUCCEEDED receipt may be settled via fn_apply_successful_payment_webhook_receipt
+CONTEXT:  PL/pgSQL function fn_apply_successful_payment_webhook_receipt(uuid) line 47 at RAISE
+(expect: attempt NOT SUCCEEDED)
+ status  
+---------
+ PENDING
+(1 row)
+
+(expect: invoice NOT PAID)
+ status 
+--------
+ OPEN
+(1 row)
+
+RESET
+

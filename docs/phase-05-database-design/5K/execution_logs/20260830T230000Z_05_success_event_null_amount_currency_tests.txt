@@ -1,0 +1,24 @@
+################ TABLE CHECK: chk_pwr_success_requires_settlement_fields ################
+--- both NULL: expect FAIL (direct superuser insert, isolating the CHECK) ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_final_test_matrix.sql:26: ERROR:  new row for relation "payment_webhook_receipts" violates check constraint "chk_pwr_success_requires_settlement_fields"
+DETAIL:  Failing row contains (01a050fb-2ad8-74d6-957d-7d99a335ac89, RAZORPAY, evt_f_bothnull, 2026-08-30 10:13:52.918671+05:30, RECEIVED, PAYMENT_SUCCEEDED, null, null, null, null, null, null, null, null, 0, null, null, null, 2026-08-30 10:13:52.918671+05:30).
+--- amount NULL only: expect FAIL ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_final_test_matrix.sql:29: ERROR:  new row for relation "payment_webhook_receipts" violates check constraint "chk_pwr_success_requires_settlement_fields"
+DETAIL:  Failing row contains (01a050fb-2adb-7e39-859e-9eaba1ae7377, RAZORPAY, evt_f_amtnull, 2026-08-30 10:13:52.922625+05:30, RECEIVED, PAYMENT_SUCCEEDED, null, txn_x, null, INR, null, null, null, null, 0, null, null, null, 2026-08-30 10:13:52.922625+05:30).
+--- currency NULL only: expect FAIL ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_final_test_matrix.sql:32: ERROR:  new row for relation "payment_webhook_receipts" violates check constraint "chk_pwr_success_requires_settlement_fields"
+DETAIL:  Failing row contains (01a050fb-2adb-74e9-950f-0f1cc4b0f0d0, RAZORPAY, evt_f_curnull, 2026-08-30 10:13:52.923104+05:30, RECEIVED, PAYMENT_SUCCEEDED, null, txn_x, 100.0000, null, null, null, null, null, 0, null, null, null, 2026-08-30 10:13:52.923104+05:30).
+--- PAYMENT_FAILED with everything NULL: expect PASS (event kind is not SUCCEEDED) ---
+ normalized_event_kind | provider_transaction_id | settled_amount | settled_currency 
+-----------------------+-------------------------+----------------+------------------
+ PAYMENT_FAILED        |                         |                | 
+(1 row)
+
+INSERT 0 1
+
+################ EVENT KIND IMMUTABILITY ################
+(expect: permission denied -- no role has raw UPDATE anyway)
+SET
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_final_test_matrix.sql:42: ERROR:  permission denied for table payment_webhook_receipts
+RESET
+

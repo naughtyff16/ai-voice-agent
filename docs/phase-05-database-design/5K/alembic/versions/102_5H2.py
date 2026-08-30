@@ -234,6 +234,39 @@ issue, and 1 documentation issue:
       aggregation source. Corrected in the driving document to state both
       quantities explicitly.
 
+SEVENTH PASS (2026-08-30, same day) — amended in place a seventh time, same
+policy, confirmed again before this pass began. A further independent
+freeze-gate review found 2 remaining BLOCKERS:
+
+  24. FINAL-6K-F01/F02 (BLOCKER, "if present, compare"): fn_apply_
+      successful_payment_webhook_receipt's own amount/currency checks used
+      "IF ... IS NOT NULL AND ... IS DISTINCT FROM ..." — a NULL
+      settled_amount/settled_currency skipped the comparison entirely
+      rather than failing, so successful settlement could proceed with no
+      actual verification. Fixed with two layers: a new table CHECK,
+      chk_pwr_success_requires_settlement_fields (a PAYMENT_SUCCEEDED row
+      is structurally impossible without non-NULL provider_transaction_id/
+      settled_amount/settled_currency, for any writer); and the function's
+      own checks are now unconditional (the "IS NOT NULL AND" prefix
+      removed entirely from both comparisons).
+  25. FINAL-6K-F03/F04/F05 (BLOCKER, no durable event-kind classification):
+      the receipt stored no durable, verified record of what kind of event
+      the provider actually reported. A crash-recovery worker had no way
+      to determine which processor was correct to invoke, and nothing
+      prevented a failure event from being routed through the success path
+      or vice versa. Fixed: a new NOT NULL, immutable (trg_pwr_event_kind_
+      immutable) normalized_event_kind column (PAYMENT_SUCCEEDED |
+      PAYMENT_FAILED | PAYMENT_PENDING), populated only by
+      fn_record_payment_webhook_receipt's own new required parameter
+      (never selectable by any tenant/DB caller); fn_apply_successful_
+      payment_webhook_receipt now rejects any non-PAYMENT_SUCCEEDED
+      receipt outright, before touching any financial state; fn_process_
+      payment_webhook_receipt's own terminal FAILED transition now also
+      transitions the correlated payment_attempt to FAILED (reusing the
+      frozen fn_update_payment_status, passing through the new
+      provider_failure_code column) whenever the event genuinely reads
+      PAYMENT_FAILED and correlation resolved.
+
 Revision ID: 102_5H2
 Revises: '101_5I1'
 """
@@ -262,6 +295,15 @@ def downgrade() -> None:
         "001_5B). No rollback DDL is authored here; restore from a "
         "database backup taken before this revision if needed. "
         "(Low-risk manual reversal, in dependency order: ALTER TABLE "
+        "billing.payment_webhook_receipts DROP CONSTRAINT trg_pwr_event_kind_"
+        "immutable (drop the trigger, not a constraint -- DROP TRIGGER "
+        "trg_pwr_event_kind_immutable ON billing.payment_webhook_receipts), "
+        "DROP FUNCTION billing.fn_pwr_event_kind_immutable(), DROP CONSTRAINT "
+        "chk_pwr_success_requires_settlement_fields, DROP CONSTRAINT "
+        "chk_pwr_event_kind, DROP COLUMN provider_failure_code, DROP COLUMN "
+        "normalized_event_kind (re-opens FINAL-6K-F01 through F05, the "
+        "amount/currency-bypass and no-durable-event-kind BLOCKERs -- not "
+        "recommended); ALTER TABLE "
         "billing.commercial_pricing_agreements DROP CONSTRAINT "
         "uq_cpa_org_plan, ADD CONSTRAINT uq_cpa_org UNIQUE (organization_id) "
         "(only safe if no organization has more than one agreement row -- "

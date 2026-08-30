@@ -335,6 +335,55 @@
 --     distinct quantities explicitly: source_quantity_seconds (exact,
 --     authoritative) vs. the audit-only per-row quantity display value,
 --     with the invoice's own aggregation formula stated in full.
+--
+-- SEVENTH PASS (2026-08-30, same day) — amended in place a seventh time,
+--   same "never applied to any real database" policy, confirmed again
+--   before this pass began. A further independent freeze-gate review
+--   found 2 remaining BLOCKERS in the sixth pass's own state:
+--
+--   BLOCKER (settled-amount/currency "if present, compare"). fn_apply_
+--     successful_payment_webhook_receipt's own amount/currency checks
+--     were written as "IF v_settled_amount IS NOT NULL AND ... IS DISTINCT
+--     FROM ..." — meaning a receipt with settled_amount/settled_currency
+--     left NULL skipped the comparison ENTIRELY rather than failing. A
+--     successful settlement could therefore proceed with no actual
+--     amount/currency verification at all. Fixed with two layers: (1) a
+--     new table CHECK, chk_pwr_success_requires_settlement_fields —
+--     normalized_event_kind = 'PAYMENT_SUCCEEDED' is now structurally
+--     impossible without non-NULL provider_transaction_id AND
+--     settled_amount AND settled_currency, for any writer; (2) the
+--     function itself now checks unconditionally — NULL is an immediate,
+--     explicit failure, and the "IS NOT NULL AND" prefix is removed from
+--     both comparisons entirely (defense in depth, not reliance on the
+--     CHECK alone).
+--   BLOCKER (no durable, verified event-kind classification). The receipt
+--     stored no durable record of WHAT KIND of event the provider actually
+--     reported — success, failure, or pending. A reconciliation worker
+--     recovering purely from DB state (the sixth pass's own crash-recovery
+--     fix) had no way to determine which processor — the success-
+--     settlement command or a failure-handling path — was even correct to
+--     invoke for a given receipt, and nothing prevented a failure event
+--     from being run through the success path or vice versa. Fixed: a new
+--     NOT NULL, immutable (trg_pwr_event_kind_immutable)
+--     normalized_event_kind column (PAYMENT_SUCCEEDED | PAYMENT_FAILED |
+--     PAYMENT_PENDING — task §5's own "only the event kinds actually
+--     required" scope), populated ONLY by fn_record_payment_webhook_
+--     receipt's own new required parameter (never selectable by any
+--     tenant/DB caller — the ingress function's EXECUTE grant remains
+--     app_billing_webhook_ingress-only, unchanged); fn_apply_successful_
+--     payment_webhook_receipt now rejects any receipt whose event kind is
+--     not PAYMENT_SUCCEEDED, unconditionally, before touching any
+--     financial state (closing the "wrong function invoked" case, task
+--     §21); fn_process_payment_webhook_receipt's own terminal FAILED
+--     transition now also transitions the correlated payment_attempt to
+--     FAILED (reusing the frozen fn_update_payment_status, passing through
+--     the new provider_failure_code column — task §23's own governed,
+--     customer-facing FailureCode vocabulary, kept distinct from
+--     last_error's own reconciliation-integrity vocabulary) whenever the
+--     event kind genuinely reads PAYMENT_FAILED and correlation resolved —
+--     closing the gap where a genuine provider-reported payment failure
+--     previously updated only the receipt's own bookkeeping and never the
+--     underlying financial record at all (task §9).
 -- =================================================================
 
 
@@ -882,17 +931,38 @@ GRANT EXECUTE ON FUNCTION billing.fn_create_payment_attempt(UUID, TEXT)
 --       scan reading purely from this table via idx_pwr_status/
 --       idx_pwr_retry_due below — has everything it needs without ever
 --       requiring the provider to redeliver the event.
+-- SEVENTH freeze-gate pass (task §3-§13): a further independent review
+-- found successful settlement could bypass amount/currency comparison
+-- entirely whenever they were NULL ("if present, compare" — never
+-- forbidden by anything at the schema level), and that the receipt
+-- stored no VERIFIED, DURABLE record of what kind of event the provider
+-- actually reported (success vs. failure vs. pending) — meaning a
+-- reconciliation worker recovering from a crash could not determine,
+-- from DB state alone, which processor (success vs. failure) was even
+-- correct to invoke. normalized_event_kind and provider_failure_code
+-- close both gaps: the FIRST is verified-source, immutable ingress
+-- evidence of what the provider reported; the SECOND is the customer-
+-- facing decline classification (4I's own governed FailureCode
+-- vocabulary, reused, never conflated with last_error's own distinct
+-- reconciliation-integrity vocabulary, e.g. UNKNOWN_TRANSACTION_
+-- CORRELATION/AMOUNT_MISMATCH/CURRENCY_MISMATCH — task §23).
 CREATE TABLE billing.payment_webhook_receipts (
   id                       UUID        NOT NULL DEFAULT gen_uuid_v7(),
   payment_provider         TEXT        NOT NULL,
   provider_event_id        TEXT        NOT NULL,
   received_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   processing_status        TEXT        NOT NULL DEFAULT 'RECEIVED',
+  -- Seventh pass: verified-source, IMMUTABLE (trg_pwr_event_kind_immutable,
+  -- below) record of what the provider actually reported — never a
+  -- caller-selected value; only the provider adapter, after signature
+  -- verification, determines this (task §6).
+  normalized_event_kind    TEXT        NOT NULL,
   payload_hash             CHAR(64)    NULL,   -- SHA-256 of the raw, already-verified payload bytes; raw payload itself never stored (5I ADR-5I-010 precedent)
   provider_transaction_id  TEXT        NULL,   -- normalized, verified provider transaction/payment reference — durable correlation key, independent of any live request process (sixth pass)
-  settled_amount           NUMERIC(18,4) NULL, -- normalized, verified provider-reported settled amount — durable backstop for §30.6's amount check, independent of the original payload (sixth pass)
-  settled_currency         CHAR(3)     NULL,   -- normalized, verified provider-reported currency (sixth pass)
+  settled_amount           NUMERIC(18,4) NULL, -- normalized, verified provider-reported settled amount — durable backstop for §30.6's amount check, independent of the original payload (sixth pass); MANDATORY for PAYMENT_SUCCEEDED (chk_pwr_success_requires_settlement_fields, seventh pass)
+  settled_currency         CHAR(3)     NULL,   -- normalized, verified provider-reported currency (sixth pass); MANDATORY for PAYMENT_SUCCEEDED (seventh pass)
   event_occurred_at        TIMESTAMPTZ NULL,   -- provider's own reported event timestamp, normalized (sixth pass) — audit/staleness use, no behavior currently keys off it
+  provider_failure_code    TEXT        NULL,   -- seventh pass: normalized, provider-adapter-mapped customer-facing decline reason (4I's own FailureCode vocabulary, application-governed — 5H ADR-5H-002 precedent, no DB enum) — DISTINCT from last_error's own reconciliation-integrity vocabulary
   payment_attempt_id       UUID        NULL REFERENCES billing.payment_attempts(id),
   organization_id          UUID        NULL,   -- populated only once payment_attempt_id resolves it (§23) — never trusted from the payload before that
   attempt_count            INTEGER     NOT NULL DEFAULT 0,
@@ -904,6 +974,11 @@ CREATE TABLE billing.payment_webhook_receipts (
   CONSTRAINT pk_pwr                PRIMARY KEY (id),
   CONSTRAINT uq_pwr_provider_event UNIQUE (payment_provider, provider_event_id),  -- NOT DEFERRABLE: the atomic ON CONFLICT dedup gate requires an immediate constraint
   CONSTRAINT chk_pwr_processing    CHECK (processing_status IN ('RECEIVED','PROCESSING','RETRY_PENDING','PROCESSED','FAILED')),
+  -- Seventh pass: the only three provider-callback outcomes this platform's
+  -- payment-provider contracts actually distinguish (task §5 — "only
+  -- include event kinds actually required"). Not exposed as a public REST
+  -- vocabulary; purely an internal, durable ingress classification.
+  CONSTRAINT chk_pwr_event_kind    CHECK (normalized_event_kind IN ('PAYMENT_SUCCEEDED','PAYMENT_FAILED','PAYMENT_PENDING')),
   CONSTRAINT chk_pwr_last_error_len CHECK (last_error IS NULL OR length(last_error) <= 2000),
   CONSTRAINT chk_pwr_processed     CHECK ((processing_status IN ('PROCESSED','FAILED')) = (processed_at IS NOT NULL)),
   -- RETRY_PENDING always carries its own scheduling timestamp; every other
@@ -931,8 +1006,42 @@ CREATE TABLE billing.payment_webhook_receipts (
   CONSTRAINT chk_pwr_processed_requires_correlation CHECK (
     processing_status <> 'PROCESSED'
     OR (payment_attempt_id IS NOT NULL AND organization_id IS NOT NULL)
+  ),
+  -- SEVENTH freeze-gate pass (BLOCKER, task §3/§4): a PAYMENT_SUCCEEDED
+  -- event kind is structurally impossible without durable
+  -- provider_transaction_id AND settled_amount AND settled_currency, for
+  -- ANY writer whatsoever — closing the "if present, compare" gap where
+  -- successful settlement could bypass amount/currency verification
+  -- entirely by simply never receiving those values. This is enforced at
+  -- INSERT time (fn_record_payment_webhook_receipt cannot even create a
+  -- row that violates it) and independently re-enforced inside
+  -- fn_apply_successful_payment_webhook_receipt itself (defense in depth,
+  -- task §13 — table constraint + function-level check, not either alone).
+  CONSTRAINT chk_pwr_success_requires_settlement_fields CHECK (
+    normalized_event_kind <> 'PAYMENT_SUCCEEDED'
+    OR (provider_transaction_id IS NOT NULL AND settled_amount IS NOT NULL AND settled_currency IS NOT NULL)
   )
 );
+
+-- Seventh pass (task §22): normalized_event_kind is verified-source
+-- ingress evidence of what the provider reported — it must never change
+-- after the durable receipt is created, through any function or raw path.
+-- No role holds raw UPDATE on this table at all (existing grants, below),
+-- so this trigger is defense in depth against a future function bug, not
+-- the only guard.
+CREATE OR REPLACE FUNCTION billing.fn_pwr_event_kind_immutable()
+RETURNS TRIGGER LANGUAGE plpgsql SET search_path = billing, pg_catalog AS $$
+BEGIN
+  IF NEW.normalized_event_kind <> OLD.normalized_event_kind THEN
+    RAISE EXCEPTION 'billing: payment_webhook_receipts.normalized_event_kind is immutable verified ingress evidence';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION billing.fn_pwr_event_kind_immutable() FROM PUBLIC;
+CREATE TRIGGER trg_pwr_event_kind_immutable
+  BEFORE UPDATE ON billing.payment_webhook_receipts
+  FOR EACH ROW EXECUTE FUNCTION billing.fn_pwr_event_kind_immutable();
 
 CREATE INDEX idx_pwr_status     ON billing.payment_webhook_receipts (processing_status, received_at);
 CREATE INDEX idx_pwr_attempt    ON billing.payment_webhook_receipts (payment_attempt_id) WHERE payment_attempt_id IS NOT NULL;
@@ -1058,18 +1167,26 @@ GRANT EXECUTE ON FUNCTION billing.fn_link_payment_provider_transaction(UUID, UUI
 --     event ID (poisoning the dedup key before the genuine webhook arrives,
 --     causing the real delivery to be silently treated as a duplicate) or
 --     inject fabricated receipt rows. Fixed below with a narrow SECURITY
---     DEFINER ingress function that accepts only the three fields available
---     BEFORE any tenant/financial identity is known — never organization_id,
---     payment_attempt_id, or processing_status — so even a full compromise
---     of the inbound HTTP handler's own request-shaping logic cannot use
---     this path to manufacture financial state, only to record "a
---     (possibly bogus, but signature-unverified-payload-only) delivery
---     arrived." Verification (PaymentProviderPort.verify_webhook, §30.2 of
---     the API document) happens in the calling code BEFORE this function is
---     ever invoked — this function is not itself a security boundary
---     against a forged payload, only the durability/dedup layer, exactly as
---     designed; a payload that fails verification never reaches this call
---     at all.
+--     DEFINER ingress function (further widened by the sixth and seventh
+--     freeze-gate passes to carry the additional verified, normalized
+--     fields needed for durable recovery and settlement completeness — see
+--     each field's own inline comment on the function definition itself
+--     for the current, authoritative parameter list). The dedicated
+--     webhook-ingress function accepts only verified, normalized
+--     provider-ingress data required for durable processing and
+--     reconciliation. It never accepts caller-authoritative organization
+--     ID, payment-attempt ID, invoice ID, processing status, or
+--     tenant-supplied financial values. Tenant and financial linkage are
+--     derived later from authoritative local billing state — so even a
+--     full compromise of the inbound HTTP handler's own request-shaping
+--     logic cannot use this path to manufacture financial state, only to
+--     record "a (possibly bogus, but signature-unverified-payload-only)
+--     delivery arrived." Verification (PaymentProviderPort.verify_webhook,
+--     §30.2 of the API document) happens in the calling code BEFORE this
+--     function is ever invoked — this function is not itself a security
+--     boundary against a forged payload, only the durability/dedup layer,
+--     exactly as designed; a payload that fails verification never reaches
+--     this call at all.
 GRANT SELECT ON billing.payment_webhook_receipts TO app_worker, app_readonly;
 
 -- FINAL freeze-gate correction (FREEZE-6K-01, fourth amendment): the
@@ -1147,25 +1264,52 @@ GRANT USAGE ON SCHEMA billing TO app_billing_webhook_ingress;
 -- argument. This is what makes a receipt independently resumable by a
 -- process that is not the one that originally received the callback —
 -- the durable-recovery fix (task §9/§10).
+--
+-- Seventh freeze-gate pass (BLOCKER, task §5/§6): p_normalized_event_kind
+-- is added as a REQUIRED parameter (no DEFAULT — every caller must supply
+-- it explicitly; positioned before the optional parameters so Postgres
+-- itself enforces this). It must originate ONLY from the provider adapter,
+-- AFTER signature verification and payload parsing — never from a tenant
+-- request, never from app_api, never selectable by any DB caller (the
+-- ingress function's own EXECUTE grant is already restricted to
+-- app_billing_webhook_ingress alone, unchanged). p_provider_failure_code
+-- is added as optional (only meaningful for a PAYMENT_FAILED event) — the
+-- provider adapter's own normalized decline classification (4I's
+-- FailureCode vocabulary, application-governed, task §23).
 CREATE OR REPLACE FUNCTION billing.fn_record_payment_webhook_receipt(
   p_payment_provider          TEXT,
   p_provider_event_id         TEXT,
+  p_normalized_event_kind     TEXT,
   p_payload_hash               CHAR(64) DEFAULT NULL,
   p_provider_transaction_id   TEXT DEFAULT NULL,
   p_settled_amount            NUMERIC(18,4) DEFAULT NULL,
   p_settled_currency          CHAR(3) DEFAULT NULL,
-  p_event_occurred_at         TIMESTAMPTZ DEFAULT NULL
+  p_event_occurred_at         TIMESTAMPTZ DEFAULT NULL,
+  p_provider_failure_code     TEXT DEFAULT NULL
 ) RETURNS UUID
 SECURITY DEFINER
 LANGUAGE plpgsql SET search_path = billing, pg_catalog AS $$
 DECLARE v_id UUID;
 BEGIN
+  IF p_normalized_event_kind NOT IN ('PAYMENT_SUCCEEDED','PAYMENT_FAILED','PAYMENT_PENDING') THEN
+    RAISE EXCEPTION 'billing: invalid normalized_event_kind %', p_normalized_event_kind;
+  END IF;
+  -- Defense in depth alongside chk_pwr_success_requires_settlement_fields:
+  -- fail with a clear, billing-prefixed message here rather than letting
+  -- the caller discover a bare constraint-violation SQLSTATE.
+  IF p_normalized_event_kind = 'PAYMENT_SUCCEEDED'
+     AND (p_provider_transaction_id IS NULL OR p_settled_amount IS NULL OR p_settled_currency IS NULL) THEN
+    RAISE EXCEPTION 'billing: a PAYMENT_SUCCEEDED webhook event requires provider_transaction_id, settled_amount, and settled_currency — none may be NULL';
+  END IF;
+
   INSERT INTO billing.payment_webhook_receipts
-    (payment_provider, provider_event_id, payload_hash, provider_transaction_id,
-     settled_amount, settled_currency, event_occurred_at)
+    (payment_provider, provider_event_id, normalized_event_kind, payload_hash,
+     provider_transaction_id, settled_amount, settled_currency, event_occurred_at,
+     provider_failure_code)
   VALUES
-    (p_payment_provider, p_provider_event_id, p_payload_hash, p_provider_transaction_id,
-     p_settled_amount, p_settled_currency, p_event_occurred_at)
+    (p_payment_provider, p_provider_event_id, p_normalized_event_kind, p_payload_hash,
+     p_provider_transaction_id, p_settled_amount, p_settled_currency, p_event_occurred_at,
+     p_provider_failure_code)
   ON CONFLICT (payment_provider, provider_event_id) DO UPDATE
     -- Sixth pass (task §6): a duplicate delivery of an ALREADY-SETTLED or
     -- permanently-FAILED receipt remains a true no-op (the WHERE clause
@@ -1200,12 +1344,12 @@ BEGIN
                 -- may enqueue/reaffirm processing accordingly.
 END;
 $$;
-REVOKE ALL ON FUNCTION billing.fn_record_payment_webhook_receipt(TEXT, TEXT, CHAR, TEXT, NUMERIC, CHAR, TIMESTAMPTZ) FROM PUBLIC;
+REVOKE ALL ON FUNCTION billing.fn_record_payment_webhook_receipt(TEXT, TEXT, TEXT, CHAR, TEXT, NUMERIC, CHAR, TIMESTAMPTZ, TEXT) FROM PUBLIC;
 -- Deliberately NOT granted to app_api (the finding this pass closes), NOT
 -- to app_worker (too broad, see rationale above), and NOT to
 -- app_platform_admin (mirrors app_voice_reconciler's own precedent —
 -- an automated provider-callback path, not an operator/admin action).
-GRANT EXECUTE ON FUNCTION billing.fn_record_payment_webhook_receipt(TEXT, TEXT, CHAR, TEXT, NUMERIC, CHAR, TIMESTAMPTZ)
+GRANT EXECUTE ON FUNCTION billing.fn_record_payment_webhook_receipt(TEXT, TEXT, TEXT, CHAR, TEXT, NUMERIC, CHAR, TIMESTAMPTZ, TEXT)
   TO app_billing_webhook_ingress;
 
 -- Controlled status-transition + linkage path — mirrors fn_update_
@@ -1263,6 +1407,21 @@ GRANT EXECUTE ON FUNCTION billing.fn_record_payment_webhook_receipt(TEXT, TEXT, 
 --      or its payload, resolves linkage identically to the original async
 --      processor, because the correlation key was never only a transient
 --      argument — it has been durable from the moment of ingress.
+--
+-- SEVENTH freeze-gate pass (task §8/§9): a terminal FAILED transition, for
+-- a receipt whose normalized_event_kind genuinely reads 'PAYMENT_FAILED'
+-- and whose provider transaction DID resolve to a local payment_attempt,
+-- now also transitions that payment_attempt to FAILED itself (reusing the
+-- frozen 057_5H.sql fn_update_payment_status, passing through the
+-- durably-stored provider_failure_code) — closing the gap where a
+-- genuine provider-reported payment failure updated only the RECEIPT's
+-- own bookkeeping and never the underlying financial record at all. This
+-- is deliberately scoped tightly: it does NOT fire for a
+-- PAYMENT_SUCCEEDED-kind receipt that merely failed to correlate (task
+-- §21 — a success claim must never be able to mark the underlying payment
+-- FAILED through this path; that would be exactly the "wrong function/
+-- wrong mutation" case the review flagged), and does NOT fire when
+-- correlation itself never resolved (nothing to transition).
 CREATE OR REPLACE FUNCTION billing.fn_process_payment_webhook_receipt(
   p_receipt_id       UUID,
   p_new_status        TEXT,
@@ -1275,6 +1434,8 @@ DECLARE
   v_current TEXT;
   v_receipt_provider TEXT;
   v_provider_transaction_id TEXT;
+  v_event_kind TEXT;
+  v_provider_failure_code TEXT;
   v_already_linked_attempt UUID;
   v_already_linked_org UUID;
   v_resolved_attempt_id UUID;
@@ -1297,8 +1458,10 @@ BEGIN
     RAISE EXCEPTION 'billing: p_next_retry_at is required when transitioning to RETRY_PENDING';
   END IF;
 
-  SELECT processing_status, payment_provider, provider_transaction_id, payment_attempt_id, organization_id
-    INTO v_current, v_receipt_provider, v_provider_transaction_id, v_already_linked_attempt, v_already_linked_org
+  SELECT processing_status, payment_provider, provider_transaction_id, normalized_event_kind,
+         provider_failure_code, payment_attempt_id, organization_id
+    INTO v_current, v_receipt_provider, v_provider_transaction_id, v_event_kind,
+         v_provider_failure_code, v_already_linked_attempt, v_already_linked_org
   FROM billing.payment_webhook_receipts WHERE id = p_receipt_id FOR UPDATE;
 
   IF v_current IS NULL THEN
@@ -1339,6 +1502,22 @@ BEGIN
     -- the expected outcome of a transient callback-before-response race,
     -- and the caller's own governed policy (task §34) decides RETRY_PENDING
     -- vs. FAILED, not this function.
+  END IF;
+
+  -- SEVENTH freeze-gate pass: a genuine provider-reported payment failure
+  -- (normalized_event_kind = 'PAYMENT_FAILED') that DID resolve to a local
+  -- payment_attempt actually transitions that attempt to FAILED, here, as
+  -- part of this same receipt-terminal-FAILED transaction — reusing the
+  -- frozen fn_update_payment_status verbatim. Deliberately excludes a
+  -- PAYMENT_SUCCEEDED-kind receipt that merely failed to correlate: that
+  -- case has no attempt to mutate, and even if one is later found by a
+  -- retry, an unconfirmed correlation for a claimed SUCCESS must never
+  -- itself force the payment to FAILED (task §21).
+  IF p_new_status = 'FAILED' AND v_event_kind = 'PAYMENT_FAILED' AND v_resolved_attempt_id IS NOT NULL THEN
+    PERFORM billing.fn_update_payment_status(
+      v_resolved_org, v_resolved_attempt_id, 'FAILED',
+      NULL, v_provider_failure_code, p_error
+    );
   END IF;
 
   UPDATE billing.payment_webhook_receipts
@@ -1382,6 +1561,26 @@ GRANT EXECUTE ON FUNCTION billing.fn_process_payment_webhook_receipt(UUID, TEXT,
 -- back every one of these together — there is no window in which the
 -- receipt can read PROCESSED while the payment_attempt or invoice do not
 -- also reflect the settled state (task §15-§19).
+--
+-- SEVENTH freeze-gate pass (BLOCKER, task §3/§7/§12): two further
+-- fail-closed guards are added, both mandatory, neither overridable by any
+-- caller flag:
+--   1. normalized_event_kind MUST read 'PAYMENT_SUCCEEDED' — a receipt
+--      whose verified ingress evidence says PAYMENT_FAILED or
+--      PAYMENT_PENDING is rejected outright, closing the "wrong worker
+--      routing" case (task §21) at the DB layer, not merely by trusting
+--      the caller to route correctly.
+--   2. settled_amount/settled_currency comparison is now UNCONDITIONAL —
+--      NULL no longer skips the check (the prior "if present, compare"
+--      semantics, the finding this pass closes); a NULL of either is
+--      itself an immediate failure, before any resolution or financial
+--      mutation is attempted. In practice this table CHECK
+--      (chk_pwr_success_requires_settlement_fields) already makes a
+--      PAYMENT_SUCCEEDED row with either NULL structurally impossible to
+--      even persist — this function's own check is deliberate defense in
+--      depth (task §13: table constraint + function-level check, neither
+--      alone), and gives a clear, billing-prefixed exception rather than
+--      relying solely on a constraint having already prevented the row.
 CREATE OR REPLACE FUNCTION billing.fn_apply_successful_payment_webhook_receipt(
   p_receipt_id UUID
 ) RETURNS TABLE(applied BOOLEAN, resolved_payment_attempt_id UUID, resolved_organization_id UUID)
@@ -1391,6 +1590,7 @@ DECLARE
   v_current TEXT;
   v_receipt_provider TEXT;
   v_provider_transaction_id TEXT;
+  v_event_kind TEXT;
   v_settled_amount NUMERIC(18,4);
   v_settled_currency CHAR(3);
   v_already_linked_attempt UUID;
@@ -1403,10 +1603,10 @@ DECLARE
   v_expected_currency CHAR(3);
   v_invoice_status TEXT;
 BEGIN
-  SELECT processing_status, payment_provider, provider_transaction_id, settled_amount, settled_currency,
-         payment_attempt_id, organization_id
-    INTO v_current, v_receipt_provider, v_provider_transaction_id, v_settled_amount, v_settled_currency,
-         v_already_linked_attempt, v_already_linked_org
+  SELECT processing_status, payment_provider, provider_transaction_id, normalized_event_kind,
+         settled_amount, settled_currency, payment_attempt_id, organization_id
+    INTO v_current, v_receipt_provider, v_provider_transaction_id, v_event_kind,
+         v_settled_amount, v_settled_currency, v_already_linked_attempt, v_already_linked_org
   FROM billing.payment_webhook_receipts WHERE id = p_receipt_id FOR UPDATE;
 
   IF v_current IS NULL THEN
@@ -1426,8 +1626,20 @@ BEGIN
   -- — settlement does not require an explicit prior PROCESSING step; it is
   -- itself the atomic resolve-validate-settle-mark operation.
 
-  IF v_provider_transaction_id IS NULL THEN
-    RAISE EXCEPTION 'billing: payment_webhook_receipt % has no provider_transaction_id recorded — cannot settle; use fn_process_payment_webhook_receipt to record a governed RETRY_PENDING/FAILED outcome instead', p_receipt_id;
+  -- SEVENTH freeze-gate pass, guard 1: event kind must genuinely be
+  -- PAYMENT_SUCCEEDED. A PAYMENT_FAILED or PAYMENT_PENDING receipt can
+  -- never be settled through this function, regardless of any other
+  -- field's contents (task §7/§21).
+  IF v_event_kind <> 'PAYMENT_SUCCEEDED' THEN
+    RAISE EXCEPTION 'billing: payment_webhook_receipt % has normalized_event_kind = % — only a PAYMENT_SUCCEEDED receipt may be settled via fn_apply_successful_payment_webhook_receipt', p_receipt_id, v_event_kind;
+  END IF;
+
+  -- SEVENTH freeze-gate pass, guard 2: unconditional — NULL is itself a
+  -- failure, never skipped. (chk_pwr_success_requires_settlement_fields
+  -- already makes this branch structurally unreachable in practice; kept
+  -- as explicit, independent defense in depth, task §13.)
+  IF v_provider_transaction_id IS NULL OR v_settled_amount IS NULL OR v_settled_currency IS NULL THEN
+    RAISE EXCEPTION 'billing: payment_webhook_receipt % is missing provider_transaction_id/settled_amount/settled_currency — cannot settle a PAYMENT_SUCCEEDED event with incomplete evidence', p_receipt_id;
   END IF;
 
   v_resolved_attempt_id := v_already_linked_attempt;
@@ -1457,10 +1669,14 @@ BEGIN
   IF v_attempt_provider IS DISTINCT FROM v_receipt_provider THEN
     RAISE EXCEPTION 'billing: payment_webhook_receipt % provider mismatch (receipt=%, resolved attempt=%) — refusing settlement', p_receipt_id, v_receipt_provider, v_attempt_provider;
   END IF;
-  IF v_settled_amount IS NOT NULL AND v_settled_amount IS DISTINCT FROM v_expected_amount THEN
+  -- SEVENTH freeze-gate pass: UNCONDITIONAL comparison — guard 2 above has
+  -- already ruled out v_settled_amount/v_settled_currency being NULL by
+  -- this point, so there is no "if present, compare" branch left at all;
+  -- every PAYMENT_SUCCEEDED settlement compares both values, always.
+  IF v_settled_amount <> v_expected_amount THEN
     RAISE EXCEPTION 'billing: payment_webhook_receipt % amount mismatch (settled=%, expected=%) — refusing settlement', p_receipt_id, v_settled_amount, v_expected_amount;
   END IF;
-  IF v_settled_currency IS NOT NULL AND v_settled_currency IS DISTINCT FROM v_expected_currency THEN
+  IF v_settled_currency <> v_expected_currency THEN
     RAISE EXCEPTION 'billing: payment_webhook_receipt % currency mismatch (settled=%, expected=%) — refusing settlement', p_receipt_id, v_settled_currency, v_expected_currency;
   END IF;
 

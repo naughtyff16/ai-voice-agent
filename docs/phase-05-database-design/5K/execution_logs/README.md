@@ -701,3 +701,63 @@ See `../MIGRATION_MANIFEST.md`'s "Phase 6K FINAL Convergence, Durability &
 Commercial-Pricing Remediation" entry and `../validation/
 6K_FINAL_BLOCKER_REMEDIATION_VALIDATION_REPORT.md` (updated by this pass)
 for the consolidated result and the FINAL-6K-C01 through C05 closure table.
+
+---
+
+## Phase 6K FINAL Completion Pass (2026-08-30, same day, seventh pass) — `102_5H2.sql` amended in place, PostgreSQL 18.6 re-validated
+
+A further independent freeze-gate review of the sixth pass's own state found 2 remaining BLOCKERS: `fn_apply_successful_payment_webhook_receipt`'s own amount/currency checks used "if present, compare" semantics that let a `NULL` settled amount/currency bypass verification entirely; and the receipt stored no durable, verified record of what kind of event the provider actually reported, leaving a reconciliation worker unable to determine which processor was correct to invoke from DB state alone. `102_5H2.sql` was amended in place a seventh time (confirmed, before this pass began, that its only prior applications remained disposable/already-deleted instances). A fresh, genuinely new disposable PostgreSQL 18.6 instance was built the same way as every prior batch (`.tmp_pgdata_6kfinal`, port 5567), stopped and deleted at the end.
+
+| File | Command | Purpose |
+|---|---|---|
+| `20260830T230000Z_01_fresh_upgrade_head.log` | `alembic upgrade head` against a genuinely fresh, empty database | Fresh `001 → 102` against the FINAL amended file (checksum `e99b072f...`, 127407 bytes). Exit 0. |
+| `20260830T230000Z_02_incremental_upgrade.log` | `alembic upgrade 101_5I1` then `alembic upgrade 102_5H2` | Incremental path, exit 0 for both steps. |
+| `20260830T230000Z_03_heads_current_history.log` | `alembic heads`, `alembic current` (both databases) | Single head `102_5H2 (head)`; `current == head` on both databases. |
+| `20260830T230000Z_04_6k_final_output.txt` | Full targeted test matrix (`6k_final_test_matrix.sql`) | The complete evidence for this pass. Files `05`-`13` below are labeled excerpts of this same run. |
+| `20260830T230000Z_05_success_event_null_amount_currency_tests.txt` | Excerpt of `04` | `chk_pwr_success_requires_settlement_fields` CHECK isolation (direct superuser insert): both NULL, amount-only NULL, currency-only NULL all violate; a `PAYMENT_FAILED` event with everything NULL succeeds (event kind is not `PAYMENT_SUCCEEDED`). |
+| `20260830T230000Z_06_missing_amount_currency_ingress_tests.txt` | Excerpt of `04` | The same three negative cases exercised through `fn_record_payment_webhook_receipt` itself (missing amount / missing currency / missing both) — all rejected with a clear, billing-prefixed exception before any row is even inserted. |
+| `20260830T230000Z_07_wrapper_only_success_test.txt` | Excerpt of `04` | The direct wrapper-only happy-path proof (task §14): only `fn_apply_successful_payment_webhook_receipt` is called, with no manual `fn_update_payment_status` call first — `PaymentAttempt` → `SUCCEEDED`, `Invoice` → `PAID`, receipt → `PROCESSED`, all from one call. |
+| `20260830T230000Z_08_failure_event_cannot_settle_test.txt` | Excerpt of `04` | A `PAYMENT_FAILED`-kind receipt, even with a fully resolvable correlation, is rejected outright by `fn_apply_successful_payment_webhook_receipt`; the underlying payment attempt and invoice are both confirmed untouched. |
+| `20260830T230000Z_09_durable_failure_processing.txt` | Excerpt of `04` | `fn_process_payment_webhook_receipt`'s terminal `FAILED` transition, for a genuine `PAYMENT_FAILED` event with resolved correlation, is confirmed to actually transition the underlying `payment_attempt` to `FAILED` (previously only receipt-level bookkeeping changed). |
+| `20260830T230000Z_10_durable_success_crash_recovery.txt` | Excerpt of `04` | A `PAYMENT_SUCCEEDED` receipt never touched by any worker (simulating a lost Celery enqueue) is discovered via `idx_pwr_status` plus its own durable `normalized_event_kind`, then settled correctly with no access to the original request. |
+| `20260830T230000Z_11_durable_failure_crash_recovery.txt` | Excerpt of `04` | The same crash-recovery proof for a `PAYMENT_FAILED` receipt — the worker reads `normalized_event_kind`/`provider_failure_code` purely from durable DB state and correctly routes to the failure path, transitioning the payment attempt to `FAILED` with the correct failure code. |
+| `20260830T230000Z_12_wrong_routing_safety_tests.txt` | Excerpt of `04` | Two routing-safety proofs (task §21): a `PAYMENT_SUCCEEDED` receipt that never resolves is legitimately marked receipt-level `FAILED` without ever touching a payment attempt (none exists to touch); a late, contradictory `PAYMENT_FAILED` event referencing an already-`SUCCEEDED` attempt is rejected outright by the reused, frozen `fn_update_payment_status`'s own terminal-state guard — fails safely, not silently. |
+| `20260830T230000Z_13_regression_duplicate_rollback_grants.txt` | Excerpt of `04` | Duplicate-delivery idempotency (ingress and settlement), a forced-rollback proof (a division-by-zero forced mid-transaction leaves zero rows), the full function privilege matrix, and the `CALL_MINUTES` regression check. |
+| `20260830T230000Z_14_final_migration_checksum.txt` | `sha256sum` + `wc -c`, cross-checked against `MIGRATION_MANIFEST.md` row 102 | Proves the manifest checksum matches the exact file bytes just validated above. |
+
+**Results, one by one:** every assertion in the matrix above matched its expected outcome on the first run — **zero test-harness bugs this pass**, a first among all seven passes of this migration.
+
+**Not performed / disclosed limitations (same as prior passes, unchanged):** no real payment-provider HTTP integration test; no genuinely concurrent two-*process* race test (the rollback and idempotent-duplicate-settlement tests remain the deterministic equivalents this pass relies on, per the same proportionate-evidence approach every prior pass used); the full first- through sixth-pass regression suites were not re-run verbatim (a targeted regression check covering the boundaries this pass's own change touches was run instead).
+
+**Cleanup performed at the end of this batch:** the PostgreSQL 18 server (`.tmp_pgdata_6kfinal`, port 5567) was stopped and its data directory deleted, along with both disposable databases. No pre-existing PostgreSQL instance was touched. The pre-existing `/tmp/5j1_validate_venv` virtual environment was reused, not modified.
+
+See `../MIGRATION_MANIFEST.md`'s "Phase 6K FINAL Completion Pass" entry and
+`../validation/6K_FINAL_BLOCKER_REMEDIATION_VALIDATION_REPORT.md` (updated
+by this pass) for the consolidated result and the FINAL-6K-F01 through F09
+closure table.
+
+---
+
+## Phase 6K FINAL Documentation Consistency Cleanup (2026-08-30, same day, eighth pass — comment/documentation only) — `102_5H2.sql` amended in place, PostgreSQL 18.6 re-validated
+
+A further independent review found **0 financial/security/database/API-architecture blockers, 0 significant technical issues, and exactly 2 documentation-consistency defects**: a stale sentence in the driving API document (§30.7) still described the webhook-receipt state machine using the pre-sixth-pass vocabulary (`RECEIVED → PROCESSING → PROCESSED | FAILED`, missing `RETRY_PENDING` entirely); and a stale SQL comment in `102_5H2.sql`, adjacent to the `payment_webhook_receipts` grants, still described `fn_record_payment_webhook_receipt` as accepting "only the three fields available BEFORE any tenant/financial identity is known" — accurate through the second pass, stale since the sixth/seventh passes added `normalized_event_kind`/`provider_transaction_id`/`settled_amount`/`settled_currency`/`event_occurred_at`/`provider_failure_code`. `102_5H2.sql` was amended in place an eighth time (confirmed, before this pass began, that its only prior applications remained disposable/already-deleted instances) — **comments only, no executable SQL statement touched.** A fresh, genuinely new disposable PostgreSQL 18.6 instance was built the same way as every prior batch (`.tmp_pgdata_6kcleanup`, port 5568), stopped and deleted at the end, purely to re-prove that the comment-only byte change did not accidentally affect migration behavior.
+
+| File | Command | Purpose |
+|---|---|---|
+| `20260831T000000Z_01_fresh_upgrade_head.log` | `alembic upgrade head` against a genuinely fresh, empty database | Fresh `001 → 102` against the comment-corrected file (checksum `73b9f7ae...`, 127971 bytes). Exit 0. |
+| `20260831T000000Z_02_incremental_upgrade.log` | `alembic upgrade 101_5I1` then `alembic upgrade 102_5H2` | Incremental path, exit 0 for both steps. |
+| `20260831T000000Z_03_heads_current_history.log` | `alembic heads`, `alembic history`, `alembic current` (both databases) | Single head `102_5H2 (head)`; `current == head` on both databases; `102_5H2` confirmed still the head revision. |
+| `20260831T000000Z_05_full_diff_this_pass.txt` | `git diff` for `102_5H2.sql` (against the last commit, which predates the entire sixth/seventh/eighth passes — this file therefore shows the FULL cumulative uncommitted diff, not just this pass's own edit; retained for completeness) | Raw material from which file `06` below isolates this pass's own single hunk. |
+| `20260831T000000Z_06_comment_only_diff_isolated.txt` | The one hunk this pass's own edit actually touched, extracted from `05` | Proves, line by line, that every changed line is a `--` SQL comment and the `GRANT SELECT ON billing.payment_webhook_receipts TO app_worker, app_readonly;` statement immediately following is unchanged, unmarked context — `CREATE`/`ALTER`/`GRANT`/`REVOKE`/function body/trigger/constraint content: untouched. |
+| `20260831T000000Z_07_state_machine_doc_diff.txt` | Old → new text for the one sentence changed in `6K-Billing-Usage-APIs.md` §30.7 | The state-machine sentence now points to the canonical §30.2a table instead of duplicating a now-inconsistent variant. |
+| `20260831T000000Z_08_stale_wording_search.txt` | `grep` for `only three fields`, the obsolete state-machine string, and `app_api-callable`/`app_api-reachable` across both files | Zero remaining occurrences of the first two; every remaining `app_api-callable` hit verified to refer to `fn_create_payment_attempt` (genuinely, currently `app_api`-callable) or to an already-dated historical pass narrative. |
+| `20260831T000000Z_09_final_migration_checksum.txt` | `sha256sum` + `wc -c`, cross-checked against `MIGRATION_MANIFEST.md` row 102 | Proves the manifest checksum matches the exact file bytes just validated above. |
+
+**Results:** documentation/comment-only edit confirmed via isolated hunk inspection; fresh and incremental migration both PASS on PostgreSQL 18.6; single Alembic head, `current == head`; stale-wording search returns zero problematic occurrences. **No regression detected.**
+
+**Cleanup performed at the end of this batch:** the PostgreSQL 18 server (`.tmp_pgdata_6kcleanup`, port 5568) was stopped and its data directory deleted, along with both disposable databases. No pre-existing PostgreSQL instance was touched. The pre-existing `/tmp/5j1_validate_venv` virtual environment was reused, not modified.
+
+See `../MIGRATION_MANIFEST.md`'s "Phase 6K FINAL Documentation Consistency
+Cleanup" entry and `../validation/
+6K_FINAL_BLOCKER_REMEDIATION_VALIDATION_REPORT.md` (updated by this pass)
+for the consolidated result.

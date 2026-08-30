@@ -1,0 +1,31 @@
+################ DURABLE SUCCESS CRASH RECOVERY (no Celery enqueue simulated) ################
+SET
+RESET
+(simulated crash -- no worker ever touches it until now)
+SET
+SET
+RESET
+SET
+ fn_link_payment_provider_transaction 
+--------------------------------------
+ 
+(1 row)
+
+--- reconciliation worker discovers purely via idx_pwr_status scan and normalized_event_kind ---
+                  id                  | normalized_event_kind 
+--------------------------------------+-----------------------
+ 01a050fb-2af7-7dc8-8844-44a282ed8b69 | PAYMENT_SUCCEEDED
+(1 row)
+
+ applied 
+---------
+ t
+(1 row)
+
+ status 
+--------
+ PAID
+(1 row)
+
+RESET
+

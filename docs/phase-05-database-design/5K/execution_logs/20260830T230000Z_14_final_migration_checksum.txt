@@ -1,0 +1,11 @@
+Phase 6K FINAL Completion Pass (seventh pass) — final migration checksum
+Generated: 2026-08-30 (repository-relative; validates docs/phase-05-database-design/5K/migrations/102_5H2.sql)
+
+=== SHA-256 ===
+e99b072f0711f3a3080e4d0bfa26d4fec543ec46d4162aac51dd138df2391d4c *docs/phase-05-database-design/5K/migrations/102_5H2.sql
+
+=== byte size ===
+127407 docs/phase-05-database-design/5K/migrations/102_5H2.sql
+
+=== cross-check against MIGRATION_MANIFEST.md row 102 ===
+115:| 102 | 5H.2 | `102_5H2.sql` | `101_5I1` | transactional | 127407 | `e99b072f0711f3a3080e4d0bfa26d4fec543ec46d4162aac51dd138df2391d4c` |

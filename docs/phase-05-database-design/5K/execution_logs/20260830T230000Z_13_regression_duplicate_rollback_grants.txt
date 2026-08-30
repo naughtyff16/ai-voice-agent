@@ -1,0 +1,43 @@
+################ REGRESSION: DUPLICATE IDEMPOTENCY, ROLLBACK, PROVIDER MISMATCH, GRANTS ################
+SET
+(expect NULL -- duplicate of already-PROCESSED)
+ fn_record_payment_webhook_receipt 
+-----------------------------------
+ 
+(1 row)
+
+RESET
+SET
+(expect: idempotent, same result, no re-settlement)
+ applied |     resolved_payment_attempt_id      
+---------+--------------------------------------
+ t       | 01a050fb-2aea-76ef-bf4b-4b087280fab0
+(1 row)
+
+RESET
+BEGIN
+SET
+  fn_record_payment_webhook_receipt   
+--------------------------------------
+ 01a050fb-2b04-76a0-bc69-6937e9fb61c7
+(1 row)
+
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_final_test_matrix.sql:183: ERROR:  division by zero
+ROLLBACK
+(expect: no evt_f_rollback receipt exists after rollback)
+ count 
+-------
+     0
+(1 row)
+
+ app_api_ingress_exec | ingress_exec | app_api_settle_exec | worker_settle_exec 
+----------------------+--------------+---------------------+--------------------
+ f                    | t            | f                   | t
+(1 row)
+
+SET
+SET
+(expect: violates check constraint -- CALL_MINUTES regression)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_final_test_matrix.sql:198: ERROR:  new row for relation "usage_events_2026_08" violates check constraint "chk_ue_source_quantity_seconds"
+RESET
+=== DONE ===

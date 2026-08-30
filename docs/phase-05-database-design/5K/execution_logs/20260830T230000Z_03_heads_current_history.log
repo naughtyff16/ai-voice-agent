@@ -1,0 +1,11 @@
+=== heads (static) ===
+102_5H2 (head)
+
+=== current (fresh DB) ===
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+102_5H2 (head)
+=== current (incremental DB) ===
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+102_5H2 (head)

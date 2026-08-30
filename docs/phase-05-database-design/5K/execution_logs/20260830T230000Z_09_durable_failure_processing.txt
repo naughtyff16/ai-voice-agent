@@ -1,0 +1,27 @@
+################ DURABLE FAILURE PROCESSING (transitions payment_attempt to FAILED) ################
+SET
+--- process the failure receipt via fn_process_payment_webhook_receipt -- PROCESSING then FAILED ---
+ resolved |     resolved_payment_attempt_id      
+----------+--------------------------------------
+ t        | 01a050fb-2af1-7663-abac-acf424d02a7e
+(1 row)
+
+ resolved |     resolved_payment_attempt_id      
+----------+--------------------------------------
+ t        | 01a050fb-2af1-7663-abac-acf424d02a7e
+(1 row)
+
+(expect: payment_attempt now FAILED, transitioned by the failure path itself)
+ status | failure_code 
+--------+--------------
+ FAILED | 
+(1 row)
+
+(expect: receipt FAILED, terminal)
+ processing_status 
+-------------------
+ FAILED
+(1 row)
+
+RESET
+

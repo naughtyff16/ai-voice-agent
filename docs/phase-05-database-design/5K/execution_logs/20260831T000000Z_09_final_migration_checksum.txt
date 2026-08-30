@@ -1,0 +1,11 @@
+Phase 6K FINAL Documentation Consistency Cleanup (eighth pass) — final migration checksum
+Generated: 2026-08-30 (repository-relative; validates docs/phase-05-database-design/5K/migrations/102_5H2.sql)
+
+=== SHA-256 ===
+73b9f7aed921ccc373cc634372ac7ac75c0490872d55af21116c3ff182445b3d *docs/phase-05-database-design/5K/migrations/102_5H2.sql
+
+=== byte size ===
+127971 docs/phase-05-database-design/5K/migrations/102_5H2.sql
+
+=== cross-check against MIGRATION_MANIFEST.md row 102 ===
+115:| 102 | 5H.2 | `102_5H2.sql` | `101_5I1` | transactional | 127971 | `73b9f7aed921ccc373cc634372ac7ac75c0490872d55af21116c3ff182445b3d` |

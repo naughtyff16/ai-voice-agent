@@ -1,0 +1,38 @@
+################ WRAPPER-ONLY SUCCESS TEST (no manual fn_update_payment_status call) ################
+SET
+RESET
+SET
+SET
+RESET
+SET
+ fn_link_payment_provider_transaction 
+--------------------------------------
+ 
+(1 row)
+
+--- call ONLY the wrapper -- no manual fn_update_payment_status first ---
+ applied |     resolved_payment_attempt_id      |       resolved_organization_id       
+---------+--------------------------------------+--------------------------------------
+ t       | 01a050fb-2aea-76ef-bf4b-4b087280fab0 | 11111111-1111-1111-1111-111111111111
+(1 row)
+
+(expect: PaymentAttempt SUCCEEDED)
+  status   
+-----------
+ SUCCEEDED
+(1 row)
+
+(expect: Invoice PAID)
+ status 
+--------
+ PAID
+(1 row)
+
+(expect: Receipt PROCESSED)
+ processing_status 
+-------------------
+ PROCESSED
+(1 row)
+
+RESET
+

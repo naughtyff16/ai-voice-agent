@@ -1,0 +1,46 @@
+Phase 6K FINAL Documentation Consistency Cleanup (eighth pass) — comment-only diff isolation
+Generated: 2026-08-30 (repository-relative)
+
+=== The one hunk changed by THIS pass (all context lines around it) ===
+@@ -1058,18 +1167,26 @@ GRANT EXECUTE ON FUNCTION billing.fn_link_payment_provider_transaction(UUID, UUI
+ --     event ID (poisoning the dedup key before the genuine webhook arrives,
+ --     causing the real delivery to be silently treated as a duplicate) or
+ --     inject fabricated receipt rows. Fixed below with a narrow SECURITY
+---     DEFINER ingress function that accepts only the three fields available
+---     BEFORE any tenant/financial identity is known — never organization_id,
+---     payment_attempt_id, or processing_status — so even a full compromise
+---     of the inbound HTTP handler's own request-shaping logic cannot use
+---     this path to manufacture financial state, only to record "a
+---     (possibly bogus, but signature-unverified-payload-only) delivery
+---     arrived." Verification (PaymentProviderPort.verify_webhook, §30.2 of
+---     the API document) happens in the calling code BEFORE this function is
+---     ever invoked — this function is not itself a security boundary
+---     against a forged payload, only the durability/dedup layer, exactly as
+---     designed; a payload that fails verification never reaches this call
+---     at all.
++--     DEFINER ingress function (further widened by the sixth and seventh
++--     freeze-gate passes to carry the additional verified, normalized
++--     fields needed for durable recovery and settlement completeness — see
++--     each field's own inline comment on the function definition itself
++--     for the current, authoritative parameter list). The dedicated
++--     webhook-ingress function accepts only verified, normalized
++--     provider-ingress data required for durable processing and
++--     reconciliation. It never accepts caller-authoritative organization
++--     ID, payment-attempt ID, invoice ID, processing status, or
++--     tenant-supplied financial values. Tenant and financial linkage are
++--     derived later from authoritative local billing state — so even a
++--     full compromise of the inbound HTTP handler's own request-shaping
++--     logic cannot use this path to manufacture financial state, only to
++--     record "a (possibly bogus, but signature-unverified-payload-only)
++--     delivery arrived." Verification (PaymentProviderPort.verify_webhook,
++--     §30.2 of the API document) happens in the calling code BEFORE this
++--     function is ever invoked — this function is not itself a security
++--     boundary against a forged payload, only the durability/dedup layer,
++--     exactly as designed; a payload that fails verification never reaches
++--     this call at all.
+ GRANT SELECT ON billing.payment_webhook_receipts TO app_worker, app_readonly;
+ 
+ -- FINAL freeze-gate correction (FREEZE-6K-01, fourth amendment): the
+
+=== Verification: every changed line above is prefixed with '-- ' (a SQL comment); the
+=== GRANT SELECT statement immediately following is unchanged, unmarked context.

@@ -1,0 +1,16 @@
+=== heads (static) ===
+102_5H2 (head)
+
+=== history (tail) ===
+101_5I1 -> 102_5H2 (head), Phase 5H.2 — wraps controlled amendment migration 102_5H2.sql.
+100_5G1 -> 101_5I1, Phase 5I.1 — wraps controlled amendment migration 101_5I1.sql.
+099_5C1 -> 100_5G1, Phase 5G.1 — wraps controlled reconciliation migration 100_5G1.sql.
+
+=== current (fresh DB) ===
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+102_5H2 (head)
+=== current (incremental DB) ===
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+102_5H2 (head)

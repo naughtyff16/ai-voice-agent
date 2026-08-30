@@ -1,0 +1,35 @@
+################ DURABLE FAILURE CRASH RECOVERY ################
+SET
+RESET
+SET
+SET
+RESET
+SET
+ fn_link_payment_provider_transaction 
+--------------------------------------
+ 
+(1 row)
+
+--- worker reads normalized_event_kind from DB (no original payload) and routes to failure path ---
+ normalized_event_kind | provider_failure_code 
+-----------------------+-----------------------
+ PAYMENT_FAILED        | INSUFFICIENT_FUNDS
+(1 row)
+
+ resolved 
+----------
+ t
+(1 row)
+
+ resolved 
+----------
+ t
+(1 row)
+
+ status |    failure_code    
+--------+--------------------
+ FAILED | INSUFFICIENT_FUNDS
+(1 row)
+
+RESET
+

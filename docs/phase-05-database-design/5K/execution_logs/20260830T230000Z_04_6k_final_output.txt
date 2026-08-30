@@ -1,0 +1,295 @@
+Timing is off.
+Pager usage is off.
+=== FIXTURE SETUP ===
+SET
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+RESET
+
+################ TABLE CHECK: chk_pwr_success_requires_settlement_fields ################
+--- both NULL: expect FAIL (direct superuser insert, isolating the CHECK) ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_final_test_matrix.sql:26: ERROR:  new row for relation "payment_webhook_receipts" violates check constraint "chk_pwr_success_requires_settlement_fields"
+DETAIL:  Failing row contains (01a050fb-2ad8-74d6-957d-7d99a335ac89, RAZORPAY, evt_f_bothnull, 2026-08-30 10:13:52.918671+05:30, RECEIVED, PAYMENT_SUCCEEDED, null, null, null, null, null, null, null, null, 0, null, null, null, 2026-08-30 10:13:52.918671+05:30).
+--- amount NULL only: expect FAIL ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_final_test_matrix.sql:29: ERROR:  new row for relation "payment_webhook_receipts" violates check constraint "chk_pwr_success_requires_settlement_fields"
+DETAIL:  Failing row contains (01a050fb-2adb-7e39-859e-9eaba1ae7377, RAZORPAY, evt_f_amtnull, 2026-08-30 10:13:52.922625+05:30, RECEIVED, PAYMENT_SUCCEEDED, null, txn_x, null, INR, null, null, null, null, 0, null, null, null, 2026-08-30 10:13:52.922625+05:30).
+--- currency NULL only: expect FAIL ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_final_test_matrix.sql:32: ERROR:  new row for relation "payment_webhook_receipts" violates check constraint "chk_pwr_success_requires_settlement_fields"
+DETAIL:  Failing row contains (01a050fb-2adb-74e9-950f-0f1cc4b0f0d0, RAZORPAY, evt_f_curnull, 2026-08-30 10:13:52.923104+05:30, RECEIVED, PAYMENT_SUCCEEDED, null, txn_x, 100.0000, null, null, null, null, null, 0, null, null, null, 2026-08-30 10:13:52.923104+05:30).
+--- PAYMENT_FAILED with everything NULL: expect PASS (event kind is not SUCCEEDED) ---
+ normalized_event_kind | provider_transaction_id | settled_amount | settled_currency 
+-----------------------+-------------------------+----------------+------------------
+ PAYMENT_FAILED        |                         |                | 
+(1 row)
+
+INSERT 0 1
+
+################ EVENT KIND IMMUTABILITY ################
+(expect: permission denied -- no role has raw UPDATE anyway)
+SET
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_final_test_matrix.sql:42: ERROR:  permission denied for table payment_webhook_receipts
+RESET
+
+################ MISSING AMOUNT / CURRENCY / BOTH TESTS (via ingress function) ################
+SET
+--- missing amount: expect FAIL ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_final_test_matrix.sql:49: ERROR:  billing: a PAYMENT_SUCCEEDED webhook event requires provider_transaction_id, settled_amount, and settled_currency — none may be NULL
+CONTEXT:  PL/pgSQL function fn_record_payment_webhook_receipt(text,text,text,character,text,numeric,character,timestamp with time zone,text) line 12 at RAISE
+--- missing currency: expect FAIL ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_final_test_matrix.sql:51: ERROR:  billing: a PAYMENT_SUCCEEDED webhook event requires provider_transaction_id, settled_amount, and settled_currency — none may be NULL
+CONTEXT:  PL/pgSQL function fn_record_payment_webhook_receipt(text,text,text,character,text,numeric,character,timestamp with time zone,text) line 12 at RAISE
+--- missing both: expect FAIL ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_final_test_matrix.sql:53: ERROR:  billing: a PAYMENT_SUCCEEDED webhook event requires provider_transaction_id, settled_amount, and settled_currency — none may be NULL
+CONTEXT:  PL/pgSQL function fn_record_payment_webhook_receipt(text,text,text,character,text,numeric,character,timestamp with time zone,text) line 12 at RAISE
+RESET
+
+################ WRAPPER-ONLY SUCCESS TEST (no manual fn_update_payment_status call) ################
+SET
+RESET
+SET
+SET
+RESET
+SET
+ fn_link_payment_provider_transaction 
+--------------------------------------
+ 
+(1 row)
+
+--- call ONLY the wrapper -- no manual fn_update_payment_status first ---
+ applied |     resolved_payment_attempt_id      |       resolved_organization_id       
+---------+--------------------------------------+--------------------------------------
+ t       | 01a050fb-2aea-76ef-bf4b-4b087280fab0 | 11111111-1111-1111-1111-111111111111
+(1 row)
+
+(expect: PaymentAttempt SUCCEEDED)
+  status   
+-----------
+ SUCCEEDED
+(1 row)
+
+(expect: Invoice PAID)
+ status 
+--------
+ PAID
+(1 row)
+
+(expect: Receipt PROCESSED)
+ processing_status 
+-------------------
+ PROCESSED
+(1 row)
+
+RESET
+
+################ FAILURE-EVENT CANNOT SETTLE TEST ################
+SET
+RESET
+SET
+SET
+RESET
+SET
+ fn_link_payment_provider_transaction 
+--------------------------------------
+ 
+(1 row)
+
+(expect: FAIL -- event kind is PAYMENT_FAILED, not PAYMENT_SUCCEEDED)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_final_test_matrix.sql:89: ERROR:  billing: payment_webhook_receipt 01a050fb-2af0-7a83-a253-53bccb1102b3 has normalized_event_kind = PAYMENT_FAILED — only a PAYMENT_SUCCEEDED receipt may be settled via fn_apply_successful_payment_webhook_receipt
+CONTEXT:  PL/pgSQL function fn_apply_successful_payment_webhook_receipt(uuid) line 47 at RAISE
+(expect: attempt NOT SUCCEEDED)
+ status  
+---------
+ PENDING
+(1 row)
+
+(expect: invoice NOT PAID)
+ status 
+--------
+ OPEN
+(1 row)
+
+RESET
+
+################ DURABLE FAILURE PROCESSING (transitions payment_attempt to FAILED) ################
+SET
+--- process the failure receipt via fn_process_payment_webhook_receipt -- PROCESSING then FAILED ---
+ resolved |     resolved_payment_attempt_id      
+----------+--------------------------------------
+ t        | 01a050fb-2af1-7663-abac-acf424d02a7e
+(1 row)
+
+ resolved |     resolved_payment_attempt_id      
+----------+--------------------------------------
+ t        | 01a050fb-2af1-7663-abac-acf424d02a7e
+(1 row)
+
+(expect: payment_attempt now FAILED, transitioned by the failure path itself)
+ status | failure_code 
+--------+--------------
+ FAILED | 
+(1 row)
+
+(expect: receipt FAILED, terminal)
+ processing_status 
+-------------------
+ FAILED
+(1 row)
+
+RESET
+
+################ DURABLE SUCCESS CRASH RECOVERY (no Celery enqueue simulated) ################
+SET
+RESET
+(simulated crash -- no worker ever touches it until now)
+SET
+SET
+RESET
+SET
+ fn_link_payment_provider_transaction 
+--------------------------------------
+ 
+(1 row)
+
+--- reconciliation worker discovers purely via idx_pwr_status scan and normalized_event_kind ---
+                  id                  | normalized_event_kind 
+--------------------------------------+-----------------------
+ 01a050fb-2af7-7dc8-8844-44a282ed8b69 | PAYMENT_SUCCEEDED
+(1 row)
+
+ applied 
+---------
+ t
+(1 row)
+
+ status 
+--------
+ PAID
+(1 row)
+
+RESET
+
+################ DURABLE FAILURE CRASH RECOVERY ################
+SET
+RESET
+SET
+SET
+RESET
+SET
+ fn_link_payment_provider_transaction 
+--------------------------------------
+ 
+(1 row)
+
+--- worker reads normalized_event_kind from DB (no original payload) and routes to failure path ---
+ normalized_event_kind | provider_failure_code 
+-----------------------+-----------------------
+ PAYMENT_FAILED        | INSUFFICIENT_FUNDS
+(1 row)
+
+ resolved 
+----------
+ t
+(1 row)
+
+ resolved 
+----------
+ t
+(1 row)
+
+ status |    failure_code    
+--------+--------------------
+ FAILED | INSUFFICIENT_FUNDS
+(1 row)
+
+RESET
+
+################ WRONG-ROUTING SAFETY: SUCCESS RECEIPT THROUGH FAILURE-STYLE FAILED CALL ################
+--- a PAYMENT_SUCCEEDED receipt that never resolves is legitimately routed to receipt-level FAILED via fn_process_payment_webhook_receipt -- must NOT touch any payment_attempt (none resolved) ---
+SET
+RESET
+SET
+ resolved | resolved_payment_attempt_id 
+----------+-----------------------------
+ t        | 
+(1 row)
+
+ resolved | resolved_payment_attempt_id 
+----------+-----------------------------
+ t        | 
+(1 row)
+
+(expect: receipt FAILED, but no payment_attempt exists to have been touched -- structurally impossible to mutate one that was never resolved)
+ processing_status | payment_attempt_id 
+-------------------+--------------------
+ FAILED            | 
+(1 row)
+
+RESET
+
+################ WRONG-ROUTING SAFETY: FAILED-KIND ATTEMPT ALREADY SUCCEEDED CANNOT BE FORCED FAILED ################
+SET
+RESET
+SET
+(txn_wrapper_success already resolved+SUCCEEDED earlier in this script -- a late duplicate/contradictory PAYMENT_FAILED for the SAME txn must fail closed, not silently override)
+ resolved |     resolved_payment_attempt_id      
+----------+--------------------------------------
+ t        | 01a050fb-2aea-76ef-bf4b-4b087280fab0
+(1 row)
+
+(expect: exception -- fn_update_payment_status refuses SUCCEEDED -> FAILED, a real terminal-state conflict)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_final_test_matrix.sql:166: ERROR:  billing: payment_attempt 01a050fb-2aea-76ef-bf4b-4b087280fab0 is in terminal state SUCCEEDED — cannot transition to FAILED
+CONTEXT:  PL/pgSQL function fn_update_payment_status(uuid,uuid,text,text,text,text) line 20 at RAISE
+SQL statement "SELECT billing.fn_update_payment_status(
+      v_resolved_org, v_resolved_attempt_id, 'FAILED',
+      NULL, v_provider_failure_code, p_error
+    )"
+PL/pgSQL function fn_process_payment_webhook_receipt(uuid,text,text,timestamp with time zone) line 86 at PERFORM
+RESET
+
+################ REGRESSION: DUPLICATE IDEMPOTENCY, ROLLBACK, PROVIDER MISMATCH, GRANTS ################
+SET
+(expect NULL -- duplicate of already-PROCESSED)
+ fn_record_payment_webhook_receipt 
+-----------------------------------
+ 
+(1 row)
+
+RESET
+SET
+(expect: idempotent, same result, no re-settlement)
+ applied |     resolved_payment_attempt_id      
+---------+--------------------------------------
+ t       | 01a050fb-2aea-76ef-bf4b-4b087280fab0
+(1 row)
+
+RESET
+BEGIN
+SET
+  fn_record_payment_webhook_receipt   
+--------------------------------------
+ 01a050fb-2b04-76a0-bc69-6937e9fb61c7
+(1 row)
+
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_final_test_matrix.sql:183: ERROR:  division by zero
+ROLLBACK
+(expect: no evt_f_rollback receipt exists after rollback)
+ count 
+-------
+     0
+(1 row)
+
+ app_api_ingress_exec | ingress_exec | app_api_settle_exec | worker_settle_exec 
+----------------------+--------------+---------------------+--------------------
+ f                    | t            | f                   | t
+(1 row)
+
+SET
+SET
+(expect: violates check constraint -- CALL_MINUTES regression)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_final_test_matrix.sql:198: ERROR:  new row for relation "usage_events_2026_08" violates check constraint "chk_ue_source_quantity_seconds"
+RESET
+=== DONE ===

@@ -112,7 +112,54 @@ regeneration corrects that. See "Reconciliation" below for details.
 | 099 | 5C.1 | `099_5C1.sql` | `098_5E1` | transactional | 63844 | `3dcf9b245b1a352069d3ff70da2a5af625f968c4ec728adc70ae0265f623310f` |
 | 100 | 5G.1 | `100_5G1.sql` | `099_5C1` | transactional | 80135 | `9b52e7ffac8534faee64f6f9972dc1bc924d95147f3bbc28dd19b30dde2e7f55` |
 | 101 | 5I.1 | `101_5I1.sql` | `100_5G1` | transactional | 59973 | `e23c58d8cc8e233cfb353371b606c91ecdfc90700ce03fd36046c9e43b1f0d89` |
-| 102 | 5H.2 | `102_5H2.sql` | `101_5I1` | transactional | 113742 | `973044259dd3c98587142d955db33485a092cba45806aaf2576a5a77f85fd50d` |
+| 102 | 5H.2 | `102_5H2.sql` | `101_5I1` | transactional | 127971 | `73b9f7aed921ccc373cc634372ac7ac75c0490872d55af21116c3ff182445b3d` |
+
+---
+
+## Phase 6K FINAL Documentation Consistency Cleanup (2026-08-30, same day, eighth pass — comment/documentation only) — `102_5H2.sql` amended in place, PostgreSQL 18.6 re-validated
+
+**`102_5H2.sql` amended in place an eighth time — same policy as the first seven passes: confirmed again before this pass began that the file's only prior applications remained disposable/already-deleted PostgreSQL instances, never persistent.** SHA-256/size updated (127971 bytes, `73b9f7ae...`, was 127407 bytes, `e99b072f...`).
+
+**Trigger:** a further independent review found 2 remaining documentation-consistency defects — no financial/security/database/API-architecture blockers, no significant technical issues:
+
+1. A stale, normative sentence in the driving API document (§30.7) still described the webhook-receipt state machine as `RECEIVED → PROCESSING → PROCESSED | FAILED` — the pre-sixth-pass vocabulary, missing `RETRY_PENDING` entirely.
+2. A stale SQL comment in `102_5H2.sql` (adjacent to the `payment_webhook_receipts` grants) still described `fn_record_payment_webhook_receipt` as accepting "only the three fields available BEFORE any tenant/financial identity is known" — accurate through the second pass, stale since the sixth and seventh passes added `normalized_event_kind`/`provider_transaction_id`/`settled_amount`/`settled_currency`/`event_occurred_at`/`provider_failure_code`.
+
+**What this pass changes — documentation and SQL comments only, verified line-by-line:**
+
+1. `6K-Billing-Usage-APIs.md` §30.7 corrected to reference the canonical §30.2a state/transition table instead of duplicating an inconsistent variant.
+2. `102_5H2.sql`'s stale ingress-function comment corrected to describe the current security invariant (verified, normalized provider-ingress data only; never caller-authoritative organization ID, payment-attempt ID, invoice ID, processing status, or tenant-supplied financial values) without re-enumerating an exact field count that changes with each pass.
+
+**Executable SQL behavior change: NONE.** The single hunk touching `102_5H2.sql` was verified, line-by-line, to change only `--` comment lines — the `GRANT SELECT ON billing.payment_webhook_receipts TO app_worker, app_readonly;` statement immediately following remains byte-identical, unmarked context in the diff. No `CREATE`/`ALTER`/`GRANT`/`REVOKE`/function body/trigger/constraint statement was touched.
+
+**Live-database validation status: PostgreSQL 18.6, fully re-validated this pass** (comment-only edits still change the file's bytes, so the standard fresh/incremental gate was re-run in full), on a genuinely fresh, disposable local instance (`.tmp_pgdata_6kcleanup`, port 5568 — stopped and deleted at the end of the batch). Fresh-database `alembic upgrade head`: **PASS, exit 0.** Incremental (`101_5I1` pinned, then `102_5H2` applied alone, separate database): **PASS, exit 0** for both steps. Single Alembic head, `current == head` on both databases. Full transcript: `execution_logs/20260831T000000Z_04_stale_wording_search.txt` and siblings.
+
+**Stale-wording search, whole-repository:** `only three fields` / `only the three fields` — zero remaining occurrences describing the current function. `RECEIVED → PROCESSING → PROCESSED | FAILED` (or any variant omitting `RETRY_PENDING`) — zero remaining normative occurrences. `app_api-callable`/`app_api-reachable` — all remaining occurrences verified to refer either to `fn_create_payment_attempt` (genuinely, currently `app_api`-callable, correct) or to clearly-dated historical pass narratives already labeled as such (e.g. "SECOND PASS (2026-08-30...)" headers describing what that pass did at the time) — none read as a live claim about the current architecture.
+
+**Consumer:** `docs/phase-06-api-design/6K-Billing-Usage-APIs.md` — no design content changed; `PHASE 6K = READY FOR FINAL INDEPENDENT FREEZE APPROVAL`, unchanged in substance, reconfirmed under the corrected documentation.
+
+---
+
+## Phase 6K FINAL Completion Pass (2026-08-30, same day, seventh pass) — `102_5H2.sql` amended in place, PostgreSQL 18.6 re-validated
+
+**`102_5H2.sql` amended in place a seventh time — same policy as the first six passes: confirmed again before this pass began that the file's only prior applications remained disposable/already-deleted PostgreSQL instances, never persistent.** SHA-256/size updated (127407 bytes, `e99b072f...`, was 113742 bytes, `97304425...`).
+
+**Trigger:** a further independent freeze-gate review found 2 remaining BLOCKERS in the sixth pass's own state:
+
+1. **Settled-amount/currency "if present, compare."** `fn_apply_successful_payment_webhook_receipt`'s own amount/currency checks were written as "IF ... IS NOT NULL AND ... IS DISTINCT FROM ..." — a receipt with `settled_amount`/`settled_currency` left `NULL` skipped the comparison entirely rather than failing, so a successful settlement could proceed with no actual amount/currency verification at all.
+2. **No durable, verified event-kind classification.** The receipt stored no durable record of what kind of event the provider actually reported (success, failure, pending) — a reconciliation worker recovering purely from DB state had no way to determine which processor was even correct to invoke, and nothing prevented a failure event from being routed through the success path or vice versa.
+
+**What this pass changes:**
+
+1. New `normalized_event_kind` column (`PAYMENT_SUCCEEDED | PAYMENT_FAILED | PAYMENT_PENDING`, `NOT NULL`, immutable via `trg_pwr_event_kind_immutable`) — verified-source ingress evidence, populated only by `fn_record_payment_webhook_receipt`'s own new required parameter, never selectable by any tenant/DB caller.
+2. New `provider_failure_code` column — the provider adapter's own normalized, customer-facing decline classification (4I's `FailureCode` vocabulary), kept structurally distinct from `last_error`'s own reconciliation-integrity vocabulary.
+3. New table `CHECK`, `chk_pwr_success_requires_settlement_fields`: `normalized_event_kind = 'PAYMENT_SUCCEEDED'` is now structurally impossible without non-`NULL` `provider_transaction_id`/`settled_amount`/`settled_currency`, for any writer.
+4. `fn_apply_successful_payment_webhook_receipt` now rejects any receipt whose `normalized_event_kind` is not `PAYMENT_SUCCEEDED` (unconditionally, before any resolution), and its amount/currency checks are now unconditional — `NULL` is an immediate failure, the "IS NOT NULL AND" prefix is removed entirely.
+5. `fn_process_payment_webhook_receipt`'s terminal `FAILED` transition now also transitions the correlated `payment_attempt` to `FAILED` (reusing the frozen `fn_update_payment_status`, passing through `provider_failure_code`) whenever the event genuinely reads `PAYMENT_FAILED` and correlation resolved — closing the gap where a genuine provider-reported payment failure previously updated only the receipt's own bookkeeping.
+
+**Live-database validation status: PostgreSQL 18.6, fully re-validated this pass**, on a genuinely fresh, disposable local instance (`.tmp_pgdata_6kfinal`, port 5567 — stopped and deleted at the end of the batch). Fresh-database `alembic upgrade head`: **PASS, exit 0.** Incremental (`101_5I1` pinned, then `102_5H2` applied alone, separate database): **PASS, exit 0** for both steps. Single Alembic head, `current == head` on both databases. A dedicated test matrix — the `CHECK` constraint isolation, missing-amount/currency/both tests via the ingress function, a genuine wrapper-only happy-path test (no manual `fn_update_payment_status` call), a failure-event-cannot-settle test, durable failure processing (payment_attempt actually transitions to `FAILED`), durable success AND durable failure crash-recovery scenarios (both discovered and correctly routed purely from DB state), two wrong-routing safety tests, duplicate idempotency, a forced-rollback proof, and privilege/`CALL_MINUTES` regression — **all PASS on the first run, zero test-harness bugs.** Full transcript: `execution_logs/20260830T230000Z_04_6k_final_output.txt`.
+
+**Consumer:** `docs/phase-06-api-design/6K-Billing-Usage-APIs.md` — closes FINAL-6K-F01 through F09 with live evidence; `PHASE 6K = READY FOR INDEPENDENT FREEZE-GATE REVIEW` reconfirmed under the corrected migration and corrected documentation.
 
 ---
 

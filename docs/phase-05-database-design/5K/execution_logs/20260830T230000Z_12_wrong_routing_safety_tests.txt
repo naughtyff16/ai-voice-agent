@@ -1,0 +1,43 @@
+################ WRONG-ROUTING SAFETY: SUCCESS RECEIPT THROUGH FAILURE-STYLE FAILED CALL ################
+--- a PAYMENT_SUCCEEDED receipt that never resolves is legitimately routed to receipt-level FAILED via fn_process_payment_webhook_receipt -- must NOT touch any payment_attempt (none resolved) ---
+SET
+RESET
+SET
+ resolved | resolved_payment_attempt_id 
+----------+-----------------------------
+ t        | 
+(1 row)
+
+ resolved | resolved_payment_attempt_id 
+----------+-----------------------------
+ t        | 
+(1 row)
+
+(expect: receipt FAILED, but no payment_attempt exists to have been touched -- structurally impossible to mutate one that was never resolved)
+ processing_status | payment_attempt_id 
+-------------------+--------------------
+ FAILED            | 
+(1 row)
+
+RESET
+
+################ WRONG-ROUTING SAFETY: FAILED-KIND ATTEMPT ALREADY SUCCEEDED CANNOT BE FORCED FAILED ################
+SET
+RESET
+SET
+(txn_wrapper_success already resolved+SUCCEEDED earlier in this script -- a late duplicate/contradictory PAYMENT_FAILED for the SAME txn must fail closed, not silently override)
+ resolved |     resolved_payment_attempt_id      
+----------+--------------------------------------
+ t        | 01a050fb-2aea-76ef-bf4b-4b087280fab0
+(1 row)
+
+(expect: exception -- fn_update_payment_status refuses SUCCEEDED -> FAILED, a real terminal-state conflict)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_final_test_matrix.sql:166: ERROR:  billing: payment_attempt 01a050fb-2aea-76ef-bf4b-4b087280fab0 is in terminal state SUCCEEDED — cannot transition to FAILED
+CONTEXT:  PL/pgSQL function fn_update_payment_status(uuid,uuid,text,text,text,text) line 20 at RAISE
+SQL statement "SELECT billing.fn_update_payment_status(
+      v_resolved_org, v_resolved_attempt_id, 'FAILED',
+      NULL, v_provider_failure_code, p_error
+    )"
+PL/pgSQL function fn_process_payment_webhook_receipt(uuid,text,text,timestamp with time zone) line 86 at PERFORM
+RESET
+

@@ -1,0 +1,13 @@
+################ MISSING AMOUNT / CURRENCY / BOTH TESTS (via ingress function) ################
+SET
+--- missing amount: expect FAIL ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_final_test_matrix.sql:49: ERROR:  billing: a PAYMENT_SUCCEEDED webhook event requires provider_transaction_id, settled_amount, and settled_currency — none may be NULL
+CONTEXT:  PL/pgSQL function fn_record_payment_webhook_receipt(text,text,text,character,text,numeric,character,timestamp with time zone,text) line 12 at RAISE
+--- missing currency: expect FAIL ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_final_test_matrix.sql:51: ERROR:  billing: a PAYMENT_SUCCEEDED webhook event requires provider_transaction_id, settled_amount, and settled_currency — none may be NULL
+CONTEXT:  PL/pgSQL function fn_record_payment_webhook_receipt(text,text,text,character,text,numeric,character,timestamp with time zone,text) line 12 at RAISE
+--- missing both: expect FAIL ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_final_test_matrix.sql:53: ERROR:  billing: a PAYMENT_SUCCEEDED webhook event requires provider_transaction_id, settled_amount, and settled_currency — none may be NULL
+CONTEXT:  PL/pgSQL function fn_record_payment_webhook_receipt(text,text,text,character,text,numeric,character,timestamp with time zone,text) line 12 at RAISE
+RESET
+

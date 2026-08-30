@@ -1,0 +1,22 @@
+Phase 6K FINAL Documentation Consistency Cleanup (eighth pass) — stale-wording search, post-fix
+Generated: 2026-08-30 (repository-relative)
+
+=== Search: 'only three fields' / 'only the three fields' (6K-Billing-Usage-APIs.md) ===
+NONE FOUND
+
+=== Search: 'only three fields' / 'only the three fields' (102_5H2.sql) ===
+NONE FOUND
+
+=== Search: obsolete webhook state machine 'RECEIVED → PROCESSING → PROCESSED | FAILED' (any variant omitting RETRY_PENDING) ===
+NONE FOUND
+
+=== Search: 'app_api-callable' / 'app_api-reachable' / 'app_api reachable' (6K-Billing-Usage-APIs.md) — for manual review, historical mentions expected ===
+528:-- local payment_attempts row — and the FIRST app_api-callable billing
+1473:             fn_create_payment_attempt as the sole app_api-callable billing
+2926:**Decision:** `fn_create_payment_attempt` (§12.4) takes no `p_organization_id` parameter at all — tenant context is derived exclusively from `organization.current_tenant_id()` inside the function body. **Rationale:** every other 6K/5H billing `SECURITY DEFINER` function that takes `p_organization_id` is worker/admin-only (§9.1's audit); this is the first one reachable by an ordinary tenant session, so it is held to a stricter construction than "validate the parameter matches" — there is no parameter to validate, and therefore no code path that could regress into trusting an unvalidated one. **Alternatives rejected:** accepting `p_organization_id` and checking it against `current_tenant_id()` (the pattern 6I/6J's own remediation used for their own app_api-callable functions) — considered, but rejected here as strictly weaker than not accepting the parameter at all for a function that never legitimately needs a caller-supplied value in the first place. **Consequences:** this function's signature is a template for any future `app_api`-callable billing function — no financial-identity parameter should ever be accepted from the caller if it can instead be derived from session context.
+3085:                                    the first app_api-callable billing SECURITY DEFINER function,
+3282:                the ingress function as app_api-reachable/callable, stale relative to the third
+
+=== Search: same, in 102_5H2.sql ===
+106:--      app_api-callable billing SECURITY DEFINER function in this
+803:-- accidentally drop. This is the FIRST app_api-callable billing
