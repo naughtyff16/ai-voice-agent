@@ -1,0 +1,18 @@
+=== heads (static) ===
+102_5H2 (head)
+
+=== history (tail) ===
+004_5B -> 005_5B, Phase 5K — wraps frozen migration 005_5B.sql.
+003_5B -> 004_5B, Phase 5K — wraps frozen migration 004_5B.sql.
+002_5B -> 003_5B, Phase 5K — wraps frozen migration 003_5B.sql.
+001_5B -> 002_5B, Phase 5K — wraps frozen migration 002_5B.sql.
+<base> -> 001_5B, Phase 5K — wraps frozen migration 001_5B.sql.
+
+=== current (fresh DB) ===
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+102_5H2 (head)
+=== current (incremental DB) ===
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+102_5H2 (head)

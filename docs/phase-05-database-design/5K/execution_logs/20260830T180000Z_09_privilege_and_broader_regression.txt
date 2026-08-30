@@ -1,0 +1,26 @@
+################ REGRESSION: TABLE/FUNCTION PRIVILEGE BOUNDARIES UNCHANGED ################
+ app_api_select | app_api_insert | admin_insert | admin_select | app_api_ingress_exec | ingress_exec 
+----------------+----------------+--------------+--------------+----------------------+--------------
+ f              | f              | f            | t            | f                    | t
+(1 row)
+
+SET
+(expect: permission denied)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_webhook_integrity_test_matrix.sql:130: ERROR:  permission denied for table payment_webhook_receipts
+RESET
+SET
+(expect: permission denied -- FREEZE-6K-01 unaffected)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_webhook_integrity_test_matrix.sql:134: ERROR:  permission denied for table payment_webhook_receipts
+RESET
+
+################ REGRESSION: CALL_MINUTES + COMMERCIAL PRICING UNAFFECTED ################
+SET
+SET
+(expect: violates check constraint)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_webhook_integrity_test_matrix.sql:143: ERROR:  new row for relation "usage_events_2026_08" violates check constraint "chk_ue_source_quantity_seconds"
+RESET
+SET
+(expect: permission denied -- commercial pricing raw update unaffected)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_webhook_integrity_test_matrix.sql:147: ERROR:  permission denied for table commercial_pricing_agreement_versions
+RESET
+=== DONE ===

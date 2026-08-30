@@ -1,11 +1,11 @@
 # Phase 6K FINAL Blocker Remediation — Validation Report
 
-**Date:** 2026-08-30 (four passes, same day)
-**Migration:** `102_5H2.sql` (Alembic revision `102_5H2`, `down_revision = '101_5I1'`) — new revision in its first pass; **amended in place** in its second, third, and fourth passes (§0/§19/§25 below), never applied to a persistent database at any point
-**PostgreSQL:** 18.6, genuinely fresh disposable local instances (all four passes)
+**Date:** 2026-08-30 (five passes, same day)
+**Migration:** `102_5H2.sql` (Alembic revision `102_5H2`, `down_revision = '101_5I1'`) — new revision in its first pass; **amended in place** in its second, third, fourth, and fifth passes (§0/§19/§25/§32 below), never applied to a persistent database at any point
+**PostgreSQL:** 18.6, genuinely fresh disposable local instances (all five passes)
 **Driving document:** `docs/phase-06-api-design/6K-Billing-Usage-APIs.md` (Phase 6K, Billing + Usage APIs)
-**Consolidated manifest entries:** `docs/phase-05-database-design/5K/MIGRATION_MANIFEST.md`, "Phase 6K FINAL Blocker Remediation", "Phase 6K FINAL Freeze-Gate Remediation", "Phase 6K FINAL Two-Issue Freeze Remediation", and "Phase 6K FINAL Freeze-Gate Remediation Pass" sections
-**Raw execution logs:** `docs/phase-05-database-design/5K/execution_logs/`, prefixes `20260830T020000Z_` (first pass, 9 files), `20260830T060000Z_` (second pass, 5 files), `20260830T090000Z_` (third pass, 1 file), and `20260830T150000Z_` (fourth pass, 9 files)
+**Consolidated manifest entries:** `docs/phase-05-database-design/5K/MIGRATION_MANIFEST.md`, "Phase 6K FINAL Blocker Remediation", "Phase 6K FINAL Freeze-Gate Remediation", "Phase 6K FINAL Two-Issue Freeze Remediation", "Phase 6K FINAL Freeze-Gate Remediation Pass", and "Phase 6K FINAL Webhook Processing Integrity Remediation" sections
+**Raw execution logs:** `docs/phase-05-database-design/5K/execution_logs/`, prefixes `20260830T020000Z_` (first pass, 9 files), `20260830T060000Z_` (second pass, 5 files), `20260830T090000Z_` (third pass, 1 file), `20260830T150000Z_` (fourth pass, 9 files), and `20260830T180000Z_` (fifth pass, 10 files)
 
 ---
 
@@ -389,7 +389,7 @@ Full transcripts: `execution_logs/20260830T150000Z_01` through `_09` (indexed in
 | `fn_link_payment_provider_transaction` | `app_worker`, `app_platform_admin` (unchanged) |
 | `fn_create_payment_attempt` | `app_api`, `app_worker`, `app_platform_admin` (unchanged — the one deliberately `app_api`-granted billing function) |
 
-## 31. FREEZE-6K-01/02/03 Closure Table and Fourth-Pass Freeze Recommendation
+## 31. FREEZE-6K-01/02/03 Closure Table and Fourth-Pass Freeze Recommendation (SUPERSEDED — see §32 onward)
 
 | ID | Finding | Fix | Evidence |
 |---|---|---|---|
@@ -406,3 +406,85 @@ All three fourth-pass findings (FREEZE-6K-01, FREEZE-6K-02, FREEZE-6K-03) are fi
 **Final migration evidence proof, answered directly (task §27):** fresh final migration (PASS); incremental final migration (PASS); single Alembic head (YES); current == head (YES, both databases); final migration checksum in manifest matches actual file (YES — §28); new execution logs correspond to final file bytes (YES — the fresh/incremental runs in §28 and the test matrix in §29 were both run against the identical file whose checksum is recorded in §28's own table).
 
 **This is the fourth and, per this pass's own live evidence, current recommendation — not a claim that no further review is warranted. Independent freeze-gate review remains the authority that declares `FROZEN`.**
+
+**This recommendation was itself found incomplete by a further independent freeze-gate review — see §32 onward. It is superseded by §38's recommendation, not retracted from the record.**
+
+---
+
+## 32. What the Fourth Pass Missed — Disclosed, Not Hidden
+
+A further independent freeze-gate review found **1 BLOCKER (schema/function)** the fourth pass's own §31 did not catch, plus one stale SQL comment:
+
+1. **`fn_process_payment_webhook_receipt` could write `PROCESSED` with no authoritative correlation.** Every prior pass's own "final security proof" answered whether unauthorized *roles* could reach the receipt table or the ingress function — none of them asked whether the *processing function itself*, called correctly by its own authorized caller (`app_worker`), could still produce an unsafe outcome. It could: if a caller requested `p_new_status = 'PROCESSED'` for a provider transaction that failed to resolve to any local `payment_attempt` (`v_resolved_attempt_id`/`v_resolved_org` staying `NULL`), the function wrote `processing_status = 'PROCESSED'` with both `payment_attempt_id` and `organization_id` `NULL` anyway — and because `uq_pwr_provider_event`'s dedup gate is permanent, that outcome could never be revisited by a genuine future delivery of the same provider event. The function's own design comment ("this function's own job is resolution, not the security-anomaly decision") was correct for the *linkage* decision but had wrongly been extended to cover the *PROCESSED-vs-FAILED* decision too. Deeper still: even a *resolved* correlation was not sufficient — the function never verified that the correlated `payment_attempt`'s own financial state had actually reached `SUCCEEDED` before allowing `PROCESSED`, meaning `PROCESSED` meant only "an id was found," not "the payment actually settled."
+2. **A stale SQL comment.** The migration's own Part C comment block, immediately preceding the `payment_webhook_receipts` table, still described the obsolete first-draft ingress model ("the inbound webhook HTTP handler ... executing as the API service's own DB role ... performs the durable, atomic dedup INSERT directly ... no wrapping SECURITY DEFINER function needed") — inconsistent with every actual grant in the same file since the second pass (`FB-6K-03/04`) and the dedicated `app_billing_webhook_ingress` role introduced in the third pass (`FINAL-6K-01`).
+
+Both are fixed in the fifth pass — evidence in §33–§37, closure in §38.
+
+---
+
+## 33. Fifth Pass — Scope
+
+Per §32's disclosed findings: `102_5H2.sql` was amended in place a fifth time (confirmed before this pass began that its only prior applications remained disposable/already-deleted PostgreSQL instances — never persistent).
+
+## 34. Fifth Pass — Environment
+
+Same disposable-instance approach as every prior pass: `.tmp_pgdata_6kwebhook`, PostgreSQL 18.6, port 5565, `voice_agent_6kwebhook` (primary), `voice_agent_6kwebhook_incr` (incremental-path). The same `/tmp/5j1_validate_venv` toolchain was reused unmodified. Stopped and deleted at the end of the batch.
+
+## 35. Fifth Pass — Migration Integrity
+
+| Test | Result |
+|---|---|
+| Fresh `001_5B → 102_5H2` (fifth-amendment file) | **PASS**, exit 0 |
+| Incremental `101_5I1 → 102_5H2` (separate database) | **PASS**, exit 0 |
+| `alembic heads` / `current` (both databases) | Single head, `102_5H2 (head)`, `current == head` |
+| Final checksum vs. `MIGRATION_MANIFEST.md` row 102 | **Match** — `9c995df348eac3569a9b7b18f355ef38565ec013199078ee81eb2f1157d552c5`, 91847 bytes |
+
+## 36. Fifth Pass — The Fix
+
+1. **New table `CHECK`, `chk_pwr_processed_requires_correlation`:** `processing_status = 'PROCESSED'` is now structurally impossible without both `payment_attempt_id` and `organization_id` already non-`NULL` on the same row, for any writer whatsoever. `FAILED` (including fully unlinked) remains legal.
+2. **`fn_process_payment_webhook_receipt` fails closed:** immediately before its `UPDATE`, whenever `p_new_status = 'PROCESSED'` is requested, the function now (a) raises if correlation did not resolve, and (b) re-reads the resolved `payment_attempts` row's own `status` in the same transaction — under standard PostgreSQL MVCC read-committed-within-transaction visibility, this sees the caller's own prior `fn_update_payment_status`/`fn_mark_invoice_paid` writes — and raises unless that status reads `'SUCCEEDED'`. This is the genuine atomicity guarantee: "an id was found" is no longer sufficient.
+3. **Stale SQL comment corrected** to describe the actual, current ingress flow (`app_billing_webhook_ingress` → `fn_record_payment_webhook_receipt` → durable receipt → commit → fast ACK → `app_worker` async processing).
+
+## 37. Fifth Pass — Test Evidence
+
+Full transcripts: `execution_logs/20260830T180000Z_01` through `_10` (indexed in `execution_logs/README.md`'s own "Phase 6K FINAL Webhook Processing Integrity Remediation" entry). 21 assertions, one test-harness bug found and fixed on the first attempt (disclosed below):
+
+| Finding | Test | Result |
+|---|---|---|
+| Table CHECK (Test A) | `PROCESSED` + `payment_attempt_id` NULL + `organization_id` NULL, direct superuser `INSERT` | **PASS** — `chk_pwr_processed_requires_correlation` violation |
+| Table CHECK (Test B) | `PROCESSED` + attempt only, org NULL | **PASS** — violation |
+| Table CHECK (Test C) | `PROCESSED` + org only, attempt NULL | **PASS** — violation |
+| Table CHECK (Test D) | `FAILED` + both NULL | **PASS** — succeeds (approved failure model, unaffected) |
+| Unknown provider transaction | `PROCESSING` transition with an unresolvable `provider_transaction_id` | **PASS** — succeeds, both resolved ids `NULL` |
+| Unknown provider transaction | Subsequent `PROCESSED` attempt on the same receipt | **PASS** — controlled `RAISE EXCEPTION`, receipt remains `PROCESSING`, uncorrupted |
+| Unknown provider transaction | Governed `FAILED`/`UNKNOWN_TRANSACTION_CORRELATION` path instead | **PASS** — succeeds, `last_error` populated, both ids remain `NULL` |
+| Valid correlation, atomicity | `PROCESSED` requested before the financial transition commits (`payment_attempt.status = PENDING`) | **PASS** — controlled exception, receipt remains `PROCESSING` |
+| Valid correlation, atomicity | Identical `PROCESSED` call, retried after `fn_update_payment_status(SUCCEEDED)` + `fn_mark_invoice_paid` genuinely commit | **PASS** — succeeds; `payment_attempt_id`/`organization_id` populated, `processed_at` set |
+| Duplicate webhook after success | Repeat `fn_record_payment_webhook_receipt` for the same `(provider, event_id)` | **PASS** — returns `NULL`, no second receipt |
+| Duplicate webhook after success | Repeat `fn_process_payment_webhook_receipt(..., 'PROCESSED', ...)` on the already-`PROCESSED` receipt | **PASS** — idempotent, same resolved ids, no re-processing |
+| Provider mismatch | Cross-provider receipt/attempt correlation attempt | **PASS** — resolves `NULL`; `PROCESSED` attempt raises; mismatched attempt confirmed still `PENDING` |
+| Regression | Table/function privilege matrix (`app_api`, `app_billing_webhook_ingress`, `app_worker`, `app_platform_admin`) | **PASS** — unchanged from the fourth pass |
+| Regression | `app_api` `SELECT` denied; `app_platform_admin` `INSERT` denied | **PASS** — unaffected |
+| Regression | `CALL_MINUTES` `NULL`-seconds rejection; commercial-pricing raw `UPDATE` denial | **PASS** — unaffected |
+
+**Test-harness bug found and fixed (disclosed, not hidden):** an early draft of Tests A-D attempted to exercise the new `CHECK` via a raw `INSERT` executed as `app_platform_admin` — which has held no `INSERT` grant on this table since the fourth pass (`FREEZE-6K-01`), so every attempt failed with `permission denied` before ever reaching the `CHECK`, proving nothing about the constraint. Fixed by running the same inserts as the connecting superuser instead (the standard technique for testing a schema-level `CHECK` in isolation from a separate privilege-model layer no application role can bypass); the corrected run then produced the intended `chk_pwr_processed_requires_correlation` violations. Not a migration defect.
+
+**Not performed / disclosed limitations (same as prior passes, plus one new item):** no real payment-provider HTTP integration test; no genuinely concurrent two-process race test — the sequential "`PROCESSED` before vs. after the financial commit" test above is the deterministic, reproducible equivalent of the meaningful race risk, since the fix's own same-transaction MVCC-visibility mechanism is exactly what a genuine race would also exercise; the full first- through fourth-pass regression suites were not re-run verbatim (a targeted regression check was run instead, per the same proportionate-evidence approach every prior pass used).
+
+---
+
+## 38. Webhook Processing Integrity Closure and Fifth-Pass Freeze Recommendation
+
+| Finding | Fix | Evidence |
+|---|---|---|
+| `PROCESSED` reachable with `payment_attempt_id`/`organization_id` both `NULL` (BLOCKER) | New `chk_pwr_processed_requires_correlation` table CHECK; `fn_process_payment_webhook_receipt` fails closed on unresolved correlation | §37 Tests A-D, unknown-transaction tests |
+| `PROCESSED` reachable without the correlated payment actually having settled (the deeper atomicity gap) | Function re-verifies the resolved `payment_attempt`'s own `SUCCEEDED` status in the same transaction before permitting `PROCESSED` | §37 valid-correlation atomicity tests |
+| Stale SQL comment describing the obsolete direct-INSERT-by-`app_api` ingress model | Corrected in place to describe the current `app_billing_webhook_ingress` → `fn_record_payment_webhook_receipt` flow | Migration file Part C, `6K-Billing-Usage-APIs.md` §12.4/§30.2 |
+
+`PHASE 6K = READY FOR INDEPENDENT FREEZE-GATE REVIEW`.
+
+Both fifth-pass findings are fixed and live-evidenced, on top of the first through fourth passes' own already-closed items (§8, §17, §24, §31 — unaffected by this pass except where the fix itself strengthened the same function). Migration `102_5H2` (amended in place, fifth pass) passes fresh and incremental application on PostgreSQL 18.6, single head, checksum-verified against the manifest. No frozen document or frozen migration (001–101) was altered.
+
+**Successful processing atomicity, answered directly (task §H):** a receipt cannot become `PROCESSED` if the financial transition fails or has not yet committed, because the function's own final check re-reads the correlated `payment_attempt`'s status inside the same transaction under standard PostgreSQL MVCC visibility — a status that is not `SUCCEEDED` (whether never attempted, still pending, or genuinely failed) causes the function to raise instead of writing `PROCESSED`. "An id was found" is structurally insufficient; only a committed `SUCCEEDED` financial state satisfies the check.
+
+**This is the fifth and, per this pass's own live evidence, current recommendation — not a claim that no further review is warranted. Independent freeze-gate review remains the authority that declares `FROZEN`.**

@@ -196,6 +196,59 @@
 --     app_platform_admin — holds DELETE on this table; a future
 --     archival/retention need is a separately governed operation, never
 --     an ordinary runtime grant.
+--
+-- FIFTH PASS (2026-08-30, same day) — amended in place a fifth time, same
+--   "never applied to any real database" policy, confirmed again before
+--   this pass began. A further independent freeze-gate review found the
+--   fourth pass's own state still allowed one confirmed BLOCKER, plus a
+--   stale documentation issue:
+--
+--   Webhook processing integrity (BLOCKER, not separately FB/FINAL/
+--   FREEZE-numbered by this review — tracked here as the "PROCESSED
+--   correlation integrity" fix). fn_process_payment_webhook_receipt()
+--   could write processing_status = 'PROCESSED' with
+--   payment_attempt_id = NULL AND organization_id = NULL whenever its
+--   caller requested p_new_status = 'PROCESSED' for a provider
+--   transaction that failed to resolve to any local payment_attempt —
+--   the function trusted the caller's own p_new_status argument rather
+--   than independently verifying either (a) that a correlation was
+--   actually found, or (b) that the correlated payment_attempt had
+--   actually reached a genuinely successful, committed financial state.
+--   Because uq_pwr_provider_event's dedup gate is permanent, an
+--   unlinked "PROCESSED" receipt would durably suppress every future
+--   genuine delivery of the same provider event — the customer's
+--   payment could then never be applied, with no automatic recovery
+--   path. Fixed with two layers:
+--     1. A new table CHECK, chk_pwr_processed_requires_correlation:
+--        processing_status = 'PROCESSED' is now structurally impossible
+--        without both payment_attempt_id and organization_id already
+--        non-NULL on the same row, for any writer whatsoever.
+--     2. The function itself now fails closed with a controlled
+--        RAISE EXCEPTION, before the UPDATE, whenever p_new_status =
+--        'PROCESSED' is requested but (a) no payment_attempt_id/
+--        organization_id resolved, or (b) the resolved payment_attempt's
+--        OWN status (re-read in the same transaction, under standard
+--        PostgreSQL MVCC visibility) is not 'SUCCEEDED'. Check (b) is
+--        the actual atomicity guarantee — it is not satisfied merely by
+--        "some id was found," only by independently confirming the
+--        payment-domain financial transition (fn_update_payment_status
+--        to SUCCEEDED, then fn_mark_invoice_paid, per §30.2's documented
+--        ordering) has itself already committed within this same
+--        transaction before the receipt may be marked PROCESSED. FAILED
+--        remains fully unaffected — an unresolved/unknown provider
+--        transaction is still a legitimate, unlinked FAILED outcome
+--        (never PROCESSED), exactly as before this pass.
+--   Documentation issue (not a schema/grant change). This file's own
+--   Part C comment block, immediately preceding the
+--   payment_webhook_receipts table, still described the OBSOLETE first-
+--   draft ingress model ("the inbound webhook HTTP handler ... executing
+--   as the API service's own DB role ... performs the durable, atomic
+--   dedup INSERT directly ... no wrapping SECURITY DEFINER function
+--   needed") — stale relative to every actual grant in this same file
+--   since the second pass (FB-6K-03/04) and the dedicated
+--   app_billing_webhook_ingress role introduced in the third pass
+--   (FINAL-6K-01). Corrected in place to describe the current,
+--   authoritative flow.
 -- =================================================================
 
 
@@ -715,17 +768,54 @@ CREATE TABLE billing.payment_webhook_receipts (
   CONSTRAINT uq_pwr_provider_event UNIQUE (payment_provider, provider_event_id),  -- NOT DEFERRABLE: the atomic ON CONFLICT dedup gate requires an immediate constraint
   CONSTRAINT chk_pwr_processing    CHECK (processing_status IN ('RECEIVED','PROCESSING','PROCESSED','FAILED')),
   CONSTRAINT chk_pwr_last_error_len CHECK (last_error IS NULL OR length(last_error) <= 2000),
-  CONSTRAINT chk_pwr_processed     CHECK ((processing_status IN ('PROCESSED','FAILED')) = (processed_at IS NOT NULL))
+  CONSTRAINT chk_pwr_processed     CHECK ((processing_status IN ('PROCESSED','FAILED')) = (processed_at IS NOT NULL)),
+  -- FIFTH freeze-gate pass correction (webhook processing integrity
+  -- BLOCKER): a further independent review found fn_process_payment_
+  -- webhook_receipt (below) could write processing_status = 'PROCESSED'
+  -- with payment_attempt_id/organization_id both NULL whenever a caller
+  -- requested PROCESSED for an unresolved provider transaction — the
+  -- function trusted the caller to only ever request PROCESSED after a
+  -- genuinely successful correlation, which is exactly the kind of
+  -- caller-orchestration assumption a DB-level financial invariant must
+  -- not depend on. This CHECK makes the invariant structural: PROCESSED
+  -- is impossible without both an authoritative payment_attempt_id and
+  -- organization_id already populated on the very same row, for ANY
+  -- writer, including a future raw UPDATE by any role that might ever
+  -- hold one. FAILED remains legal with both NULL (an unresolved/unknown
+  -- provider transaction is a governed FAILED outcome, never PROCESSED —
+  -- §6/§9 of the driving task).
+  CONSTRAINT chk_pwr_processed_requires_correlation CHECK (
+    processing_status <> 'PROCESSED'
+    OR (payment_attempt_id IS NOT NULL AND organization_id IS NOT NULL)
+  )
 );
 
 CREATE INDEX idx_pwr_status  ON billing.payment_webhook_receipts (processing_status, received_at);
 CREATE INDEX idx_pwr_attempt ON billing.payment_webhook_receipts (payment_attempt_id) WHERE payment_attempt_id IS NOT NULL;
 
--- The inbound webhook HTTP handler (unauthenticated by JWT — 6A §28.2's
--- carve-out — but still executing as the API service's own DB role, not
--- a tenant's) performs the durable, atomic dedup INSERT directly —
--- mirrors 5J §077's own domain_event_outbox INSERT grant to app_api,
--- no wrapping SECURITY DEFINER function needed for a plain gated INSERT.
+-- Final ingress architecture (corrected across the third and fourth
+-- freeze-gate passes — this comment previously described an obsolete
+-- design and is corrected here to match the actual grants below): the
+-- inbound webhook HTTP handler does NOT execute as app_api, does NOT
+-- perform a direct table INSERT, and is NOT an "no SECURITY DEFINER
+-- function required" plain gated INSERT path. The actual, final flow is:
+--
+--   Provider callback handler
+--     → verify provider signature (application layer, before any DB call)
+--     → execute using app_billing_webhook_ingress (a dedicated,
+--       minimal-surface DB role — no table DML of any kind, see below)
+--     → fn_record_payment_webhook_receipt(...)  [defined further below]
+--     → durable, atomically-deduplicated receipt row
+--     → commit
+--     → fast ACK
+--     → app_worker async processing (fn_process_payment_webhook_receipt,
+--       also defined further below)
+--
+-- app_api holds no grant of any kind on this table or on either function
+-- (FB-6K-03/04, FINAL-6K-01). app_platform_admin holds SELECT only,
+-- never raw INSERT/UPDATE/DELETE (FREEZE-6K-01). See the GRANT
+-- statements immediately preceding each function definition below for
+-- the authoritative, current grant state.
 -- ----------------------------------------------------------------
 -- fn_link_payment_provider_transaction: the sole path by which a local
 -- payment_attempts row (created INITIATED, provider_transaction_id NULL
@@ -948,6 +1038,39 @@ GRANT EXECUTE ON FUNCTION billing.fn_record_payment_webhook_receipt(TEXT, TEXT, 
 -- Razorpay-signed receipt somehow resolving to a Cashfree-provider
 -- attempt, which should never legitimately happen) fails closed rather
 -- than silently linking.
+--
+-- FIFTH freeze-gate pass correction (webhook processing integrity
+-- BLOCKER): the function previously let the CALLER'S OWN p_new_status
+-- argument dictate PROCESSED unconditionally once past the ordinary
+-- state-machine-transition check — if a caller asked for PROCESSED while
+-- the provider transaction resolved to nothing (v_resolved_attempt_id
+-- staying NULL), the function wrote processing_status = 'PROCESSED' with
+-- payment_attempt_id/organization_id both NULL anyway, and the durable
+-- dedup constraint (uq_pwr_provider_event) then made that outcome
+-- PERMANENT: no future genuine retry of the same provider event could
+-- ever revisit it. "This function's own job is resolution, not the
+-- security-anomaly decision" (the comment previously here) was true for
+-- the LINKAGE decision but wrongly extended to the PROCESSED-vs-FAILED
+-- decision too — the function must never be a passive scribe for its own
+-- terminal success state. Two independent fail-closed checks are added
+-- immediately before the UPDATE, both scoped to p_new_status = 'PROCESSED'
+-- only (FAILED, including with NULL linkage — an unresolved provider
+-- transaction — is untouched and remains exactly as designed, §6/§9 of
+-- the driving task): (1) linkage itself must be non-NULL — mirrors the
+-- new chk_pwr_processed_requires_correlation table CHECK, defense in
+-- depth, not a duplicate no-op; (2) the resolved payment_attempts row's
+-- OWN status must already read as 'SUCCEEDED' — not merely "an id was
+-- found." This second check is the true atomicity guarantee (not just
+-- linkage): §30.2's documented ordering has the caller invoke
+-- fn_update_payment_status(...,'SUCCEEDED') and fn_mark_invoice_paid(...)
+-- BEFORE this call, in the SAME database transaction — under standard
+-- PostgreSQL MVCC read-committed-within-transaction visibility, this
+-- SELECT sees that transaction's own prior write. A caller that has not
+-- actually committed the financial success first (an out-of-order caller
+-- bug, or a caller that split the sequence across separate transactions
+-- with the SUCCEEDED write not yet committed) cannot smuggle a PROCESSED
+-- receipt through — the SELECT below sees a non-SUCCEEDED status (or the
+-- pre-transaction value) and this function raises instead.
 CREATE OR REPLACE FUNCTION billing.fn_process_payment_webhook_receipt(
   p_receipt_id                UUID,
   p_new_status                 TEXT,
@@ -963,6 +1086,7 @@ DECLARE
   v_already_linked_org UUID;
   v_resolved_attempt_id UUID;
   v_resolved_org UUID;
+  v_attempt_status TEXT;
   v_allowed TEXT[][] := ARRAY[
     ARRAY['RECEIVED', 'PROCESSING'],
     ARRAY['PROCESSING', 'PROCESSED'],
@@ -1009,10 +1133,34 @@ BEGIN
     WHERE pa.provider_transaction_id = p_provider_transaction_id
       AND pa.payment_provider = v_receipt_provider;  -- cross-provider linking fails closed: no row if providers disagree
     -- v_resolved_attempt_id staying NULL here (unknown transaction
-    -- correlation) is not itself an exception — the caller decides the
-    -- outcome (typically p_new_status = 'FAILED' with p_error naming the
-    -- UNKNOWN_TRANSACTION_CORRELATION classification, 6K §30.6/§36); this
-    -- function's own job is resolution, not the security-anomaly decision.
+    -- correlation) is not itself an exception for a p_new_status = 'FAILED'
+    -- call — the caller decides that outcome (typically 'FAILED' with
+    -- p_error naming the UNKNOWN_TRANSACTION_CORRELATION classification,
+    -- 6K §30.6/§36); this function's own job is resolution for THAT case.
+    -- For p_new_status = 'PROCESSED', resolution failing here is instead
+    -- an unconditional fail-closed exception, enforced immediately below —
+    -- PROCESSED is never a passive acceptance of "whatever the caller asked
+    -- for."
+  END IF;
+
+  -- FIFTH freeze-gate pass: PROCESSED requires both a resolved
+  -- correlation AND independent, same-transaction confirmation that the
+  -- correlated payment_attempt has actually reached SUCCEEDED — see the
+  -- header comment above this function for the full rationale. Neither
+  -- check runs for any other p_new_status value.
+  IF p_new_status = 'PROCESSED' THEN
+    IF v_resolved_attempt_id IS NULL OR v_resolved_org IS NULL THEN
+      RAISE EXCEPTION 'billing: payment_webhook_receipt % cannot be marked PROCESSED — no authoritative payment_attempt/organization correlation resolved for provider_transaction_id % (payment_provider = %); transition to FAILED with an UNKNOWN_TRANSACTION_CORRELATION classification instead', p_receipt_id, p_provider_transaction_id, v_receipt_provider;
+    END IF;
+
+    SELECT status INTO v_attempt_status
+    FROM billing.payment_attempts
+    WHERE id = v_resolved_attempt_id
+    FOR SHARE;
+
+    IF v_attempt_status IS DISTINCT FROM 'SUCCEEDED' THEN
+      RAISE EXCEPTION 'billing: payment_webhook_receipt % cannot be marked PROCESSED — resolved payment_attempt % is not in SUCCEEDED status (current = %); the payment-domain financial transition (fn_update_payment_status/fn_mark_invoice_paid) must commit before this receipt may be marked PROCESSED', p_receipt_id, v_resolved_attempt_id, v_attempt_status;
+    END IF;
   END IF;
 
   UPDATE billing.payment_webhook_receipts

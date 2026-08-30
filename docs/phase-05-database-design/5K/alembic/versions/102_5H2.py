@@ -152,6 +152,35 @@ documentation-consistency issue:
       relative to item 13's own fix. Corrected in the document; no
       migration content change.
 
+FIFTH PASS (2026-08-30, same day) — amended in place a fifth time, same
+policy, confirmed again before this pass began. A further independent
+freeze-gate review found one remaining BLOCKER plus a stale SQL comment:
+
+  17. Webhook processing integrity (BLOCKER): fn_process_payment_
+      webhook_receipt could write processing_status = 'PROCESSED' with
+      payment_attempt_id = NULL AND organization_id = NULL whenever its
+      caller requested PROCESSED for a provider transaction that failed
+      to resolve to any local payment_attempt — the permanent dedup gate
+      (uq_pwr_provider_event) would then durably suppress every future
+      genuine delivery of that provider event, with the customer's
+      payment never applied. Fixed with two layers: a new table CHECK,
+      chk_pwr_processed_requires_correlation (PROCESSED is structurally
+      impossible without both fields non-NULL, for any writer); and the
+      function itself now fails closed (RAISE EXCEPTION) before the
+      UPDATE whenever PROCESSED is requested without both (a) a resolved
+      correlation and (b) the resolved payment_attempt's own status
+      independently reading SUCCEEDED in the same transaction (standard
+      MVCC read-committed-within-transaction visibility of the caller's
+      own prior fn_update_payment_status/fn_mark_invoice_paid writes) —
+      this is the genuine atomicity guarantee, not merely linkage.
+      FAILED (including fully unlinked) is completely unaffected.
+  18. Stale SQL comment (documentation only, no grant/schema change):
+      the Part C comment block preceding payment_webhook_receipts still
+      described the obsolete first-draft ingress model ("app_api
+      executes the direct INSERT, no SECURITY DEFINER function
+      needed"), stale since the second/third passes' own actual grants.
+      Corrected in place to describe the current, authoritative flow.
+
 Revision ID: 102_5H2
 Revises: '101_5I1'
 """
@@ -180,6 +209,12 @@ def downgrade() -> None:
         "001_5B). No rollback DDL is authored here; restore from a "
         "database backup taken before this revision if needed. "
         "(Low-risk manual reversal, in dependency order: ALTER TABLE "
+        "billing.payment_webhook_receipts DROP CONSTRAINT "
+        "chk_pwr_processed_requires_correlation (re-opens the webhook "
+        "processing integrity BLOCKER if truly reverting -- not "
+        "recommended; the fn_process_payment_webhook_receipt fail-closed "
+        "checks would also need reverting to their pre-fifth-pass form "
+        "for this to matter in practice); ALTER TABLE "
         "billing.usage_events DROP CONSTRAINT chk_ue_source_quantity_seconds "
         "(re-add the original non-negative-only version if truly reverting "
         "-- not recommended, re-opens FINAL-6K-02); GRANT INSERT, UPDATE, "

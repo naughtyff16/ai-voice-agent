@@ -1,0 +1,184 @@
+Timing is off.
+Pager usage is off.
+=== FIXTURE SETUP ===
+SET
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+RESET
+
+################ TEST A/B/C: TABLE CHECK CONSTRAINT (raw INSERT as postgres superuser -- isolates the CHECK constraint itself from the privilege model; app_platform_admin/app_worker/app_api hold NO INSERT on this table at all by design, confirmed in the regression section below, so the constraint cannot be exercised through any of them) ################
+--- Test A: PROCESSED + NULL attempt + NULL org -- expect FAIL ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_webhook_integrity_test_matrix.sql:20: ERROR:  new row for relation "payment_webhook_receipts" violates check constraint "chk_pwr_processed_requires_correlation"
+DETAIL:  Failing row contains (01a050b8-1075-7b2e-8a27-27055e3bfbcc, RAZORPAY, evt_wh_testA, 2026-08-30 09:00:35.252014+05:30, PROCESSED, null, null, null, 0, null, 2026-08-30 09:00:35.252014+05:30, 2026-08-30 09:00:35.252014+05:30).
+--- Test B: PROCESSED + attempt only (org NULL) -- expect FAIL ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_webhook_integrity_test_matrix.sql:23: ERROR:  new row for relation "payment_webhook_receipts" violates check constraint "chk_pwr_processed_requires_correlation"
+DETAIL:  Failing row contains (01a050b8-1078-709f-8c1e-1ea40bc7c93e, RAZORPAY, evt_wh_testB, 2026-08-30 09:00:35.255791+05:30, PROCESSED, null, 8cefda7f-06be-4467-a9bb-9fadca7addfe, null, 0, null, 2026-08-30 09:00:35.255791+05:30, 2026-08-30 09:00:35.255791+05:30).
+--- Test C: PROCESSED + org only (attempt NULL) -- expect FAIL ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_webhook_integrity_test_matrix.sql:26: ERROR:  new row for relation "payment_webhook_receipts" violates check constraint "chk_pwr_processed_requires_correlation"
+DETAIL:  Failing row contains (01a050b8-1079-785e-97ac-accc3dfba3c3, RAZORPAY, evt_wh_testC, 2026-08-30 09:00:35.256867+05:30, PROCESSED, null, null, 11111111-1111-1111-1111-111111111111, 0, null, 2026-08-30 09:00:35.256867+05:30, 2026-08-30 09:00:35.256867+05:30).
+--- Test D: FAILED + NULL attempt + NULL org -- expect PASS (approved failure model) ---
+ processing_status | payment_attempt_id | organization_id 
+-------------------+--------------------+-----------------
+ FAILED            |                    | 
+(1 row)
+
+INSERT 0 1
+
+################ TEST: UNKNOWN PROVIDER TRANSACTION (function-level fail-closed) ################
+SET
+RESET
+SET
+--- Q1: PROCESSING transition (legal, RECEIVED->PROCESSING) with an unresolvable provider_transaction_id ---
+ resolved | resolved_payment_attempt_id | resolved_organization_id 
+----------+-----------------------------+--------------------------
+ t        |                             | 
+(1 row)
+
+--- Q2: attempting PROCESSED next -- expect controlled exception, NOT a written PROCESSED row ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_webhook_integrity_test_matrix.sql:44: ERROR:  billing: payment_webhook_receipt 01a050b8-107d-7b49-8cfb-fb277e2cefb7 cannot be marked PROCESSED — no authoritative payment_attempt/organization correlation resolved for provider_transaction_id txn_does_not_exist_anywhere (payment_provider = RAZORPAY); transition to FAILED with an UNKNOWN_TRANSACTION_CORRELATION classification instead
+CONTEXT:  PL/pgSQL function fn_process_payment_webhook_receipt(uuid,text,text,text) line 73 at RAISE
+--- Q3: receipt state after the failed PROCESSED attempt -- expect still PROCESSING, not PROCESSED, not corrupted ---
+ processing_status | payment_attempt_id | organization_id 
+-------------------+--------------------+-----------------
+ PROCESSING        |                    | 
+(1 row)
+
+--- Q4: governed failure path instead -- expect succeeds, FAILED, both NULL, error populated ---
+ resolved | resolved_payment_attempt_id | resolved_organization_id 
+----------+-----------------------------+--------------------------
+ t        |                             | 
+(1 row)
+
+ processing_status | payment_attempt_id | organization_id |           last_error            
+-------------------+--------------------+-----------------+---------------------------------
+ FAILED            |                    |                 | UNKNOWN_TRANSACTION_CORRELATION
+(1 row)
+
+RESET
+
+################ TEST: VALID CORRELATION -- FULL POSITIVE PATH ################
+SET
+RESET
+SET
+SET
+RESET
+SET
+--- link the provider transaction ---
+ fn_link_payment_provider_transaction 
+--------------------------------------
+ 
+(1 row)
+
+--- Q5: attempt PROCESSED BEFORE the financial transition has actually succeeded -- expect controlled exception (attempt is still PENDING, not SUCCEEDED) ---
+ resolved |     resolved_payment_attempt_id      |       resolved_organization_id       
+----------+--------------------------------------+--------------------------------------
+ t        | 01a050b8-1089-7a94-b521-21d96e3c119c | 11111111-1111-1111-1111-111111111111
+(1 row)
+
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_webhook_integrity_test_matrix.sql:71: ERROR:  billing: payment_webhook_receipt 01a050b8-1087-7164-87cc-cc5f2016be30 cannot be marked PROCESSED — resolved payment_attempt 01a050b8-1089-7a94-b521-21d96e3c119c is not in SUCCEEDED status (current = PENDING); the payment-domain financial transition (fn_update_payment_status/fn_mark_invoice_paid) must commit before this receipt may be marked PROCESSED
+CONTEXT:  PL/pgSQL function fn_process_payment_webhook_receipt(uuid,text,text,text) line 82 at RAISE
+--- Q6: receipt state after the premature PROCESSED attempt -- expect still PROCESSING ---
+ processing_status |          payment_attempt_id          |           organization_id            
+-------------------+--------------------------------------+--------------------------------------
+ PROCESSING        | 01a050b8-1089-7a94-b521-21d96e3c119c | 11111111-1111-1111-1111-111111111111
+(1 row)
+
+--- now correctly commit the financial transition first (same transaction discipline, sequential calls here) ---
+ fn_update_payment_status 
+--------------------------
+ 
+(1 row)
+
+ fn_mark_invoice_paid 
+----------------------
+ 
+(1 row)
+
+--- Q7: NOW attempt PROCESSED -- expect succeeds ---
+ resolved |     resolved_payment_attempt_id      |       resolved_organization_id       
+----------+--------------------------------------+--------------------------------------
+ t        | 01a050b8-1089-7a94-b521-21d96e3c119c | 11111111-1111-1111-1111-111111111111
+(1 row)
+
+ processing_status |          payment_attempt_id          |           organization_id            | has_processed_at 
+-------------------+--------------------------------------+--------------------------------------+------------------
+ PROCESSED         | 01a050b8-1089-7a94-b521-21d96e3c119c | 11111111-1111-1111-1111-111111111111 | t
+(1 row)
+
+RESET
+
+################ TEST: DUPLICATE WEBHOOK AFTER SUCCESSFUL PROCESSED ################
+SET
+(expect NULL -- duplicate, no second receipt)
+ dup_call 
+----------
+ 
+(1 row)
+
+RESET
+SET
+(expect: idempotent no-op, same resolved ids, no duplicate settlement attempted)
+ resolved |     resolved_payment_attempt_id      |       resolved_organization_id       
+----------+--------------------------------------+--------------------------------------
+ t        | 01a050b8-1089-7a94-b521-21d96e3c119c | 11111111-1111-1111-1111-111111111111
+(1 row)
+
+RESET
+
+################ TEST: PROVIDER MISMATCH ################
+SET
+RESET
+SET
+SET
+RESET
+SET
+--- attempt2 is RAZORPAY (server-derived); receipt3 is CASHFREE-signed but claims the SAME provider_transaction_id -- cross-provider must fail closed ---
+ fn_link_payment_provider_transaction 
+--------------------------------------
+ 
+(1 row)
+
+(expect: resolves NULL -- cross-provider, no row matches CASHFREE+that txn id)
+ resolved | resolved_payment_attempt_id | resolved_organization_id 
+----------+-----------------------------+--------------------------
+ t        |                             | 
+(1 row)
+
+(expect: controlled exception -- cannot become PROCESSED, no linkage)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_webhook_integrity_test_matrix.sql:113: ERROR:  billing: payment_webhook_receipt 01a050b8-1092-7308-87d0-d040ba16b8ab cannot be marked PROCESSED — no authoritative payment_attempt/organization correlation resolved for provider_transaction_id evt_wh_mismatch_txn (payment_provider = CASHFREE); transition to FAILED with an UNKNOWN_TRANSACTION_CORRELATION classification instead
+CONTEXT:  PL/pgSQL function fn_process_payment_webhook_receipt(uuid,text,text,text) line 73 at RAISE
+(expect: attempt_id2 payment status still PENDING -- no settlement occurred)
+ status  
+---------
+ PENDING
+(1 row)
+
+RESET
+
+################ REGRESSION: TABLE/FUNCTION PRIVILEGE BOUNDARIES UNCHANGED ################
+ app_api_select | app_api_insert | admin_insert | admin_select | app_api_ingress_exec | ingress_exec 
+----------------+----------------+--------------+--------------+----------------------+--------------
+ f              | f              | f            | t            | f                    | t
+(1 row)
+
+SET
+(expect: permission denied)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_webhook_integrity_test_matrix.sql:130: ERROR:  permission denied for table payment_webhook_receipts
+RESET
+SET
+(expect: permission denied -- FREEZE-6K-01 unaffected)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_webhook_integrity_test_matrix.sql:134: ERROR:  permission denied for table payment_webhook_receipts
+RESET
+
+################ REGRESSION: CALL_MINUTES + COMMERCIAL PRICING UNAFFECTED ################
+SET
+SET
+(expect: violates check constraint)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_webhook_integrity_test_matrix.sql:143: ERROR:  new row for relation "usage_events_2026_08" violates check constraint "chk_ue_source_quantity_seconds"
+RESET
+SET
+(expect: permission denied -- commercial pricing raw update unaffected)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_webhook_integrity_test_matrix.sql:147: ERROR:  permission denied for table commercial_pricing_agreement_versions
+RESET
+=== DONE ===

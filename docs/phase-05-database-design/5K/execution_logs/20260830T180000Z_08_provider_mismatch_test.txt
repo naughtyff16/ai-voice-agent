@@ -1,0 +1,30 @@
+################ TEST: PROVIDER MISMATCH ################
+SET
+RESET
+SET
+SET
+RESET
+SET
+--- attempt2 is RAZORPAY (server-derived); receipt3 is CASHFREE-signed but claims the SAME provider_transaction_id -- cross-provider must fail closed ---
+ fn_link_payment_provider_transaction 
+--------------------------------------
+ 
+(1 row)
+
+(expect: resolves NULL -- cross-provider, no row matches CASHFREE+that txn id)
+ resolved | resolved_payment_attempt_id | resolved_organization_id 
+----------+-----------------------------+--------------------------
+ t        |                             | 
+(1 row)
+
+(expect: controlled exception -- cannot become PROCESSED, no linkage)
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_webhook_integrity_test_matrix.sql:113: ERROR:  billing: payment_webhook_receipt 01a050b8-1092-7308-87d0-d040ba16b8ab cannot be marked PROCESSED — no authoritative payment_attempt/organization correlation resolved for provider_transaction_id evt_wh_mismatch_txn (payment_provider = CASHFREE); transition to FAILED with an UNKNOWN_TRANSACTION_CORRELATION classification instead
+CONTEXT:  PL/pgSQL function fn_process_payment_webhook_receipt(uuid,text,text,text) line 73 at RAISE
+(expect: attempt_id2 payment status still PENDING -- no settlement occurred)
+ status  
+---------
+ PENDING
+(1 row)
+
+RESET
+

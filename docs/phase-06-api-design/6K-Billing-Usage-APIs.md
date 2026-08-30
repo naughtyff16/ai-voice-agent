@@ -17,7 +17,7 @@
 
 ## 1. Document Control
 
-This document defines Phase 6K only. Phases 6A–6J are approved/frozen and are **not redesigned** here. Phase 5H (Billing/Usage Schema) is approved and is **not redesigned** here — it is extended by exactly one additive migration (§12, `102_5H2`, live-validated on PostgreSQL 18.6, amended in place across four remediation passes) to close a genuine, business-required schema gap (§11) plus a further sequence of confirmed defects that three independent freeze-gate reviews found across the first three drafts. No previously-applied migration (001–101) is edited. No application implementation code is written — this document specifies contracts, not code; the migration itself, however, is real, executable SQL that has been run end-to-end (fresh and incremental) against a live database, not idealized pseudo-SQL.
+This document defines Phase 6K only. Phases 6A–6J are approved/frozen and are **not redesigned** here. Phase 5H (Billing/Usage Schema) is approved and is **not redesigned** here — it is extended by exactly one additive migration (§12, `102_5H2`, live-validated on PostgreSQL 18.6, amended in place across five remediation passes) to close a genuine, business-required schema gap (§11) plus a further sequence of confirmed defects that four independent freeze-gate reviews found across the first four drafts. No previously-applied migration (001–101) is edited. No application implementation code is written — this document specifies contracts, not code; the migration itself, however, is real, executable SQL that has been run end-to-end (fresh and incremental) against a live database, not idealized pseudo-SQL.
 
 Every business/pricing decision this document could not derive from an approved source was surfaced as an owner decision. **All four (DEC-6K-01/02/03/04) have since been reviewed and accepted by the product owner — see §48. They are FINAL and are not re-litigated anywhere in this document.**
 
@@ -611,7 +611,16 @@ CREATE TABLE billing.payment_webhook_receipts (
   CONSTRAINT uq_pwr_provider_event UNIQUE (payment_provider, provider_event_id),  -- NOT DEFERRABLE — the atomic dedup gate requires an immediate constraint
   CONSTRAINT chk_pwr_processing    CHECK (processing_status IN ('RECEIVED','PROCESSING','PROCESSED','FAILED')),
   CONSTRAINT chk_pwr_last_error_len CHECK (last_error IS NULL OR length(last_error) <= 2000),
-  CONSTRAINT chk_pwr_processed     CHECK ((processing_status IN ('PROCESSED','FAILED')) = (processed_at IS NOT NULL))
+  CONSTRAINT chk_pwr_processed     CHECK ((processing_status IN ('PROCESSED','FAILED')) = (processed_at IS NOT NULL)),
+  -- FIFTH freeze-gate pass: PROCESSED is structurally impossible without
+  -- an authoritative payment_attempt_id AND organization_id already
+  -- populated on the same row — closes a confirmed blocker where the
+  -- processor function could write PROCESSED with both NULL. FAILED
+  -- remains legal with both NULL (an unresolved provider transaction).
+  CONSTRAINT chk_pwr_processed_requires_correlation CHECK (
+    processing_status <> 'PROCESSED'
+    OR (payment_attempt_id IS NOT NULL AND organization_id IS NOT NULL)
+  )
 );
 
 CREATE INDEX idx_pwr_status  ON billing.payment_webhook_receipts (processing_status, received_at);
@@ -709,6 +718,17 @@ GRANT EXECUTE ON FUNCTION billing.fn_record_payment_webhook_receipt(TEXT, TEXT, 
 -- match the resolved attempt's payment_provider — a cross-provider
 -- linking attempt fails closed rather than silently linking (live-
 -- confirmed, §12.8).
+--
+-- FIFTH freeze-gate pass (webhook processing integrity BLOCKER): the
+-- function previously let the caller's own p_new_status = 'PROCESSED'
+-- request write through unconditionally even when v_resolved_attempt_id/
+-- v_resolved_org stayed NULL (an unresolved provider transaction) —
+-- durably poisoning the dedup key on a receipt that could never
+-- legitimately be revisited. Fixed with two fail-closed checks, scoped
+-- to p_new_status = 'PROCESSED' only: (1) correlation must be non-NULL;
+-- (2) the resolved payment_attempt's own status must independently read
+-- 'SUCCEEDED' in this same transaction — not merely "an id was found."
+-- FAILED (including unlinked) is completely unaffected.
 CREATE OR REPLACE FUNCTION billing.fn_process_payment_webhook_receipt(
   p_receipt_id                UUID,
   p_new_status                 TEXT,
@@ -721,6 +741,7 @@ DECLARE
   v_current TEXT; v_receipt_provider TEXT;
   v_already_linked_attempt UUID; v_already_linked_org UUID;
   v_resolved_attempt_id UUID; v_resolved_org UUID;
+  v_attempt_status TEXT;
   v_allowed TEXT[][] := ARRAY[
     ARRAY['RECEIVED', 'PROCESSING'],
     ARRAY['PROCESSING', 'PROCESSED'],
@@ -766,9 +787,28 @@ BEGIN
     WHERE pa.provider_transaction_id = p_provider_transaction_id
       AND pa.payment_provider = v_receipt_provider;  -- cross-provider linking fails closed
     -- v_resolved_attempt_id staying NULL (unknown transaction
-    -- correlation) is not itself an exception — the caller decides the
-    -- outcome (typically p_new_status = 'FAILED' with p_error naming
-    -- UNKNOWN_TRANSACTION_CORRELATION, §36).
+    -- correlation) is not itself an exception for p_new_status = 'FAILED'
+    -- — the caller decides that outcome (typically 'FAILED' with p_error
+    -- naming UNKNOWN_TRANSACTION_CORRELATION, §36). For 'PROCESSED' it is
+    -- instead an unconditional fail-closed exception, immediately below.
+  END IF;
+
+  -- FIFTH freeze-gate pass: PROCESSED requires both a resolved
+  -- correlation AND independent, same-transaction confirmation that the
+  -- correlated payment_attempt has actually reached SUCCEEDED (read
+  -- under standard PostgreSQL MVCC visibility — sees this transaction's
+  -- own prior fn_update_payment_status/fn_mark_invoice_paid writes,
+  -- §30.2's documented ordering). This is the atomicity guarantee, not
+  -- merely linkage: "an id was found" is no longer sufficient for
+  -- PROCESSED. Neither check runs for any other p_new_status value.
+  IF p_new_status = 'PROCESSED' THEN
+    IF v_resolved_attempt_id IS NULL OR v_resolved_org IS NULL THEN
+      RAISE EXCEPTION 'billing: payment_webhook_receipt % cannot be marked PROCESSED — no authoritative correlation resolved for provider_transaction_id %; transition to FAILED with UNKNOWN_TRANSACTION_CORRELATION instead', p_receipt_id, p_provider_transaction_id;
+    END IF;
+    SELECT status INTO v_attempt_status FROM billing.payment_attempts WHERE id = v_resolved_attempt_id FOR SHARE;
+    IF v_attempt_status IS DISTINCT FROM 'SUCCEEDED' THEN
+      RAISE EXCEPTION 'billing: payment_webhook_receipt % cannot be marked PROCESSED — payment_attempt % is not SUCCEEDED (current = %); the financial transition must commit first', p_receipt_id, v_resolved_attempt_id, v_attempt_status;
+    END IF;
   END IF;
 
   UPDATE billing.payment_webhook_receipts
@@ -1198,21 +1238,24 @@ REVOKE INSERT ON billing.refunds FROM app_api;
 102_5H2
     down_revision = '101_5I1'  (new revision in its first pass; amended in
                                 place a second time for the freeze-gate
-                                fixes, then a third time for the FINAL-6K-01/
-                                02 fixes below — never applied to a
-                                persistent database at any point, confirmed
-                                before each amendment)
+                                fixes, a third time for the FINAL-6K-01/02
+                                fixes, a fourth time for the FREEZE-6K-01/02/
+                                03 fixes, and a fifth time for the webhook
+                                processing integrity fix below — never
+                                applied to a persistent database at any
+                                point, confirmed before each amendment)
     purpose: Parts A-G above — commercial pricing agreements (with NO raw
              DML for any role, including app_platform_admin, Parts A/B);
              payment-flow correctness (provider_transaction_id nullable,
              payment_method_kind, payment_webhook_receipts with ingress
              restricted to the dedicated app_billing_webhook_ingress role,
              fn_create_payment_attempt as the sole app_api-callable billing
-             function, internally-deriving webhook-receipt linkage);
-             exact-aggregate call-minute billing, now DB-mandatory for
-             CALL_MINUTES (Part F); late-usage adjustment provenance
-             (Part E); broader least-privilege hardening across 7 other
-             billing tables (Part G)
+             function, internally-deriving webhook-receipt linkage, PROCESSED
+             now fails closed without an authoritative, committed SUCCEEDED
+             correlation); exact-aggregate call-minute billing, now
+             DB-mandatory for CALL_MINUTES (Part F); late-usage adjustment
+             provenance (Part E); broader least-privilege hardening across 7
+             other billing tables (Part G)
     transaction: standard (no CONCURRENTLY; every new column is NULL-default
                  or constant-default; every DROP NOT NULL is metadata-only)
 ```
@@ -1294,9 +1337,27 @@ REVOKE INSERT ON billing.refunds FROM app_api;
 | Regression: `CALL_MINUTES` NULL/negative rejected, valid accepted, 1000×1s = 1×1000s aggregation | **PASS** — 16.6667=16.6667 |
 | Regression: commercial-pricing raw `UPDATE`/`DELETE` denied for `app_platform_admin`; controlled create/version/activate succeeds end to end | **PASS** |
 | Regression: `fn_create_late_usage_billing_adjustment`/`fn_create_payment_attempt` grants unaffected | **PASS** |
-| `SECURITY DEFINER` inventory, all functions (current, post-fourth-pass) | **PASS** — `fn_record_payment_webhook_receipt` grantees: `{app_billing_webhook_ingress}` only (plus the owning role); every other function's grantee set unchanged from the third pass |
+| `SECURITY DEFINER` inventory, all functions (state after the fourth pass; the PROCESSED-atomicity story below is what the fifth pass corrects) | **PASS** — `fn_record_payment_webhook_receipt` grantees: `{app_billing_webhook_ingress}` only (plus the owning role); every other function's grantee set unchanged from the third pass |
 
-Full per-test narrative, raw transcripts, and the complete blocker-closure table (all four passes): `docs/phase-05-database-design/5K/validation/6K_FINAL_BLOCKER_REMEDIATION_VALIDATION_REPORT.md`.
+**Fifth-pass live validation (PostgreSQL 18.6, genuinely fresh disposable instance, `.tmp_pgdata_6kwebhook`), closing a webhook processing integrity blocker a further independent freeze-gate review found against the state above:**
+
+| Check | Result |
+|---|---|
+| Fresh `001 → 102` (fifth-pass file) | **PASS**, exit 0 |
+| Incremental `101 → 102` (separate database) | **PASS**, exit 0 |
+| Final checksum vs. `MIGRATION_MANIFEST.md` row 102 | **Match** — `9c995df348eac3569a9b7b18f355ef38565ec013199078ee81eb2f1157d552c5`, 91847 bytes |
+| Table CHECK `chk_pwr_processed_requires_correlation`: `PROCESSED` + both NULL / attempt-only / org-only, direct superuser `INSERT` | **PASS** — all three violate the CHECK |
+| Table CHECK: `FAILED` + both NULL | **PASS** — succeeds, approved failure model unaffected |
+| Unknown provider transaction: `PROCESSING` with an unresolvable transaction ID | **PASS** — succeeds, both resolved ids `NULL` |
+| Unknown provider transaction: subsequent `PROCESSED` attempt | **PASS** — controlled exception, receipt remains `PROCESSING`, uncorrupted |
+| Unknown provider transaction: governed `FAILED`/`UNKNOWN_TRANSACTION_CORRELATION` path | **PASS** — succeeds, error populated |
+| Atomicity: `PROCESSED` requested before the financial transition commits (`payment_attempt.status = PENDING`) | **PASS** — controlled exception, receipt remains `PROCESSING` |
+| Atomicity: identical `PROCESSED` call after `fn_update_payment_status(SUCCEEDED)` + `fn_mark_invoice_paid` genuinely commit | **PASS** — succeeds; ids populated, `processed_at` set |
+| Duplicate webhook after success: repeat ingress call; repeat `PROCESSED` call on an already-`PROCESSED` receipt | **PASS** — `NULL` (no second receipt); idempotent, same resolved ids |
+| Provider mismatch: cross-provider correlation attempt | **PASS** — resolves `NULL`; `PROCESSED` raises; mismatched attempt confirmed still `PENDING` |
+| Regression: webhook table/function privilege matrix, `CALL_MINUTES`, commercial pricing | **PASS** — all unaffected |
+
+Full per-test narrative, raw transcripts, and the complete blocker-closure table (all five passes): `docs/phase-05-database-design/5K/validation/6K_FINAL_BLOCKER_REMEDIATION_VALIDATION_REPORT.md`.
 
 ---
 
@@ -1954,7 +2015,14 @@ Provider (Razorpay/Cashfree) → this endpoint
        → billing.fn_update_payment_status(...) (057_5H, unchanged) → on SUCCEEDED:
          billing.fn_mark_invoice_paid(...)
        → fn_process_payment_webhook_receipt(receipt_id, 'PROCESSED'/'FAILED', ...) to close
-         out the receipt
+         out the receipt — SAME transaction as the fn_update_payment_status/
+         fn_mark_invoice_paid calls immediately above; a 'PROCESSED' request now fails
+         closed (RAISE EXCEPTION) unless correlation resolved to a non-NULL
+         payment_attempt_id/organization_id AND that payment_attempt's own status
+         independently reads 'SUCCEEDED' in this same transaction — "an id was found"
+         is no longer sufficient (webhook processing integrity fix, §44 INV-6K-32,
+         live-confirmed). An unresolved provider transaction is only ever a legitimate
+         unlinked FAILED (UNKNOWN_TRANSACTION_CORRELATION, §36) — never PROCESSED.
        + audit PAYMENT_SUCCEEDED/PAYMENT_FAILED + outbox 'invoice.paid'/'payment.failed' (same transaction, §45)
 ```
 
@@ -2184,7 +2252,8 @@ Confirms task §81/§50's requirement directly: no `VIEWER`-level role holds `bi
 | Tax | `billing.tax_profiles`, `tax_categories`, `tax_rules`, `tax_lines` | — | 047_5H, 052_5H, 054_5H | EXISTING |
 | Payment attempts | `billing.payment_attempts` | `fn_update_payment_status` (unchanged, confirmed still one overload); `fn_link_payment_provider_transaction` (new); `fn_create_payment_attempt` (new, `app_api`-callable, FB-6K-05) — `app_api` direct `INSERT` revoked | 055_5H, 057_5H; **102_5H2** | EXISTING + **NEW 6K PATCH — live-validated** |
 | Payment-attempt schema fix | `payment_attempts.provider_transaction_id` (now nullable), `.payment_method_kind` (new) | `fn_link_payment_provider_transaction`, `fn_create_payment_attempt` | **102_5H2** | **NEW 6K PATCH — live-validated** |
-| Inbound payment-webhook durability | `billing.payment_webhook_receipts` | `fn_process_payment_webhook_receipt` (internally-deriving linkage, FB-6K-07); `fn_record_payment_webhook_receipt` (new — `EXECUTE` restricted to the dedicated `app_billing_webhook_ingress` role only, FB-6K-03/04 + FINAL-6K-01) — `app_api` direct `SELECT`/`INSERT` on the table revoked, `app_api`/`app_platform_admin` `EXECUTE` on the function also revoked, and `app_platform_admin`'s raw `INSERT`/`UPDATE`/`DELETE` on the table itself also revoked (`SELECT`-only retained, FREEZE-6K-01) — no role holds `DELETE` at all | **102_5H2** | **NEW 6K PATCH — live-validated** |
+| Inbound payment-webhook durability | `billing.payment_webhook_receipts` | `fn_process_payment_webhook_receipt` (internally-deriving linkage, FB-6K-07; fails closed on `PROCESSED` without correlation + committed `SUCCEEDED` payment status, webhook processing integrity fix); `fn_record_payment_webhook_receipt` (new — `EXECUTE` restricted to the dedicated `app_billing_webhook_ingress` role only, FB-6K-03/04 + FINAL-6K-01) — `app_api` direct `SELECT`/`INSERT` on the table revoked, `app_api`/`app_platform_admin` `EXECUTE` on the function also revoked, and `app_platform_admin`'s raw `INSERT`/`UPDATE`/`DELETE` on the table itself also revoked (`SELECT`-only retained, FREEZE-6K-01) — no role holds `DELETE` at all | **102_5H2** | **NEW 6K PATCH — live-validated** |
+| Webhook processing integrity | `payment_webhook_receipts.chk_pwr_processed_requires_correlation` (new) | — (CHECK-enforced; `fn_process_payment_webhook_receipt` also independently re-verifies the resolved `payment_attempt`'s own `SUCCEEDED` status in the same transaction) | **102_5H2** | **NEW 6K PATCH — live-validated (webhook processing integrity BLOCKER)** |
 | Refunds | `billing.refunds` | `fn_validate_refund_amount` (trigger) — `app_api` direct `INSERT` revoked (Part G) | 055_5H | EXISTING + **grant hardened, 102_5H2** |
 | Billing adjustments | `billing.billing_adjustments` | `fn_create_billing_adjustment` (existing, unedited) | 056_5H, 086_5H1 | EXISTING |
 | Late-usage adjustment provenance | `billing_adjustments.late_usage_billing_period_id`, `.late_usage_metric`, `.late_usage_provenance` | `fn_create_late_usage_billing_adjustment` (new, separate from `fn_create_billing_adjustment`) | **102_5H2** | **NEW 6K PATCH — live-validated** |
@@ -2240,6 +2309,9 @@ After an invoice is finalized (`OPEN`/`PAID`): publishing a new global `PlanVers
 | Webhook amount mismatch | `AMOUNT_MISMATCH`, marked `FAILED`, invoice never marked paid (§30.6) |
 | Webhook currency mismatch | `CURRENCY_MISMATCH`, same handling |
 | Webhook references an unknown/never-issued `provider_transaction_id` | `fn_process_payment_webhook_receipt` resolves `NULL`, recorded `FAILED`/`UNKNOWN_TRANSACTION_CORRELATION` (§30.3/§36, live-confirmed, FB-6K-07) |
+| A caller (or a caller bug) requests `p_new_status = 'PROCESSED'` for a receipt whose provider transaction never resolved to a `payment_attempt` | **Impossible** — `fn_process_payment_webhook_receipt` raises a controlled exception before the `UPDATE`; `chk_pwr_processed_requires_correlation` additionally makes the resulting row state structurally unreachable for any writer (webhook processing integrity BLOCKER, live-confirmed) |
+| A caller requests `PROCESSED` for a receipt that resolved a `payment_attempt_id` but that attempt's own status is not `SUCCEEDED` (e.g. the financial transition has not yet committed, or committed to a non-success terminal state) | **Impossible** — the function independently re-reads the resolved `payment_attempt`'s status in the same transaction and raises rather than writing `PROCESSED` (webhook processing integrity BLOCKER, live-confirmed) |
+| A raw `UPDATE` (by any role that might ever hold one) attempts to set `processing_status = 'PROCESSED'` with `payment_attempt_id`/`organization_id` `NULL` | **Impossible** — `chk_pwr_processed_requires_correlation` rejects it at the DB layer regardless of caller or code path |
 | A verified webhook's provider disagrees with the resolved attempt's own provider (cross-provider linkage) | Resolves `NULL`, fails closed — never silently links (§30.3, live-confirmed) |
 | Webhook/payment for another tenant's invoice | Structurally impossible post-§30.3 — tenant context is derived from the *originating* `payment_attempts` row, never the webhook payload's own claim |
 | Payment attempted after invoice already `PAID` | `409 INVOICE_ALREADY_PAID` at `payment-intent`; `fn_mark_invoice_paid`'s own `v_status <> 'OPEN'` guard rejects a stray webhook reaching this state too |
@@ -2264,6 +2336,7 @@ After an invoice is finalized (`OPEN`/`PAID`): publishing a new global `PlanVers
 | Invoice tampering | `REVOKE UPDATE, DELETE` + `fn_invoice_immutability` (5H, unchanged); `app_api` also holds no `INSERT` on `invoice_lines`/`tax_lines` (Part G) | None identified |
 | Tenant manufactures a payment (wrong amount/currency/provider) via direct table access (FB-6K-05) | `app_api` has no `INSERT` grant on `payment_attempts` at all; `fn_create_payment_attempt` derives every financial value server-side with no forgeable tenant parameter (§12.4, live-confirmed) | None identified — DB-enforced |
 | Webhook dedup poisoning — a tenant, a general worker code path, or a raw platform-admin table write manufactures/pre-claims a webhook receipt or mutates its processing/linkage state, bypassing the dedicated ingress path entirely (FB-6K-03/04, FINAL-6K-01, FREEZE-6K-01) | Control: `app_api` cannot read the receipt table (no `SELECT`); cannot write it (no `INSERT`/`UPDATE`/`DELETE`); cannot execute the ingress function (no `EXECUTE`). `app_platform_admin` cannot raw-mutably `INSERT`/`UPDATE`/`DELETE` receipt rows (`SELECT` only, retained for narrow support/incident-response reading — not a write path). Only the dedicated `app_billing_webhook_ingress` role can invoke the one narrow `SECURITY DEFINER` ingress function, and it holds no other table privilege at all. Provider signature verification (`PaymentProviderPort.verify_webhook`, §30.2) precedes every invocation. `uq_pwr_provider_event` provides the durable, atomic dedup gate. No role of any kind holds `DELETE` — a future archival need is a separately governed retention operation, never an ordinary runtime grant (§12.4, live-confirmed) | Residual, explicitly not "none": compromise of the dedicated `app_billing_webhook_ingress` service's own credential; compromise of the platform's own webhook-signing secret (mitigated by `CredentialRef` rotation discipline, 4F/4I, out of this document's scope to redesign) — both are deployment/credential-management concerns, not DB-role-level bypasses, and neither is closed by any grant correction alone |
+| Webhook consumed without financial application — a valid provider event is durably recorded, the worker fails to resolve (or hasn't yet committed) the local `PaymentAttempt`, the receipt is nonetheless marked `PROCESSED`, durable dedup then suppresses every future genuine retry of the same provider event, and the customer's payment never applies (webhook processing integrity BLOCKER, fifth freeze-gate pass) | `PROCESSED` requires a linked `PaymentAttempt` AND `organization_id` (`chk_pwr_processed_requires_correlation`, structural); `fn_process_payment_webhook_receipt` fails closed (`RAISE EXCEPTION`) on unknown correlation instead of writing `PROCESSED`; successful `PROCESSED` additionally requires the resolved `payment_attempt`'s own status to independently read `SUCCEEDED` in the same transaction — not merely "an id was found" (§12.4, live-confirmed); a retryable `FAILED` path remains available (`UNKNOWN_TRANSACTION_CORRELATION`, §36); durable dedup (`uq_pwr_provider_event`) is unchanged and still prevents a duplicate receipt | Prolonged upstream reconciliation failure (e.g. a payment-attempt row genuinely never created due to an earlier, unrelated failure) requiring operational intervention — not a data-integrity gap, an availability/ops concern |
 | Payment webhook forgery | `PaymentProviderPort.verify_webhook`, discarded on failure (§30.2) — no `payment_webhook_receipts` row is ever created for an unverified payload | Compromise of the platform's own webhook secret — mitigated by `CredentialRef` rotation discipline (4F/4I, out of this document's scope to redesign) |
 | Payment amount/currency mismatch | §30.6's mandatory comparison before `fn_mark_invoice_paid`; internal-only `AMOUNT_MISMATCH`/`CURRENCY_MISMATCH` classification, never surfaced to the tenant as a card-decline reason | None identified |
 | Webhook resolves to the wrong payment_attempt (weak linkage provenance, task's significant finding) | `fn_process_payment_webhook_receipt` internally resolves attempt/organization from `provider_transaction_id` against the platform's own data, cross-checking `payment_provider` — a cross-provider linkage attempt resolves `NULL`, fails closed (§12.4/§30.3, live-confirmed) | None identified |
@@ -2352,6 +2425,7 @@ Restated as the binding checklist (task §92), each traced to its enforcement me
 | INV-6K-29 | No tenant-facing or general internal DB role (`app_api`, `app_worker`, `app_platform_admin`) holds `EXECUTE` on `fn_record_payment_webhook_receipt` — only the dedicated, minimal-surface `app_billing_webhook_ingress` role can call it, so no session outside the platform's own verified-webhook ingress path can pre-claim a real provider event ID | §12.4, third freeze-gate pass, live-confirmed (FINAL-6K-01) |
 | INV-6K-30 | A `usage_events` row with `metric = 'CALL_MINUTES'` cannot be stored with `source_quantity_seconds IS NULL` — the exact-aggregation guarantee (INV-6K-27) is a structural DB invariant, not merely an ingestion-consumer convention | §12.7a, third freeze-gate pass, live-confirmed (FINAL-6K-02) |
 | INV-6K-31 | **Webhook Receipt Write Isolation.** Payment-provider webhook receipt state (`billing.payment_webhook_receipts`) may only be created or transitioned through the two dedicated controlled functions (`fn_record_payment_webhook_receipt` for creation, `fn_process_payment_webhook_receipt` for state transition/linkage). No tenant runtime (`app_api`), no raw worker DML path (`app_worker` holds `SELECT` only on the table), and no raw platform-admin DML path (`app_platform_admin` holds `SELECT` only on the table) may pre-claim or rewrite provider webhook receipt state; no role of any kind holds `DELETE` | §12.4, fourth freeze-gate pass, live-confirmed (FREEZE-6K-01) |
+| INV-6K-32 | **Webhook Successful Processing Integrity.** A payment webhook receipt may enter `PROCESSED` only when it has been authoritatively correlated to a local `PaymentAttempt` and organization AND the required payment-domain state transition (`fn_update_payment_status` → `SUCCEEDED`) has successfully committed. Unknown, mismatched, or rejected provider events may not be represented as successful processing — they resolve to a retryable `FAILED` classification (`UNKNOWN_TRANSACTION_CORRELATION` or the existing `AMOUNT_MISMATCH`/`CURRENCY_MISMATCH` codes, §36) instead | §12.4, fifth freeze-gate pass, live-confirmed (webhook processing integrity BLOCKER) |
 | INV-6K-25 | `app_api` holds no direct `INSERT` on `payment_attempts` — `fn_create_payment_attempt` is the sole tenant-reachable creation path, deriving amount/currency/provider entirely server-side with no forgeable financial parameter | §12.4, freeze-gate hardened, live-confirmed (FB-6K-05) |
 | INV-6K-26 | A webhook receipt's linkage to a `payment_attempts`/organization is always internally resolved from `provider_transaction_id` against the platform's own data — never accepted as a direct, trusted caller parameter; a cross-provider resolution attempt fails closed | §12.4/§30.3, freeze-gate hardened, live-confirmed (FB-6K-07) |
 | INV-6K-27 | `CALL_MINUTES` billing aggregation sums exact pre-conversion seconds and rounds once — never rounds per call before summing, which would compound a systematic overstatement | §12.7a/§22.3, freeze-gate hardened, live-confirmed (FB-6K-06) |
@@ -2539,11 +2613,12 @@ All four decisions this document originally raised have been reviewed and accept
 
 ```
 PHASE 6K — BILLING + USAGE APIs
-(Four remediation passes, all 2026-08-30: FINAL Blocker Remediation, then an
+(Five remediation passes, all 2026-08-30: FINAL Blocker Remediation, then an
  independent freeze-gate review's own FINAL Freeze-Gate Remediation, then a
  further independent freeze-gate review's own FINAL Two-Issue Freeze
  Remediation, then a further independent freeze-gate review's own FINAL
- Freeze-Gate Remediation Pass)
+ Freeze-Gate Remediation Pass, then a further independent freeze-gate
+ review's own FINAL Webhook Processing Integrity Remediation)
 
 Billing account APIs:              DESIGNED
 Plan catalog APIs (tenant read):   DESIGNED
@@ -2641,7 +2716,24 @@ Payment architecture:              DESIGNED, IMPLEMENTED, LIVE-VALIDATED, FREEZE
                                     by revoking INSERT/UPDATE/DELETE from app_platform_admin (SELECT
                                     retained, a narrow read-only support/incident-response
                                     allowance) — no role, including app_platform_admin, holds DELETE
-                                    on this table; all live-validated on PostgreSQL 18.6
+                                    on this table; a fifth freeze-gate review then found ONE more
+                                    confirmed BLOCKER the fourth pass missed: fn_process_payment_
+                                    webhook_receipt could write processing_status = 'PROCESSED' with
+                                    payment_attempt_id/organization_id BOTH NULL whenever a caller
+                                    requested PROCESSED for a provider transaction that never
+                                    resolved to a local payment_attempt — the permanent dedup gate
+                                    would then durably suppress every future genuine delivery of
+                                    that provider event, with the customer's payment never applied;
+                                    closed with a new table CHECK (chk_pwr_processed_requires_
+                                    correlation, structurally requiring both fields non-NULL for
+                                    PROCESSED) plus a function-level fail-closed check that
+                                    independently re-verifies, in the SAME transaction, that the
+                                    resolved payment_attempt's own status has actually reached
+                                    SUCCEEDED before permitting PROCESSED — "an id was found" is no
+                                    longer sufficient, only a genuinely committed financial success
+                                    is; a stale SQL comment describing the obsolete direct-INSERT-
+                                    by-app_api ingress model was also corrected; all live-validated
+                                    on PostgreSQL 18.6
 Refunds:                           DESIGNED (read-only tenant exposure; creation remains
                                     admin/support, handed to 6M)
 Multi-currency:                    DESIGNED (V1 stays single-currency-per-account, per 5H ODD-5H-10)
@@ -2653,35 +2745,38 @@ Error catalog:                     COMPLETE (§36) — no collision with 6A/6B; 
                                     UNKNOWN_TRANSACTION_CORRELATION), never conflated with the
                                     customer-facing FailureCode enum
 Database traceability:             COMPLETE (§38) — every new/changed object marked and
-                                    cross-referenced to live validation evidence, all four passes
-Threat model:                      COMPLETE (§40) — 9 new/updated threat rows across the
+                                    cross-referenced to live validation evidence, all five passes
+Threat model:                      COMPLETE (§40) — 10 new/updated threat rows across the
                                     freeze-gate findings, each with a live-confirmed control (the
-                                    webhook-dedup-poisoning row now covers the table-DML path too,
-                                    FREEZE-6K-01, and explicitly names residual, non-DB-role risk)
-Financial invariants:              COMPLETE (§44) — INV-6K-23 through INV-6K-31 added for the
+                                    webhook-dedup-poisoning row covers the table-DML path too,
+                                    FREEZE-6K-01; a new row covers webhook processing integrity,
+                                    explicitly naming residual, non-DB-role risk in both cases)
+Financial invariants:              COMPLETE (§44) — INV-6K-23 through INV-6K-32 added for the
                                     freeze-gate findings
 Test matrices:                     COMPLETE (§39) — pricing resolution, no-double-bill, invoice
                                     determinism, payment security, all with worked test values;
                                     28 first-pass + ~20 second-pass + 12 third-pass + 22 fourth-pass
-                                    assertions were additionally run for real against live
-                                    PostgreSQL 18.6 instances (§12.8, validation report §29), plus a
-                                    full regression re-run of the complete original 28-test suite
-                                    against the corrected file (and targeted regression smoke tests
-                                    in the third and fourth passes against the most relevant prior
-                                    fixes)
+                                    + 21 fifth-pass assertions were additionally run for real
+                                    against live PostgreSQL 18.6 instances (§12.8, validation report
+                                    §37), plus a full regression re-run of the complete original
+                                    28-test suite against the corrected file (and targeted
+                                    regression smoke tests in the third, fourth, and fifth passes
+                                    against the most relevant prior fixes)
 
 Phase 5H schema gap (commercial pricing):     IDENTIFIED AND CLOSED — 102_5H2, live-validated
 Phase 5H SECURITY DEFINER audit:              COMPLETE — no gap found (§9.1), re-confirmed live
-                                               for every function across all four passes
-                                               (validation report §6/§16/§23/§30) —
+                                               for every function across all five passes
+                                               (validation report §6/§16/§23/§30/§37) —
                                                fn_create_payment_attempt is the sole
                                                app_api-granted billing function;
                                                fn_record_payment_webhook_receipt is granted only
                                                to the dedicated app_billing_webhook_ingress role
-                                               (FINAL-6K-01, no longer app_api-granted), and no
-                                               role holds any raw table DML on
-                                               payment_webhook_receipts beyond SELECT
-                                               (FREEZE-6K-01)
+                                               (FINAL-6K-01, no longer app_api-granted); no role
+                                               holds any raw table DML on payment_webhook_receipts
+                                               beyond SELECT (FREEZE-6K-01); and
+                                               fn_process_payment_webhook_receipt now fails closed
+                                               rather than trusting its caller's own PROCESSED
+                                               request (webhook processing integrity fix)
 Phase 5H non-gap (SubscriptionItem):          CONFIRMED, correctly NOT built (§9.3)
 Phase 5H confirmed defect (provider_transaction_id NOT NULL): FOUND AND FIXED (§12.4)
 
@@ -2739,19 +2834,30 @@ third pass missed, explicitly disclosed, not hidden — validation report §25) 
                 against the exact final file, checksum cross-checked against the manifest
   (full closure table with live evidence: validation report §31)
 
+Fifth-pass (freeze-gate) finding (1 BLOCKER the fourth pass missed, explicitly disclosed, not
+hidden — validation report §32) — FOUND AND FIXED:
+  Webhook processing integrity — fn_process_payment_webhook_receipt could write
+  processing_status = 'PROCESSED' with payment_attempt_id/organization_id BOTH NULL for a
+  provider transaction that never resolved to a local payment_attempt, permanently poisoning the
+  dedup key on a receipt that could never legitimately be revisited — FIXED: new table CHECK
+  (chk_pwr_processed_requires_correlation) plus a function-level fail-closed check requiring the
+  resolved payment_attempt's own status to independently read SUCCEEDED, in the same transaction,
+  before PROCESSED is permitted; a stale SQL comment describing the obsolete direct-INSERT-by-
+  app_api ingress model was also corrected
+  (full closure table with live evidence: validation report §38)
+
 CRITICAL issues:      NONE
 SIGNIFICANT issues:   NONE (the second pass's own significant finding — webhook linkage
                        provenance — remains fixed, folded into FB-6K-05's closure; the third
                        pass's significant finding — FINAL-6K-02 — remains fixed; the fourth
-                       pass's evidence-gap finding — FREEZE-6K-03 — is fixed, folded into this
-                       closure table)
+                       pass's evidence-gap finding — FREEZE-6K-03 — remains fixed)
 BLOCKING ISSUES:      NONE — all four owner decisions are ACCEPTED/FINAL; the additive migration
-                       (amended in place a fourth time, never applied to a persistent database at
+                       (amended in place a fifth time, never applied to a persistent database at
                        any point) is live-validated (fresh + incremental, PostgreSQL 18.6, single
-                       head, checksum-verified) after all four remediation passes; the complete
+                       head, checksum-verified) after all five remediation passes; the complete
                        original regression suite plus targeted regression smoke tests in the
-                       third and fourth passes were re-run against the corrected file and show
-                       zero true regressions
+                       third, fourth, and fifth passes were re-run against the corrected file and
+                       show zero true regressions
 
 Remaining items (explicitly non-blocking, not silently omitted):
   DEP-6K-01 — TOOL_EXECUTIONS usage producer (not yet built anywhere upstream)
@@ -2764,7 +2870,7 @@ Remaining items (explicitly non-blocking, not silently omitted):
 
 PHASE 6K STATUS = READY FOR INDEPENDENT FREEZE-GATE REVIEW
   — every section is designed, and the database layer is implemented and live-validated across
-    four full remediation passes, each correcting the blockers/significant issues an
+    five full remediation passes, each correcting the blockers/significant issues an
     independent review found in the previous pass's own supposedly-final state;
   — migration 102_5H2 is real, executable SQL, run fresh and incrementally against genuine
     PostgreSQL 18.6 instances after each pass, with full adversarial/security/functional test

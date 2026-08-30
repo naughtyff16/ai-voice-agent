@@ -1,0 +1,18 @@
+################ TEST A/B/C: TABLE CHECK CONSTRAINT (raw INSERT as postgres superuser -- isolates the CHECK constraint itself from the privilege model; app_platform_admin/app_worker/app_api hold NO INSERT on this table at all by design, confirmed in the regression section below, so the constraint cannot be exercised through any of them) ################
+--- Test A: PROCESSED + NULL attempt + NULL org -- expect FAIL ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_webhook_integrity_test_matrix.sql:20: ERROR:  new row for relation "payment_webhook_receipts" violates check constraint "chk_pwr_processed_requires_correlation"
+DETAIL:  Failing row contains (01a050b8-1075-7b2e-8a27-27055e3bfbcc, RAZORPAY, evt_wh_testA, 2026-08-30 09:00:35.252014+05:30, PROCESSED, null, null, null, 0, null, 2026-08-30 09:00:35.252014+05:30, 2026-08-30 09:00:35.252014+05:30).
+--- Test B: PROCESSED + attempt only (org NULL) -- expect FAIL ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_webhook_integrity_test_matrix.sql:23: ERROR:  new row for relation "payment_webhook_receipts" violates check constraint "chk_pwr_processed_requires_correlation"
+DETAIL:  Failing row contains (01a050b8-1078-709f-8c1e-1ea40bc7c93e, RAZORPAY, evt_wh_testB, 2026-08-30 09:00:35.255791+05:30, PROCESSED, null, 8cefda7f-06be-4467-a9bb-9fadca7addfe, null, 0, null, 2026-08-30 09:00:35.255791+05:30, 2026-08-30 09:00:35.255791+05:30).
+--- Test C: PROCESSED + org only (attempt NULL) -- expect FAIL ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_webhook_integrity_test_matrix.sql:26: ERROR:  new row for relation "payment_webhook_receipts" violates check constraint "chk_pwr_processed_requires_correlation"
+DETAIL:  Failing row contains (01a050b8-1079-785e-97ac-accc3dfba3c3, RAZORPAY, evt_wh_testC, 2026-08-30 09:00:35.256867+05:30, PROCESSED, null, null, 11111111-1111-1111-1111-111111111111, 0, null, 2026-08-30 09:00:35.256867+05:30, 2026-08-30 09:00:35.256867+05:30).
+--- Test D: FAILED + NULL attempt + NULL org -- expect PASS (approved failure model) ---
+ processing_status | payment_attempt_id | organization_id 
+-------------------+--------------------+-----------------
+ FAILED            |                    | 
+(1 row)
+
+INSERT 0 1
+

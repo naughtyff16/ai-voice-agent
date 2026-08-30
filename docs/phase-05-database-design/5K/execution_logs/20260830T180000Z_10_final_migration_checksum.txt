@@ -1,0 +1,11 @@
+Phase 6K FINAL Webhook Processing Integrity Remediation (fifth pass) — final migration checksum
+Generated: 2026-08-30 (repository-relative; validates docs/phase-05-database-design/5K/migrations/102_5H2.sql)
+
+=== SHA-256 ===
+9c995df348eac3569a9b7b18f355ef38565ec013199078ee81eb2f1157d552c5 *docs/phase-05-database-design/5K/migrations/102_5H2.sql
+
+=== byte size ===
+91847 docs/phase-05-database-design/5K/migrations/102_5H2.sql
+
+=== cross-check against MIGRATION_MANIFEST.md row 102 ===
+115:| 102 | 5H.2 | `102_5H2.sql` | `101_5I1` | transactional | 91847 | `9c995df348eac3569a9b7b18f355ef38565ec013199078ee81eb2f1157d552c5` |

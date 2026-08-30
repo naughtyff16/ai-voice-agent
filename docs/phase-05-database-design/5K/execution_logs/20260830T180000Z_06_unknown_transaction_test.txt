@@ -1,0 +1,32 @@
+################ TEST: UNKNOWN PROVIDER TRANSACTION (function-level fail-closed) ################
+SET
+RESET
+SET
+--- Q1: PROCESSING transition (legal, RECEIVED->PROCESSING) with an unresolvable provider_transaction_id ---
+ resolved | resolved_payment_attempt_id | resolved_organization_id 
+----------+-----------------------------+--------------------------
+ t        |                             | 
+(1 row)
+
+--- Q2: attempting PROCESSED next -- expect controlled exception, NOT a written PROCESSED row ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_webhook_integrity_test_matrix.sql:44: ERROR:  billing: payment_webhook_receipt 01a050b8-107d-7b49-8cfb-fb277e2cefb7 cannot be marked PROCESSED — no authoritative payment_attempt/organization correlation resolved for provider_transaction_id txn_does_not_exist_anywhere (payment_provider = RAZORPAY); transition to FAILED with an UNKNOWN_TRANSACTION_CORRELATION classification instead
+CONTEXT:  PL/pgSQL function fn_process_payment_webhook_receipt(uuid,text,text,text) line 73 at RAISE
+--- Q3: receipt state after the failed PROCESSED attempt -- expect still PROCESSING, not PROCESSED, not corrupted ---
+ processing_status | payment_attempt_id | organization_id 
+-------------------+--------------------+-----------------
+ PROCESSING        |                    | 
+(1 row)
+
+--- Q4: governed failure path instead -- expect succeeds, FAILED, both NULL, error populated ---
+ resolved | resolved_payment_attempt_id | resolved_organization_id 
+----------+-----------------------------+--------------------------
+ t        |                             | 
+(1 row)
+
+ processing_status | payment_attempt_id | organization_id |           last_error            
+-------------------+--------------------+-----------------+---------------------------------
+ FAILED            |                    |                 | UNKNOWN_TRANSACTION_CORRELATION
+(1 row)
+
+RESET
+

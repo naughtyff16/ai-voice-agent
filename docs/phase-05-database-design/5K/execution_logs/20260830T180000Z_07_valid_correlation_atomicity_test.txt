@@ -1,0 +1,51 @@
+################ TEST: VALID CORRELATION -- FULL POSITIVE PATH ################
+SET
+RESET
+SET
+SET
+RESET
+SET
+--- link the provider transaction ---
+ fn_link_payment_provider_transaction 
+--------------------------------------
+ 
+(1 row)
+
+--- Q5: attempt PROCESSED BEFORE the financial transition has actually succeeded -- expect controlled exception (attempt is still PENDING, not SUCCEEDED) ---
+ resolved |     resolved_payment_attempt_id      |       resolved_organization_id       
+----------+--------------------------------------+--------------------------------------
+ t        | 01a050b8-1089-7a94-b521-21d96e3c119c | 11111111-1111-1111-1111-111111111111
+(1 row)
+
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/ee91590d-2bac-42b3-a863-1dd2c8c1689a/scratchpad/6k_webhook_integrity_test_matrix.sql:71: ERROR:  billing: payment_webhook_receipt 01a050b8-1087-7164-87cc-cc5f2016be30 cannot be marked PROCESSED — resolved payment_attempt 01a050b8-1089-7a94-b521-21d96e3c119c is not in SUCCEEDED status (current = PENDING); the payment-domain financial transition (fn_update_payment_status/fn_mark_invoice_paid) must commit before this receipt may be marked PROCESSED
+CONTEXT:  PL/pgSQL function fn_process_payment_webhook_receipt(uuid,text,text,text) line 82 at RAISE
+--- Q6: receipt state after the premature PROCESSED attempt -- expect still PROCESSING ---
+ processing_status |          payment_attempt_id          |           organization_id            
+-------------------+--------------------------------------+--------------------------------------
+ PROCESSING        | 01a050b8-1089-7a94-b521-21d96e3c119c | 11111111-1111-1111-1111-111111111111
+(1 row)
+
+--- now correctly commit the financial transition first (same transaction discipline, sequential calls here) ---
+ fn_update_payment_status 
+--------------------------
+ 
+(1 row)
+
+ fn_mark_invoice_paid 
+----------------------
+ 
+(1 row)
+
+--- Q7: NOW attempt PROCESSED -- expect succeeds ---
+ resolved |     resolved_payment_attempt_id      |       resolved_organization_id       
+----------+--------------------------------------+--------------------------------------
+ t        | 01a050b8-1089-7a94-b521-21d96e3c119c | 11111111-1111-1111-1111-111111111111
+(1 row)
+
+ processing_status |          payment_attempt_id          |           organization_id            | has_processed_at 
+-------------------+--------------------------------------+--------------------------------------+------------------
+ PROCESSED         | 01a050b8-1089-7a94-b521-21d96e3c119c | 11111111-1111-1111-1111-111111111111 | t
+(1 row)
+
+RESET
+
