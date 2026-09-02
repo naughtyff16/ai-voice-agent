@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | **Phase** | 6L |
-| **Status** | **APPROVED / FROZEN** (§72) — includes the Phase 6L freeze-gate remediation pass (RBAC sensitive-media split, recording-access audit, DEC-6L-01/02 owner rulings applied, live PostgreSQL 18.6 validation) |
+| **Status** | **READY FOR INDEPENDENT FREEZE-GATE REVIEW** (§72) — includes the Phase 6L freeze-gate remediation pass (RBAC sensitive-media split, recording-access audit, DEC-6L-01/02 owner rulings applied, live PostgreSQL 18.6 validation on both a fresh and a genuinely separate incremental chain). This document does not self-freeze — an independent reviewer freezes the phase (§72). |
 | **Scope** | Analytics read/query contracts (tenant + platform-internal) and Audit read/query contracts; plus, from the remediation pass, the sensitive-media authorization/audit boundary (6D) and one operational composition contract (6H §15.6) it required to resolve |
 | **Depends on** | Phase 1 (SRS), Phase 4G/4H/4I, Phase 5A–5K (all FROZEN except the two additive amendments this document's remediation applies), Phase 6A–6K (all FROZEN, with 6D/6H amended by the remediation pass), owner rulings DEC-6L-01 = Option C / DEC-6L-02 = Option A (FINAL) |
 | **PostgreSQL baseline** | 18.6, head `104_5B3` (chain: `102_5H2` → `103_5J2` → `104_5B3`; `102_5H2.sql` SHA-256 `73b9f7aed921ccc373cc634372ac7ac75c0490872d55af21116c3ff182445b3d`, reconfirmed unchanged, §58) |
@@ -685,22 +685,24 @@ Every endpoint in this document is specified against **projection semantics** (g
 
 ## 49. Endpoint Inventory
 
-| Method | Path | Purpose | Permission | Pagination | Latency Tier | Audit |
-|---|---|---|---|---|---|---|
-| GET | `/api/v1/analytics/overview` | Executive dashboard (no cost/margin section — DEC-6L-02) | `analytics:read` | — | C | — |
-| GET | `/api/v1/analytics/calls` | Call volume/outcome | `analytics:read` | — | C | — |
-| GET | `/api/v1/analytics/calls/latency` | Latency percentiles | `analytics:read` | — | C | — |
-| GET | `/api/v1/analytics/agents` | Agent utilization + conversation stats | `analytics:read` | — | C | — |
-| GET | `/api/v1/analytics/agents/{agent_id}` | Per-agent detail | `analytics:read` | — | C | — |
-| GET | `/api/v1/analytics/leads/funnel` | Lead funnel | `analytics:read` | — | C | — |
-| GET | `/api/v1/analytics/campaigns` | Campaign list/summary (operational fields only) | `analytics:read` | Cursor | C | — |
-| GET | `/api/v1/analytics/campaigns/{campaign_id}` | Outcome (no `roi`/cost — DEC-6L-02, §26) | `analytics:read` | — | C | — |
-| GET | `/api/v1/analytics/conversations` | AI/conversation stats | `analytics:read` | — | C | — |
-| GET | `/api/v1/analytics/tools` | Tool execution reliability | `analytics:read` | — | C | — |
-| GET | `/api/v1/analytics/webhooks` | Outbound webhook reliability | `analytics:read` | — | C | — |
-| GET | `/api/v1/audit/events` | Audit event list | `audit:read` | Cursor | C | — |
-| GET | `/api/v1/audit/events/{event_id}` | Audit event detail | `audit:read` | — | A | — |
-| GET | `/api/v1/audit/integrity` | Precomputed chain checkpoints | `audit:read` | — | A | — |
+| Method | Path | Purpose | Principal | Permission | Filters | Pagination | Latency Tier | Audit |
+|---|---|---|---|---|---|---|---|---|
+| GET | `/api/v1/analytics/overview` | Executive dashboard (no cost/margin section — DEC-6L-02) | USER, API_KEY | `analytics:read` | `from`, `to` (§15) | — | C | — |
+| GET | `/api/v1/analytics/calls` | Call volume/outcome | USER, API_KEY | `analytics:read` | `from`, `to`, `granularity`, `agent_id`, `direction`, `outcome`, `provider`, `language_code` (§21, §14) | — | C | — |
+| GET | `/api/v1/analytics/calls/latency` | Latency percentiles | USER, API_KEY | `analytics:read` | `from`, `to`, `granularity`, `provider`, `provider_category`, `model` (§21, §24) | — | C | — |
+| GET | `/api/v1/analytics/agents` | Agent utilization + conversation stats | USER, API_KEY | `analytics:read` | `from`, `to` (§22) | — | C | — |
+| GET | `/api/v1/analytics/agents/{agent_id}` | Per-agent detail | USER, API_KEY | `analytics:read` | `from`, `to` (§22) | — | C | — |
+| GET | `/api/v1/analytics/leads/funnel` | Lead funnel | USER, API_KEY | `analytics:read` | `from`, `to`, `campaign_id` (optional, nullable-grain-preserving — §23) | — | C | — |
+| GET | `/api/v1/analytics/campaigns` | Campaign list/summary (operational fields only) | USER, API_KEY | `analytics:read` | `from`, `to` (§26) | Cursor | C | — |
+| GET | `/api/v1/analytics/campaigns/{campaign_id}` | Outcome (no `roi`/cost — DEC-6L-02, §26) | USER, API_KEY | `analytics:read` | — (path-scoped) | — | C | — |
+| GET | `/api/v1/analytics/conversations` | AI/conversation stats | USER, API_KEY | `analytics:read` | `from`, `to`, `agent_id` (§25) | — | C | — |
+| GET | `/api/v1/analytics/tools` | Tool execution reliability | USER, API_KEY | `analytics:read` | `from`, `to`, `tool_name`, `agent_id` (optional — §29) | — | C | — |
+| GET | `/api/v1/analytics/webhooks` | Outbound webhook reliability | USER, API_KEY | `analytics:read` | `from`, `to` (§30 — grain has no further dimension) | — | C | — |
+| GET | `/api/v1/audit/events` | Audit event list | USER, API_KEY | `audit:read` | `from`, `to` (mandatory), `actor_type`, `actor_ref`, `action_kind`, `resource_type`, `resource_id`, `outcome`, `request_id`, `correlation_id` (§33) | Cursor | C | — |
+| GET | `/api/v1/audit/events/{event_id}` | Audit event detail | USER, API_KEY | `audit:read` | — (path-scoped) | — | A | — |
+| GET | `/api/v1/audit/integrity` | Precomputed chain checkpoints | USER, API_KEY | `audit:read` | `from`, `to` (date range over `date_bucket`) | — | A | — |
+
+Every filter listed above is drawn from an allow-list already defined at the endpoint's own section (cited in each row) or §14's general query model — none is newly invented for this table.
 
 **Adjacent, non-analytics operational endpoint added this pass (owned by 6H, cross-referenced here per §61):** `GET /api/v1/campaigns/{campaign_id}/contacts/{campaign_contact_id}/call-reports` — 6H §15.6, `campaign:read`+`call:read`, never exposes signed URLs/transcript text (availability booleans only).
 
@@ -836,15 +838,19 @@ Both frozen sources — 4I §11.3/§17.4 (*"ROI is currency-consistent," "the FX
 
 ### 56.2 What It Adds
 
-- `analytics.roi_by_campaign`: `org_currency`, `total_cost_amount_org_currency`, `total_cost_fx_rate_used/source/captured_at`, `estimated_revenue_amount_org_currency`, `estimated_revenue_fx_rate_used/source/captured_at`, plus three CHECK constraints (one immediately validated currency-format check; two `NOT VALID` presence-guard checks preventing a currency-inconsistent `roi_pct` from ever being newly written).
-- `analytics.billing_revenue_monthly`: `provider_cost_amount_org_currency`, `provider_cost_fx_rate_used/source/captured_at`, `gross_margin_amount`, `gross_margin_pct`, plus two `NOT VALID` presence-guard CHECK constraints.
+- `analytics.roi_by_campaign`: `org_currency`, `total_cost_amount_org_currency`, `total_cost_fx_rate_used/source/captured_at`, `estimated_revenue_amount_org_currency`, `estimated_revenue_fx_rate_used/source/captured_at`, plus **four** CHECK constraints — `chk_rbc_org_currency_code` (**immediately validated**, currency-format check), `chk_rbc_cost_normalization_present`, `chk_rbc_revenue_normalization_present`, `chk_rbc_roi_requires_normalization` (all three **`NOT VALID`**, presence-guard checks preventing a currency-inconsistent `roi_pct` from ever being newly written).
+- `analytics.billing_revenue_monthly`: `provider_cost_amount_org_currency`, `provider_cost_fx_rate_used/source/captured_at`, `gross_margin_amount`, `gross_margin_pct`, plus **two** `NOT VALID` presence-guard CHECK constraints — `chk_brm_margin_requires_normalization`, `chk_brm_margin_pct_requires_amount`.
+
+**Exact total, corrected in this pass (a prior pass undercounted this by one — see §57.10 for the live re-verification that caught and fixed it): six new CHECK constraints across both tables — one immediately validated (`chk_rbc_org_currency_code`) and five `NOT VALID` (the other three on `roi_by_campaign` plus both on `billing_revenue_monthly`).**
 - No table, function, role, or grant outside these two tables is touched. No existing column's type, default, or nullability changes. Migrations `001`–`102` are not modified.
 
 Full DDL: `docs/phase-05-database-design/5K/migrations/103_5J2.sql`. Alembic wrapper: `docs/phase-05-database-design/5K/alembic/versions/103_5J2.py` (`down_revision = '102_5H2'`, forward-only, `downgrade()` raises `NotImplementedError` with the exact manual-reversal DDL, matching this package's established convention).
 
 ### 56.3 Why `NOT VALID`
 
-The four "presence-guard" constraints are added `NOT VALID` deliberately: this session could not confirm, without live database access (§57), whether either table already holds test-fixture rows with `roi_pct`/`gross_margin_amount` populated from an earlier, non-normalized computation. `NOT VALID` enforces the guard for every write from this point forward without scanning/rejecting on any pre-existing row — a safe, standard PostgreSQL pattern for exactly this situation, not a weakening of the guarantee for new data. A follow-up `VALIDATE CONSTRAINT` pass is an explicit, named implementation-phase follow-up (§59), not silently dropped.
+The **five** "presence-guard" constraints (`chk_rbc_cost_normalization_present`, `chk_rbc_revenue_normalization_present`, `chk_rbc_roi_requires_normalization`, `chk_brm_margin_requires_normalization`, `chk_brm_margin_pct_requires_amount` — `chk_rbc_org_currency_code` is the sixth constraint and is immediately `VALID`, not part of this group) are added `NOT VALID` deliberately, for a reason that does not depend on this session's own database access: **migration safety cannot assume every real deployment or staging database has clean historical pre-`103` rows.** A production or long-lived staging instance of `roi_by_campaign`/`billing_revenue_monthly` may already hold rows with `roi_pct`/`gross_margin_amount` populated from an earlier, non-normalized computation, and this migration has no way to know that in advance for every possible target it might ever be applied to. `NOT VALID` enforces the guard for every write from this point forward without scanning or rejecting any pre-existing row — a safe, standard PostgreSQL pattern for exactly this situation, not a weakening of the guarantee for new data.
+
+**This is no longer a design claim — it has been demonstrated.** The genuinely separate incremental-chain validation (§57.1a) inserted representative historical non-normalized rows *before* applying `103_5J2`, then applied it, and confirmed both that the migration succeeded with that data present and that the historical rows survived unmodified while every *new* write from that point on is correctly governed by the constraints (rejected if non-normalized, accepted if normalized). A follow-up `VALIDATE CONSTRAINT` pass, once a real deployment's historical rows are confirmed normalized or the table confirmed empty, remains an explicit, named implementation-phase follow-up (§61) — not silently dropped, and not required before this migration is safe to apply.
 
 ### 56.4 Column-Level Visibility Is an API-Layer Control, Not a New DB Grant Pattern
 
@@ -887,7 +893,7 @@ Exit code `0`. 104/104 revisions applied (`grep -c "Running upgrade"` on the raw
 1. **`alembic upgrade 102_5H2`** (target the specific revision, not head) — 102/102 revisions applied, exit `0`. (`6L_06`)
 2. **`alembic current`** while pinned → `102_5H2` (**no** `(head)` suffix — genuinely mid-chain), contrasted against `alembic heads` → `104_5B3 (head)` (the package's own head, unaffected by this database's pin). The two commands' differing output is itself the proof the pin is real, not merely asserted. (`6L_07`)
 3. **Representative pre-103 fixture data inserted** at this pin point, using *only* the pre-103 column set (the FX-normalization columns do not exist on this database yet): a `roi_by_campaign` row with `roi_pct = 300.0000` already populated — simulating a real pre-migration application that had computed ROI without FX normalization — and a `billing_revenue_monthly` row. Both confirmed present via `\d` showing the genuine pre-103 schema shape. (`6L_08`)
-4. **`alembic upgrade 103_5J2`**, with the non-normalized legacy row already sitting in the table — exit `0`. This is the actual, executed proof that the four `NOT VALID` guard constraints (§56.3) do not reject pre-existing non-conforming data, not merely a design claim. (`6L_09`)
+4. **`alembic upgrade 103_5J2`**, with the non-normalized legacy row already sitting in the table — exit `0`. This is the actual, executed proof that the five `NOT VALID` guard constraints (§56.3) do not reject pre-existing non-conforming data, not merely a design claim. (`6L_09`)
 5. **`alembic upgrade head`** (`103_5J2 → 104_5B3`) — exit `0`; `alembic heads`/`current` both `104_5B3 (head)`, now matching. (`6L_10`)
 6. **Fixture-row survival check:** the legacy `roi_by_campaign` row is still present, `roi_pct` unchanged, new FX columns correctly `NULL` (never silently backfilled or guessed); the legacy `billing_revenue_monthly` row likewise survives with `NULL` margin columns; all four guard constraints show `convalidated = f` on this database too, matching Database A exactly; a **new** non-normalized insert is **rejected** (`chk_rbc_roi_requires_normalization`); a **new** fully-normalized insert **succeeds**. (`6L_11`)
 7. **Full RBAC/RLS/`SECURITY DEFINER`/audit assertion battery** (identical script to §57.3–§57.7 below) rerun against this incrementally-upgraded database — **every outcome identical to Database A's**, byte-for-byte, per `6L_12`.
@@ -905,11 +911,25 @@ Exactly one head in both. No branch, no duplicate revision ID (every `versions/*
 
 ### 57.3 Schema Verification — `103_5J2` (ran identically against both databases; §5 of the dedicated validation report tabulates both outcomes side by side)
 
-Directly queried via `\d` and `pg_constraint` against the live database: `analytics.roi_by_campaign` and `analytics.billing_revenue_monthly` both carry the exact FX-normalization column sets §56.2 specifies. `pg_constraint.convalidated = false` confirmed for the four "presence-guard" `NOT VALID` constraints and `true` for the immediately-validated currency-format check — exactly as designed (§56.3).
+Directly queried via `\d` and `pg_constraint` against the live database: `analytics.roi_by_campaign` and `analytics.billing_revenue_monthly` both carry the exact FX-normalization column sets §56.2 specifies. `pg_constraint.convalidated = false` confirmed for **five** "presence-guard" `NOT VALID` constraints (`chk_rbc_cost_normalization_present`, `chk_rbc_revenue_normalization_present`, `chk_rbc_roi_requires_normalization`, `chk_brm_margin_requires_normalization`, `chk_brm_margin_pct_requires_amount`) and `convalidated = true` for the one immediately-validated currency-format check (`chk_rbc_org_currency_code`) — **six constraints total**, exactly as designed (§56.3). (A prior pass of this document undercounted the `NOT VALID` set as four — corrected here after live re-query, §57.10.)
 
-**Functional constraint test (not merely "does it exist" — does it actually work):**
-- Inserted a `roi_by_campaign` row with `roi_pct` set but `org_currency` left `NULL` → **rejected**: `ERROR: new row for relation "roi_by_campaign" violates check constraint "chk_rbc_roi_requires_normalization"`.
-- Inserted a fully FX-normalized row (`org_currency='INR'`, both cost and revenue converted, consistent `roi_pct`) → **accepted**, row read back intact.
+**Complete functional test of all six constraints (not merely "does it exist" — does it actually work) — every one individually isolated so the correct constraint, and only that constraint, is what actually fires. Run identically against both databases, evidence: `20260904T000000Z_6L_14`/`_15`:**
+
+| Test | Constraint under test | Row shape | Result |
+|---|---|---|---|
+| A | `chk_rbc_org_currency_code` | `org_currency = total_cost_currency = 'AB1'` (isolates the format check — every other constraint's OR-branch is satisfied) | **Rejected** — `chk_rbc_org_currency_code` |
+| A2 | `chk_rbc_org_currency_code` | Same isolation, `'INR'` (valid) | **Accepted** |
+| B | `chk_rbc_cost_normalization_present` | `org_currency='INR' != total_cost_currency='USD'`, no normalized cost fields | **Rejected** — `chk_rbc_cost_normalization_present` |
+| B2 | `chk_rbc_cost_normalization_present` | Same mismatch, normalized cost fields present | **Accepted** |
+| C | `chk_rbc_revenue_normalization_present` | Cost already normalized; `org_currency='INR' != estimated_revenue_currency='EUR'`, no normalized revenue fields | **Rejected** — `chk_rbc_revenue_normalization_present` |
+| C2 | `chk_rbc_revenue_normalization_present` | Same mismatch, normalized revenue fields present | **Accepted** |
+| D | `chk_rbc_roi_requires_normalization` | `roi_pct` set, no normalization at all | **Rejected** — `chk_rbc_roi_requires_normalization` |
+| E | (positive control) | Fully FX-normalized row, cost and revenue both converted, consistent `roi_pct` | **Accepted** |
+| F | `chk_brm_margin_requires_normalization` | `gross_margin_amount` set, `provider_cost_amount_org_currency` `NULL` | **Rejected** — `chk_brm_margin_requires_normalization` |
+| G | `chk_brm_margin_pct_requires_amount` | `gross_margin_pct` set, `gross_margin_amount` `NULL` | **Rejected** — `chk_brm_margin_pct_requires_amount` |
+| H | (positive control) | Fully normalized `billing_revenue_monthly` row with `provider_cost_amount_org_currency`, `gross_margin_amount`, `gross_margin_pct` all internally consistent | **Accepted** |
+
+All 11 outcomes identical between Database A and Database B. Test A/A2's design deliberately isolates the currency-format check from the other three `roi_by_campaign` constraints — an earlier draft of this test used a row that also violated `chk_rbc_cost_normalization_present`, which fired first and did not actually exercise `chk_rbc_org_currency_code` at all; this was caught and corrected before being reported as evidence (§57.10).
 
 ### 57.4 Schema Verification — `104_5B3`
 
@@ -933,6 +953,8 @@ Directly queried `organization.role_permissions ⋈ organization.roles ⋈ organ
 ```
 
 **Exact match to the owner-approved policy (Section 3 of the governing remediation task):** OWNER/ADMIN hold both sensitive-content permissions; MEMBER/VIEWER hold neither; `recording:read`/`transcript:read` (metadata) grant set is byte-for-byte unchanged from `007_5B.sql`; `BILLING_ADMIN` holds none of the four (confirmed by its absence from every row above — unchanged from `007_5B.sql`, this migration never touched its grant set).
+
+**Extended this pass — the custom-role path proven for BOTH sensitive permissions together, not just `recording:access_media` alone:** a genuinely tenant-owned custom role (`organization.roles`, `is_system = FALSE`) was created and granted **both** `recording:access_media` **and** `transcript:access_content` via `organization.role_permissions`, then confirmed by a direct read-back query showing exactly those two rows attached to the custom role — proving a `MEMBER`-tier user assigned to that role obtains both sensitive-media permissions through the identical, unmodified custom-role mechanism, with no schema change and no touch to any system role's own grant set. Evidence: `20260904T000000Z_6L_14`/`_15`, Section 2E.
 
 ### 57.5 RLS / Cross-Tenant Isolation (IDOR) — Live Test
 
@@ -980,7 +1002,31 @@ As `app_api`, under a set tenant context, called `audit.fn_insert_audit_event(p_
 
 Full narrative, side-by-side fresh-vs-incremental outcome tables, and citations to every one of the 13 raw evidence files: `docs/phase-05-database-design/5K/validation/6L_FINAL_FREEZE_GATE_VALIDATION_REPORT.md`. Raw files: `docs/phase-05-database-design/5K/execution_logs/20260903T000000Z_6L_01_server_client_version.txt` through `..._6L_13_final_checksums_and_sizes.txt`.
 
-### 57.9 Scope of What Was, and Was Not, Verified This Way
+### 57.10 Final Narrow Remediation — Complete Original Security Test Matrix (this pass)
+
+The original Phase 6L task's own security-test requirement (task brief §73) is now fully executed with raw evidence, not partially. Run identically against both Database A and Database B (`20260904T000000Z_6L_14`/`_15`), every outcome identical:
+
+| Original requirement | Result | Mechanism proven |
+|---|---|---|
+| Tenant A cannot read Tenant B analytics | **PASS** (already proven, §57.5) | RLS |
+| **Tenant A cannot read Tenant B audit** | **PASS — newly live-tested this pass.** Two real audit rows created via `fn_insert_audit_event()` for two different orgs; queried as `app_api` under each tenant context in turn — each sees only its own row; unset context sees zero (fail-closed) | RLS `rls_audit_tenant_select` policy |
+| **Tenant cannot read platform audit events** | **PASS — newly live-tested this pass.** A genuine platform-level audit row (`organization_id IS NULL`) was created via `fn_insert_audit_event(p_is_platform_event => TRUE)` — but only after a **negative control** proved `SET ROLE app_worker` alone is *insufficient* (the function's check is on `session_user`, which `SET ROLE` does not change — the negative control attempt was correctly denied with `"caller pgtest is not authorized"`); a genuine new connection authenticated *as* `app_worker` (confirmed via `SELECT session_user, current_user` — both `app_worker`) was required, and that succeeded. Read back as `app_api` under an ordinary tenant context: **zero platform rows visible** | RLS excludes `organization_id IS NULL` rows for every non-`BYPASSRLS` role; `session_user`-based platform-event authorization inside `fn_insert_audit_event()` (5J §14.2) confirmed immune to a `SET ROLE` bypass attempt |
+| **Ordinary tenant cannot read provider health** | **PASS — newly live-tested this pass.** `SELECT * FROM analytics.provider_health_5min` as `app_api` → `permission denied for table provider_health_5min`. Same query as `app_readonly` → identical denial. As `app_worker` (the approved internal role) → succeeds (`count = 0`, zero rows is a legitimate empty-table outcome, not a denial) | `071_5J.sql`'s explicit `REVOKE ALL ... FROM app_api, app_readonly` / `GRANT ... TO app_worker`, live-reconfirmed |
+| `analytics:read` cannot bypass `analytics_cost:read` at the API contract | **PASS by design** — moot in the strictest sense after DEC-6L-02 = Option A: no tenant-facing 6L endpoint gates on `analytics_cost:read` at all any more (§27), so there is no cost-bearing response for `analytics:read` to "bypass" into | §26/§27 |
+| **Audit events remain immutable** | **PASS — newly live-tested this pass (UPDATE/DELETE added; INSERT already proven).** As `app_api`: `INSERT` → `permission denied for table audit_events`; `UPDATE` → `permission denied for table audit_events`; `DELETE` → `permission denied for table audit_events` — all three, same table-level `REVOKE ALL` | `072_5J.sql`'s `REVOKE ALL ON audit.audit_events FROM app_api, app_worker, app_readonly, app_platform_admin` — no role has direct DML, at all, on this table |
+| **No new raw audit mutation privilege** | **PASS** — `104_5B3` grants only two `organization.permissions` catalog rows; it touches no grant on `audit.audit_events`, `audit.audit_chain`, or any audit function. `fn_compute_chain_hash()` remains denied to `app_api` (re-tested this pass, identical result to the prior pass) | Confirmed by direct inspection of `104_5B3.sql` (no `audit.*` object referenced) plus the live denial test |
+| Financial analytics values remain tenant-safe and currency-correct | **PASS** (§57.3's full 11-outcome constraint battery, this pass; confidentiality boundary per DEC-6L-02 = Option A, §26/§27) | `NOT VALID` guard constraints + platform-internal reclassification |
+
+### 57.11 Test-Design Corrections Made Transparent (not hidden)
+
+Two genuine test-*design* issues were found and fixed while building this final battery — neither was a DDL or grant defect:
+
+1. **Test A's first draft** used a row that also violated `chk_rbc_cost_normalization_present`, which fired before `chk_rbc_org_currency_code` could be exercised — the test did not actually prove what it claimed. Corrected by isolating the row so every other constraint's own OR-branch is satisfied, leaving only the currency-format check able to fire (§57.3).
+2. **The platform-audit-event test's first draft** used `SET ROLE app_worker` inside a `pgtest`-authenticated session, which does not change `session_user` — the value `fn_insert_audit_event()` actually checks for platform-event authorization (5J §14.2, by deliberate design, specifically to resist a `SECURITY DEFINER`/`SET ROLE`-based bypass). The corrected test used a genuine new connection authenticated as `app_worker`, and additionally **kept the `SET ROLE` attempt as a documented negative control** proving the function's resistance to exactly that bypass vector (§57.10).
+
+Both corrections are recorded here, with their raw evidence, rather than silently reissuing a passing result without explaining what changed.
+
+### 57.12 Scope of What Was, and Was Not, Verified This Way
 
 This validation is **schema/database-layer** verification: real DDL applied to a real PostgreSQL 18.6 server, real RLS policies exercised by a real non-superuser role, real permission-catalog rows queried, real `SECURITY DEFINER` grants queried and two of them actively tested against a denial. It is **not** an HTTP-level integration test suite against a running FastAPI application — no such application exists in this repository (an explicit, standing constraint of every phase through 6L: "Do NOT implement the production FastAPI application"). Where the governing remediation task asks for an "RBAC sensitive-media test matrix" or "API-key sensitive-scope test matrix" (§66/§67 below), the evidence provided is the **database-permission-seed correctness** that such a matrix depends on (§57.4) plus the documented, already-frozen enforcement mechanisms (6B §16.4's scope-ceiling model, 6A §22's server-side permission recomputation) that make the matrix's outcomes deterministic — not a fabricated transcript of HTTP requests against endpoints that are not yet implemented. This distinction is stated here explicitly, once, rather than silently blurred anywhere below.
 
@@ -1154,7 +1200,7 @@ Every function inspected directly in the executed migrations (`068_5J.sql`, `069
 
 ## 64. Sensitive-Media RBAC and API-Key Test Matrix
 
-**Scope note (§57.9 restated at point of use):** no FastAPI application exists in this repository to execute literal HTTP requests against. The evidence below is the two things that are actually verifiable and that jointly, deterministically produce every row's outcome: (a) the live-queried, correct permission/role-grant seed (§57.4), and (b) the already-frozen, unmodified enforcement mechanisms (6A §22 server-side permission recomputation, 6B §16.4 API-key scope-ceiling model, 6B §9.1 tenant resolution) that 6D's endpoints (§16.2a/§17.4) now correctly reference. Every row is a deterministic consequence of (a)+(b), not a guess.
+**Scope note (§57.12 restated at point of use):** no FastAPI application exists in this repository to execute literal HTTP requests against. The evidence below is the two things that are actually verifiable and that jointly, deterministically produce every row's outcome: (a) the live-queried, correct permission/role-grant seed (§57.4), and (b) the already-frozen, unmodified enforcement mechanisms (6A §22 server-side permission recomputation, 6B §16.4 API-key scope-ceiling model, 6B §9.1 tenant resolution) that 6D's endpoints (§16.2a/§17.4) now correctly reference. Every row is a deterministic consequence of (a)+(b), not a guess.
 
 | Principal | Action | Expected | Why (mechanism) |
 |---|---|---|---|
@@ -1315,23 +1361,26 @@ No remaining unchecked item.
 ## 72. Final Phase Status
 
 ```
-PHASE 6L = APPROVED / FROZEN
+PHASE 6L = READY FOR INDEPENDENT FREEZE-GATE REVIEW
 ```
 
-**Basis for this verdict:** every blocker identified across the original 6L pass and this freeze-gate remediation pass is closed, with live evidence, not merely updated prose:
+**This document does not self-freeze, and does not return `APPROVED / FROZEN`** — the governing task is explicit that only an independent reviewer freezes the phase, and an earlier draft of this section contradicted itself by returning `APPROVED / FROZEN` in the same breath as "independent review freezes the phase." That contradiction is corrected here.
 
-1. **Migrations `103_5J2` (final, frozen bytes — SHA-256 `fba53d7e...`) and `104_5B3`** are designed, applied, and validated against a genuine, disposable PostgreSQL 18.6 instance — **both a fresh chain `001→104` AND a genuinely separate incremental chain pinned at `102_5H2`, with real pre-migration fixture data exercised across the exact migration boundary** — exit code 0 in both, exactly one Alembic head in both, `current == head` in both, every new constraint/permission/grant functionally tested in both databases with identical outcomes, not merely inspected (§57, §68; raw evidence: `execution_logs/20260903T000000Z_6L_01`–`_6L_13`, `validation/6L_FINAL_FREEZE_GATE_VALIDATION_REPORT.md`).
-2. **`102_5H2.sql` remains byte-identical** to the frozen baseline — reconfirmed by direct `sha256sum` in both validation databases (§58).
+**Basis for this readiness verdict:** every blocker identified across the original 6L pass and both freeze-gate remediation passes is closed, with live evidence, not merely updated prose:
+
+1. **Migrations `103_5J2` (final, frozen bytes — SHA-256 `fba53d7e...`, unchanged again in this final pass) and `104_5B3`** are designed, applied, and validated against a genuine, disposable PostgreSQL 18.6 instance — **both a fresh chain `001→104` AND a genuinely separate incremental chain pinned at `102_5H2`, with real pre-migration fixture data exercised across the exact migration boundary** — exit code 0 in both, exactly one Alembic head in both, `current == head` in both, every one of the six new CHECK constraints individually and correctly isolated and functionally tested in both databases with identical outcomes (§57.3), not merely inspected. Raw evidence: `execution_logs/20260903T000000Z_6L_01`–`_6L_13` and `20260904T000000Z_6L_14`–`_17`; `validation/6L_FINAL_FREEZE_GATE_VALIDATION_REPORT.md`.
+2. **`102_5H2.sql` remains byte-identical** to the frozen baseline — reconfirmed by direct `sha256sum` in both validation databases, in both remediation passes (§58).
 2a. **The canonical 5B and 6B documents are reconciled**, not left silently stale: `5B-Identity-Organization-Multitenancy-Security.md` now documents the post-`104_5B3` metadata/content permission split and corrected role matrix as a controlled amendment; `6B-Authentication-and-Authorization-API.md` §8a explicitly states `call:read`/`recording:read`/`transcript:read` never imply the sensitive-media permissions, and its own permission count is corrected (68→71). A dedicated signed/presigned-media-URL logging prohibition was added to 6A §25, closing a real gap in the generic word-based redaction guidance.
-3. **Both owner decisions are resolved, FINAL, and applied throughout the document** — DEC-6L-01 = Option C (no CSAT in V1), DEC-6L-02 = Option A (provider cost/margin fully platform-internal) — no open owner decision remains that blocks this freeze (§60). One genuinely new architectural question was discovered while applying DEC-6L-02 (campaign-cost-attribution for a future "ROI on billed spend" feature) and is correctly recorded as a non-blocking Future Dependency, not a silent decision and not a freeze blocker (§61.2).
-4. **The confirmed RBAC contradiction is closed** — `104_5B3` splits sensitive-media content permissions from ordinary metadata permissions, live-verified to match the owner-approved default policy exactly, with no change to ordinary call/report metadata visibility (§57.4).
+3. **Both owner decisions are resolved, FINAL, and applied throughout the document** — DEC-6L-01 = Option C (no CSAT in V1), DEC-6L-02 = Option A (provider cost/margin fully platform-internal) — no open owner decision remains that blocks this readiness verdict (§60). One genuinely new architectural question was discovered while applying DEC-6L-02 (campaign-cost-attribution for a future "ROI on billed spend" feature) and is correctly recorded as a non-blocking Future Dependency, not a silent decision (§61.2).
+4. **The confirmed RBAC contradiction is closed** — `104_5B3` splits sensitive-media content permissions from ordinary metadata permissions, live-verified to match the owner-approved default policy exactly for OWNER/ADMIN/MEMBER/VIEWER/BILLING_ADMIN and for a tenant custom role holding **both** sensitive permissions together (§57.4), with no change to ordinary call/report metadata visibility.
 5. **The recording-access audit gap is closed** — `GET /recordings/{id}/download-url` now writes a synchronous, governed `RECORDING_ACCESS_GRANTED` audit event on success only, live-verified end-to-end to contain no signed URL, token, or credential (§57.7, §65).
-6. **Cross-tenant/IDOR protection is live-verified**, not merely asserted (§57.5, §66).
+6. **The complete original security test matrix is now executed with live evidence** — cross-tenant analytics AND audit RLS, platform-audit-event hiding (including a documented negative control against a `SET ROLE`-based bypass attempt), provider-health denial for both `app_api` and `app_readonly`, and audit immutability across INSERT/UPDATE/**and now UPDATE/DELETE** — all newly proven this pass, not merely the analytics-RLS subset a prior pass covered (§57.10).
 7. **SECURITY DEFINER posture is re-verified by live query**, not re-derived from static file reading alone (§57.6).
 8. **The operational call-report composition gap is closed** with a bounded, non-analytics, non-cross-schema-join endpoint (6H §15.6), correctly kept out of 6L's own analytics surface.
-9. **Every new owner requirement (AI-assisted setup, advanced voice config, preview/test, controlled deployment, SIP trunk)** is recorded as a precise, non-implemented future handoff — none was allowed to block, delay, or scope-creep into this freeze (§61.3).
-10. **The projection-population implementation dependency (10 of 12 projections lack an executed `fn_apply_projection_*`) remains open** — this is unchanged from the original 6L pass, correctly classified as an **implementation-phase dependency, not an API-contract blocker**: 6L's job is a correct, honest contract, and it remains one whether or not the population workers have been written yet (§12, §17 of the governing task, explicitly anticipated as an acceptable freeze condition).
+9. **Every new owner requirement (AI-assisted setup, advanced voice config, preview/test, controlled deployment, SIP trunk)** is recorded as a precise, non-implemented future handoff — none was allowed to block, delay, or scope-creep into this readiness verdict (§61.3).
+10. **The projection-population implementation dependency (10 of 12 projections lack an executed `fn_apply_projection_*`) remains open** — this is unchanged from the original 6L pass, correctly classified as an **implementation-phase dependency, not an API-contract blocker**: 6L's job is a correct, honest contract, and it remains one whether or not the population workers have been written yet (§12, §17 of the governing task, explicitly anticipated as an acceptable readiness condition, not a blocker).
+11. **The constraint-count documentation defect is corrected** — this document previously stated `roi_by_campaign` added three `NOT VALID` constraints (four total); the actual, live-reconfirmed count is three `NOT VALID` on `roi_by_campaign` plus two `NOT VALID` on `billing_revenue_monthly` (five total `NOT VALID`) plus one immediately-`VALID` currency-format check — six constraints total. Corrected everywhere this document, the migration manifest, and the dedicated validation report stated the count (§56.2, §57.3, §57.10, §57.11).
 
-No P0 blocker remains. No implementation-blocking P1 remains. This document does not silently claim completeness anywhere it is not warranted — §57.9 explicitly scopes what live database-layer validation does and does not, on its own, prove about a yet-unbuilt HTTP API layer.
+No P0 blocker remains. No implementation-blocking P1 remains. This document does not silently claim completeness anywhere it is not warranted — §57.12 explicitly scopes what live database-layer validation does and does not, on its own, prove about a yet-unbuilt HTTP API layer.
 
-This document does not self-freeze. Independent review freezes the phase.
+**This document does not self-freeze. Independent review freezes the phase.**

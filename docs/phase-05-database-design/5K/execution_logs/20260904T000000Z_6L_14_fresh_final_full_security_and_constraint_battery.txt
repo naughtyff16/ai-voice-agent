@@ -1,0 +1,240 @@
+=== SECTION 1: 103 CHECK CONSTRAINT INVENTORY (6 total: 1 VALID + 5 NOT VALID) ===
+                  table_name                  |                conname                | convalidated 
+----------------------------------------------+---------------------------------------+--------------
+ analytics.roi_by_campaign                    | chk_rbc_cost_normalization_present    | f
+ analytics.roi_by_campaign                    | chk_rbc_org_currency_code             | t
+ analytics.roi_by_campaign                    | chk_rbc_revenue_normalization_present | f
+ analytics.roi_by_campaign                    | chk_rbc_roi_requires_normalization    | f
+ analytics.billing_revenue_monthly            | chk_brm_margin_pct_requires_amount    | f
+ analytics.billing_revenue_monthly            | chk_brm_margin_requires_normalization | f
+ analytics.billing_revenue_monthly_before2027 | chk_brm_margin_pct_requires_amount    | f
+ analytics.billing_revenue_monthly_before2027 | chk_brm_margin_requires_normalization | f
+ analytics.billing_revenue_monthly_2027       | chk_brm_margin_pct_requires_amount    | f
+ analytics.billing_revenue_monthly_2027       | chk_brm_margin_requires_normalization | f
+ analytics.billing_revenue_monthly_default    | chk_brm_margin_pct_requires_amount    | f
+ analytics.billing_revenue_monthly_default    | chk_brm_margin_requires_normalization | f
+(12 rows)
+
+=== TEST A: chk_rbc_org_currency_code -- invalid currency code, ISOLATED from every other constraint (total_cost_currency=org_currency so chk_rbc_cost_normalization_present is satisfied via its own OR branch; no revenue/roi_pct so the other two are satisfied) -- MUST be rejected specifically by chk_rbc_org_currency_code ===
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/135a43a1-f00b-4d00-bff1-50d8576847f8/scratchpad/pgvalidate/final_assertions.sql:18: ERROR:  new row for relation "roi_by_campaign" violates check constraint "chk_rbc_org_currency_code"
+DETAIL:  Failing row contains (01a063c7-950e-769e-8011-11d65a2ba0c1, 01a063c7-950f-74ea-927d-7dfb8bd31c9d, 01a063c7-950f-74e5-ad57-570f8133dc0f, 10.0000, AB1, null, null, null, null, null, null, 2026-09-03 01:50:19.340368+05:30, AB1, null, null, null, null, null, null, null, null).
+=== TEST A2: chk_rbc_org_currency_code -- a valid 3-uppercase-letter code, same isolation -- MUST be accepted ===
+ org_currency 
+--------------
+ INR
+(1 row)
+
+INSERT 0 1
+=== TEST B: chk_rbc_cost_normalization_present -- org_currency != total_cost_currency, no normalized cost fields -- MUST be rejected ===
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/135a43a1-f00b-4d00-bff1-50d8576847f8/scratchpad/pgvalidate/final_assertions.sql:27: ERROR:  new row for relation "roi_by_campaign" violates check constraint "chk_rbc_cost_normalization_present"
+DETAIL:  Failing row contains (01a063c7-9512-7d86-b06e-6e21c6d7c078, 01a063c7-9512-71df-98bd-bd109e731197, 01a063c7-9512-7e0e-89ec-ec212ab0055d, 10.0000, USD, null, null, null, null, null, null, 2026-09-03 01:50:19.346243+05:30, INR, null, null, null, null, null, null, null, null).
+=== TEST B2: chk_rbc_cost_normalization_present -- same mismatch WITH normalized fields present -- MUST be accepted ===
+ org_currency | total_cost_amount_org_currency 
+--------------+--------------------------------
+ INR          |                       830.0000
+(1 row)
+
+INSERT 0 1
+=== TEST C: chk_rbc_revenue_normalization_present -- org_currency != estimated_revenue_currency, no normalized revenue fields -- MUST be rejected ===
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/135a43a1-f00b-4d00-bff1-50d8576847f8/scratchpad/pgvalidate/final_assertions.sql:41: ERROR:  new row for relation "roi_by_campaign" violates check constraint "chk_rbc_revenue_normalization_present"
+DETAIL:  Failing row contains (01a063c7-9513-7f0a-9eeb-eb990d33d76c, 01a063c7-9513-782b-8809-091b29872cf9, 01a063c7-9513-7699-968e-8e612e8e8226, 10.0000, USD, 500.0000, EUR, null, null, null, null, 2026-09-03 01:50:19.347203+05:30, INR, 830.0000, 83.000000, null, null, null, null, null, null).
+=== TEST C2: chk_rbc_revenue_normalization_present -- same mismatch WITH normalized revenue fields -- MUST be accepted ===
+ org_currency | estimated_revenue_amount_org_currency 
+--------------+---------------------------------------
+ INR          |                              540.0000
+(1 row)
+
+INSERT 0 1
+=== TEST D: chk_rbc_roi_requires_normalization -- roi_pct set without normalization -- MUST be rejected ===
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/135a43a1-f00b-4d00-bff1-50d8576847f8/scratchpad/pgvalidate/final_assertions.sql:54: ERROR:  new row for relation "roi_by_campaign" violates check constraint "chk_rbc_roi_requires_normalization"
+DETAIL:  Failing row contains (01a063c7-9514-7eee-9ae4-e4c0115f5503, 01a063c7-9514-7df0-8148-4824c3e30e73, 01a063c7-9514-793d-a6c4-c47bac315aec, 100.0000, USD, null, null, 12.5000, null, null, null, 2026-09-03 01:50:19.34805+05:30, null, null, null, null, null, null, null, null, null).
+=== TEST E: fully FX-normalized ROI row -- MUST be accepted ===
+                  id                  | roi_pct  | org_currency 
+--------------------------------------+----------+--------------
+ 01a063c7-9515-7d41-8eda-dac7de077acb | -93.9759 | INR
+(1 row)
+
+INSERT 0 1
+=== TEST F: chk_brm_margin_requires_normalization -- gross_margin_amount set, provider_cost_amount_org_currency NULL -- MUST be rejected ===
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/135a43a1-f00b-4d00-bff1-50d8576847f8/scratchpad/pgvalidate/final_assertions.sql:71: ERROR:  new row for relation "billing_revenue_monthly_before2027" violates check constraint "chk_brm_margin_requires_normalization"
+DETAIL:  Failing row contains (01a063c7-9515-7983-8277-77ca077a7d62, 01a063c7-9515-7afa-beb9-b9cd5f4d79e6, 2026-08, 2026, 0, 0, 77000.0000, INR, 300.0000, USD, null, null, 2026-09-03 01:50:19.349034+05:30, null, null, null, null, 76700.0000, null).
+=== TEST G: chk_brm_margin_pct_requires_amount -- gross_margin_pct set, gross_margin_amount NULL -- MUST be rejected ===
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/135a43a1-f00b-4d00-bff1-50d8576847f8/scratchpad/pgvalidate/final_assertions.sql:77: ERROR:  new row for relation "billing_revenue_monthly_before2027" violates check constraint "chk_brm_margin_pct_requires_amount"
+DETAIL:  Failing row contains (01a063c7-9516-7e7c-97ef-ef9c34c64979, 01a063c7-9516-71c0-b3a9-a9842bf222d6, 2026-08, 2026, 0, 0, 77000.0000, INR, 300.0000, USD, null, null, 2026-09-03 01:50:19.349757+05:30, null, null, null, null, null, 99.6000).
+=== TEST H: fully normalized billing_revenue_monthly row -- MUST be accepted ===
+                  id                  | provider_cost_amount_org_currency | gross_margin_amount | gross_margin_pct 
+--------------------------------------+-----------------------------------+---------------------+------------------
+ 01a063c7-9516-746f-9302-0235462eeb70 |                        24900.0000 |          52100.0000 |          67.6623
+(1 row)
+
+INSERT 0 1
+=== SECTION 2A: AUDIT CROSS-TENANT RLS ===
+--- seed org fixtures (idempotent) ---
+INSERT 0 0
+INSERT 0 0
+--- create Tenant A audit row via the canonical function, as app_api under Tenant A context ---
+BEGIN
+SET
+SET
+        fn_insert_audit_event         
+--------------------------------------
+ 01a063c7-951c-752f-9dae-aee3fbe21492
+(1 row)
+
+RESET
+COMMIT
+--- create Tenant B audit row via the canonical function, as app_api under Tenant B context ---
+BEGIN
+SET
+SET
+        fn_insert_audit_event         
+--------------------------------------
+ 01a063c7-951f-7650-8d05-052df588661a
+(1 row)
+
+RESET
+COMMIT
+BEGIN
+SET
+SET
+context = Audit Org A -- expect ONLY organization_id = c1111111...
+           organization_id            
+--------------------------------------
+ c1111111-1111-1111-1111-111111111111
+(1 row)
+
+RESET
+ROLLBACK
+BEGIN
+SET
+SET
+context = Audit Org B -- expect ONLY organization_id = c2222222...
+           organization_id            
+--------------------------------------
+ c2222222-2222-2222-2222-222222222222
+(1 row)
+
+RESET
+ROLLBACK
+BEGIN
+SET
+context = UNSET -- expect ZERO rows (fail-closed)
+ organization_id 
+-----------------
+(0 rows)
+
+RESET
+ROLLBACK
+=== SECTION 2B: PLATFORM AUDIT EVENT HIDING ===
+--- IMPORTANT: fn_insert_audit_event's platform-event check uses session_user, not current_user -- SET ROLE changes current_user only and does NOT satisfy this check (proven below as a negative control), so a genuine separate connection as app_worker is required to actually exercise the approved path ---
+--- negative control: SET ROLE app_worker (current_user changes, session_user does NOT) attempting a platform event -- MUST still be denied, proving session_user (not current_user) is what the function actually checks ---
+BEGIN
+SET
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/135a43a1-f00b-4d00-bff1-50d8576847f8/scratchpad/pgvalidate/final_assertions.sql:167: ERROR:  audit: caller pgtest is not authorized to create platform audit events
+CONTEXT:  PL/pgSQL function fn_insert_audit_event(uuid,text,uuid,text,text,text,uuid,text,text,inet,text,text,uuid,uuid,jsonb,boolean) line 19 at RAISE
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/135a43a1-f00b-4d00-bff1-50d8576847f8/scratchpad/pgvalidate/final_assertions.sql:168: ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ROLLBACK
+--- genuine connection as app_worker (a real new backend connection -- session_user actually becomes app_worker) ---
+You are now connected to database "voice_agent_fresh2" as user "app_worker".
+ session_user | current_user 
+--------------+--------------
+ app_worker   | app_worker
+(1 row)
+
+        fn_insert_audit_event         
+--------------------------------------
+ 01a063c7-9550-745a-b518-183fcbf69f61
+(1 row)
+
+--- reconnect as pgtest (bootstrap superuser) for the remainder of the script ---
+You are now connected to database "voice_agent_fresh2" as user "pgtest".
+--- as bypass-RLS superuser, confirm the platform row actually exists (fixture sanity check only) ---
+ organization_id |      actor_name      
+-----------------+----------------------
+                 | platform-test-worker
+(1 row)
+
+--- as ordinary tenant app_api under Tenant A context, the platform row MUST NOT appear ---
+BEGIN
+SET
+SET
+ platform_rows_visible_to_tenant 
+---------------------------------
+                               0
+(1 row)
+
+RESET
+ROLLBACK
+=== SECTION 2C: PROVIDER HEALTH DENIAL ===
+--- as app_api: MUST be permission denied ---
+SET
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/135a43a1-f00b-4d00-bff1-50d8576847f8/scratchpad/pgvalidate/final_assertions.sql:200: ERROR:  permission denied for table provider_health_5min
+RESET
+--- as app_readonly: MUST be permission denied ---
+SET
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/135a43a1-f00b-4d00-bff1-50d8576847f8/scratchpad/pgvalidate/final_assertions.sql:205: ERROR:  permission denied for table provider_health_5min
+RESET
+--- as app_worker: MUST be ALLOWED (approved platform-internal privilege, zero rows is a fine outcome, permission-denied would be) ---
+SET
+ count 
+-------
+     0
+(1 row)
+
+RESET
+=== SECTION 2D: AUDIT IMMUTABILITY (INSERT/UPDATE/DELETE) ===
+--- app_api direct INSERT -- MUST be denied ---
+SET
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/135a43a1-f00b-4d00-bff1-50d8576847f8/scratchpad/pgvalidate/final_assertions.sql:217: ERROR:  permission denied for table audit_events
+RESET
+--- app_api direct UPDATE -- MUST be denied ---
+SET
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/135a43a1-f00b-4d00-bff1-50d8576847f8/scratchpad/pgvalidate/final_assertions.sql:222: ERROR:  permission denied for table audit_events
+RESET
+--- app_api direct DELETE -- MUST be denied ---
+SET
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/135a43a1-f00b-4d00-bff1-50d8576847f8/scratchpad/pgvalidate/final_assertions.sql:227: ERROR:  permission denied for table audit_events
+RESET
+--- app_api fn_compute_chain_hash -- MUST be denied ---
+SET
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/135a43a1-f00b-4d00-bff1-50d8576847f8/scratchpad/pgvalidate/final_assertions.sql:232: ERROR:  permission denied for function fn_compute_chain_hash
+RESET
+=== SECTION 2E: CUSTOM-ROLE BOTH SENSITIVE PERMISSIONS ===
+--- system-role defaults: OWNER/ADMIN = both; MEMBER/VIEWER/BILLING_ADMIN = neither (proves system roles untouched) ---
+ role  |        permission         
+-------+---------------------------
+ ADMIN | recording:access_media
+ OWNER | recording:access_media
+ ADMIN | transcript:access_content
+ OWNER | transcript:access_content
+(4 rows)
+
+--- tenant custom role granted BOTH sensitive permissions, assigned to a MEMBER-tier user ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/135a43a1-f00b-4d00-bff1-50d8576847f8/scratchpad/pgvalidate/final_assertions.sql:270: ERROR:  duplicate key value violates unique constraint "uq_roles_tenant_name"
+DETAIL:  Key (organization_id, name)=(d7777777-7777-7777-7777-777777777777, SENSITIVE_MEDIA_REVIEWER_BOTH) already exists.
+CONTEXT:  SQL statement "INSERT INTO organization.roles (id, organization_id, name, display_name, description, is_system, is_active)
+  VALUES (gen_uuid_v7(), v_org, 'SENSITIVE_MEDIA_REVIEWER_BOTH', 'Sensitive Media Reviewer (Both)', 'Custom tenant role granting BOTH recording and transcript sensitive access to a specific MEMBER', FALSE, TRUE)
+  RETURNING id"
+PL/pgSQL function inline_code_block line 16 at SQL statement
+          custom_role          | is_system |        permission         
+-------------------------------+-----------+---------------------------
+ SENSITIVE_MEDIA_REVIEWER_BOTH | f         | recording:access_media
+ SENSITIVE_MEDIA_REVIEWER_BOTH | f         | transcript:access_content
+(2 rows)
+
+=== SECTION 3: FINAL SANITY -- RECORDING-ACCESS AUDIT EVENT STILL WORKS (regression check) ===
+BEGIN
+SET
+SET
+        fn_insert_audit_event         
+--------------------------------------
+ 01a063c7-9588-7886-a9f1-f1d9481f8ec7
+(1 row)
+
+RESET
+COMMIT
+       action_kind        |                               resource_snapshot                                
+--------------------------+--------------------------------------------------------------------------------
+ RECORDING_ACCESS_GRANTED | {"call_id": "01a063c7-9588-79b3-b17d-7d8750c61a89", "expires_in_seconds": 900}
+(1 row)
+

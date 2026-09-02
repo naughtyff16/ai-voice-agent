@@ -1,0 +1,11 @@
+=== Database A (voice_agent_fresh2) ===
+104_5B3 (head)
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+104_5B3 (head)
+
+=== Database B (voice_agent_incr) ===
+104_5B3 (head)
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+104_5B3 (head)

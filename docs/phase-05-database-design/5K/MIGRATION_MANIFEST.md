@@ -1643,7 +1643,7 @@ concrete outbox relation for its `organization.created` and
 
 ### Row 103 — `103_5J2.sql` (Phase 5J.2, `down_revision = '102_5H2'`)
 
-Adds FX-normalization column sets (`{amount in a single common org currency, fx_rate_used, fx_rate_source, fx_rate_captured_at}`) to `analytics.roi_by_campaign` and `analytics.billing_revenue_monthly`, mirroring `billing.cost_entries`' own existing pattern (5H §7, migration `051_5H.sql`), closing a confirmed cross-currency-arithmetic defect: both tables previously stored cost and revenue amounts in independently-defaulted currencies (`USD`/`INR`) feeding a single `roi_pct`/margin figure with no normalization — contradicting Phase 4I §11.3/§17.4's own "ROI is currency-consistent" mandate and Phase 6K's INV-6K-14 "no implicit FX" invariant. Four `NOT VALID` presence-guard CHECK constraints make a currency-inconsistent `roi_pct`/`gross_margin_amount` structurally unrepresentable for any new write, without scanning or rejecting pre-existing rows. No table, function, role, or grant outside these two tables is touched; migrations `001`-`102` are unmodified.
+Adds FX-normalization column sets (`{amount in a single common org currency, fx_rate_used, fx_rate_source, fx_rate_captured_at}`) to `analytics.roi_by_campaign` and `analytics.billing_revenue_monthly`, mirroring `billing.cost_entries`' own existing pattern (5H §7, migration `051_5H.sql`), closing a confirmed cross-currency-arithmetic defect: both tables previously stored cost and revenue amounts in independently-defaulted currencies (`USD`/`INR`) feeding a single `roi_pct`/margin figure with no normalization — contradicting Phase 4I §11.3/§17.4's own "ROI is currency-consistent" mandate and Phase 6K's INV-6K-14 "no implicit FX" invariant. **Six** new CHECK constraints total — `chk_rbc_org_currency_code` (immediately `VALID`) plus **five** `NOT VALID` presence-guard constraints (`chk_rbc_cost_normalization_present`, `chk_rbc_revenue_normalization_present`, `chk_rbc_roi_requires_normalization` on `roi_by_campaign`; `chk_brm_margin_requires_normalization`, `chk_brm_margin_pct_requires_amount` on `billing_revenue_monthly`) — make a currency-inconsistent `roi_pct`/`gross_margin_amount` structurally unrepresentable for any new write, without scanning or rejecting pre-existing rows. (An earlier version of this entry undercounted the `NOT VALID` set as four; corrected here after live re-query — see the Final Narrow Remediation section below.) No table, function, role, or grant outside these two tables is touched; migrations `001`-`102` are unmodified.
 
 **SHA-256 (final, frozen):** `fba53d7ecc09b345335ea4aea600ca2ffbb288aed42775ff986dcabf8e8dfb87`, **13,907 bytes**.
 
@@ -1685,3 +1685,35 @@ Raw evidence: `docs/phase-05-database-design/5K/execution_logs/` (13 files, pref
 | RLS (cross-tenant isolation) | **PASS** — both databases |
 | Audit (`fn_insert_audit_event`/`fn_compute_chain_hash` grant boundary + recording-access event) | **PASS** — both databases |
 | Validation evidence | `docs/phase-05-database-design/5K/execution_logs/20260903T000000Z_6L_*.txt` (13 files); `docs/phase-05-database-design/5K/validation/6L_FINAL_FREEZE_GATE_VALIDATION_REPORT.md` |
+
+### Final Narrow Remediation (this pass) — Complete Security Test Matrix + Constraint-Count Correction
+
+A second, independent review found the validation above, while genuine, did not yet cover every security assertion the original Phase 6L task required, and undercounted `103_5J2`'s `NOT VALID` constraint set as four (actual: five, plus one immediately-`VALID` — six total). Both closed in this pass against the same two databases, **with no change to any migration's DDL, Alembic wrapper, or grant** — both were test-coverage/documentation-counting defects, not schema defects, confirmed by live re-execution before being merely asserted.
+
+**Newly executed, with raw evidence (`20260904T000000Z_6L_14` fresh, `_6L_15` incremental — both databases, identical outcomes):**
+- Full six-constraint battery, each constraint individually isolated (11 sub-tests: A/A2/B/B2/C/C2/D/E/F/G/H) — every one behaves exactly as designed.
+- Audit cross-tenant RLS (two real audit rows, two tenants, unset-context fail-closed).
+- Platform-audit-event hiding — including a negative control proving `SET ROLE app_worker` alone is insufficient (the function checks `session_user`) and a genuine `app_worker` connection is what the approved path requires.
+- Provider-health denial for **both** `app_api` and `app_readonly` (a prior pass tested neither live); `app_worker`'s approved access reconfirmed.
+- Audit immutability: INSERT (prior pass) + **UPDATE + DELETE** (newly tested), all denied to `app_api`.
+- Custom-role extension proven for **both** sensitive permissions together (`recording:access_media` + `transcript:access_content`), not just one.
+
+**Final heads/current (evidence `20260904T000000Z_6L_16`):** both databases → `heads` = `104_5B3 (head)`, `current` = `104_5B3 (head)`.
+
+**Final checksums, unchanged from the prior pass (evidence `20260904T000000Z_6L_17`):**
+```
+102_5H2.sql  73b9f7aed921ccc373cc634372ac7ac75c0490872d55af21116c3ff182445b3d  127,971 bytes
+103_5J2.sql  fba53d7ecc09b345335ea4aea600ca2ffbb288aed42775ff986dcabf8e8dfb87   13,907 bytes
+104_5B3.sql  4b8ab081e9064c96ecdbc59545fa9af3ffd878032a47baff45af6ee6a2ca8183    6,649 bytes
+```
+
+**Corrected constraint count (six total, one `VALID` + five `NOT VALID`):**
+```
+analytics.roi_by_campaign         — 4 CHECK constraints — 1 VALID (chk_rbc_org_currency_code) + 3 NOT VALID
+analytics.billing_revenue_monthly — 2 CHECK constraints — 2 NOT VALID
+TOTAL                             — 6 CHECK constraints — 1 VALID + 5 NOT VALID
+```
+
+Raw evidence: `docs/phase-05-database-design/5K/execution_logs/20260904T000000Z_6L_14` through `_6L_17`. Full narrative: `docs/phase-05-database-design/5K/validation/6L_FINAL_FREEZE_GATE_VALIDATION_REPORT.md` §9.
+
+**Phase status:** this manifest does not itself declare a phase frozen — see `docs/phase-06-api-design/6L-Analytics-Audit-APIs.md` §72 for the authoritative phase-status statement (`READY FOR INDEPENDENT FREEZE-GATE REVIEW`, not self-declared `APPROVED / FROZEN`).
