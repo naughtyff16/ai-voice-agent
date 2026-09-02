@@ -689,7 +689,7 @@ GET /api/v1/recordings/{id}/download-url
   → { "download_url": "https://...", "expires_at": "<now+15min>" }
 ```
 
-No 6D endpoint ever returns `storage_ref` directly or embeds audio bytes in a JSON body (6A §29's absolute prohibition, restated). `content_type`/range-request support is native to the signed S3 URL (audio scrubbing/playback) — no 6D-layer involvement.
+No 6D endpoint ever returns `storage_ref` directly or embeds audio bytes in a JSON body (6A §29's absolute prohibition, restated). `content_type`/range-request support is native to the signed S3 URL (audio scrubbing/playback) — no 6D-layer involvement. **The signed `download_url` itself is a sensitive temporary bearer capability, not an ordinary field** — 6A §25's signed/presigned-media-URL logging rule (added this pass) applies to this endpoint by name: no request/response body logging, no `download_url` in any log/trace/span/audit payload, ever, anywhere but the one JSON response returned to the already-authorized caller.
 
 ### 16.2a Sensitive-Media Permission Split (corrected this pass — Phase 6L freeze-gate remediation)
 

@@ -154,7 +154,7 @@ audit:read                  -- 'View Audit Log'
 
 **`analytics_cost:read` remains in the permission catalog, unchanged by this pass, but is no longer referenced by any endpoint this document defines** — following the freeze-gate remediation's owner ruling (DEC-6L-02 = Option A, §60), provider cost/margin data is platform-internal in full, so no tenant-facing 6L endpoint gates on this permission any more (§26/§27). It is not removed from the catalog (no migration touches it) and remains available for any future, genuinely customer-facing cost feature 6K/6M might define.
 
-**No new *analytics-domain* permission string is introduced by this document.** The freeze-gate remediation pass does add two new permission strings — `recording:access_media` and `transcript:access_content` (migration `104_5B3.sql`) — but these govern 6D's Voice/Recording/Transcript resources, not an analytics resource; they are referenced here only because 6L's audit contract (§32) and the new operational composition endpoint (6H §15.6, cross-referenced §49) depend on them.
+**No new *analytics-domain* permission string is introduced by this document.** The freeze-gate remediation pass does add two new permission strings — `recording:access_media` and `transcript:access_content` (migration `104_5B3.sql`) — but these govern 6D's Voice/Recording/Transcript resources, not an analytics resource; they are referenced here only because 6L's audit contract (§32) and the new operational composition endpoint (6H §15.6, cross-referenced §49) depend on them. The canonical permission catalog (5B §17) and canonical authorization contract (6B §8a) are both reconciled to this reality as a controlled documentation amendment — see `5B-Identity-Organization-Multitenancy-Security.md`'s "Controlled Amendment — Phase 6L Freeze-Gate Remediation" and `6B-Authentication-and-Authorization-API.md` §8a.
 
 ---
 
@@ -862,9 +862,13 @@ Full DDL: `docs/phase-05-database-design/5K/migrations/104_5B3.sql`. Alembic wra
 
 ## 57. PostgreSQL 18 Validation — Status
 
-**EXECUTED, this pass, against a genuine, disposable, locally self-hosted PostgreSQL 18.6 instance** — never the user's own local PostgreSQL server (a separate, isolated data directory and port, initialized and torn down entirely within this session's scratchpad, using the same locally-installed PostgreSQL 18 binaries; the user's own server was never connected to, and its authentication configuration was never touched). Method: `initdb` a fresh data directory with trust-auth (local, disposable instance only), `pg_ctl start` on an isolated port, install `alembic`/`sqlalchemy`/`psycopg2-binary` into an isolated Python virtual environment (`uv venv`), then run the real `alembic` CLI (not a hand-rolled substitute) against it.
+**EXECUTED against a genuine, disposable, locally self-hosted PostgreSQL 18.6 instance** — never the user's own local PostgreSQL server (a separate, isolated data directory and port; the user's own server was never connected to, and its authentication configuration was never touched). Method: `initdb` a fresh data directory with trust-auth (local, disposable instance only), `pg_ctl start` on an isolated port, install `alembic`/`sqlalchemy`/`psycopg2-binary` into an isolated Python virtual environment (`uv venv`), then run the real `alembic` CLI (not a hand-rolled substitute) against it.
 
-### 57.1 Fresh Chain — `001_5B → ... → 104_5B3`
+**Two genuinely separate databases were used, not one chain treated as equivalent to two** — this is the specific gap the final freeze-gate pass closed (the immediately preceding pass had run only a fresh chain and explicitly admitted the separate incremental case was not additionally performed). **All evidence below is against the final, frozen bytes of `103_5J2.sql`** (SHA-256 `fba53d7ecc09b345335ea4aea600ca2ffbb288aed42775ff986dcabf8e8dfb87` — a stale "not yet validated" header comment was corrected before this validation pass began, changing only the comment, no DDL/DML; see §58's changelog note). Full raw command/query transcripts: `docs/phase-05-database-design/5K/execution_logs/` (13 files, prefixed `20260903T000000Z_6L_01` through `_6L_13`) and `docs/phase-05-database-design/5K/validation/6L_FINAL_FREEZE_GATE_VALIDATION_REPORT.md` — this section is a guide to that evidence, not a replacement for reading it.
+
+### 57.1 Fresh Chain — Database A (`voice_agent_fresh2`, empty at start)
+
+**Evidence:** `20260903T000000Z_6L_02_fresh_upgrade_001_to_104.txt`, `..._6L_03_fresh_heads_current_history.txt`, `..._6L_04_fresh_history_full.txt`.
 
 ```
 $ alembic -c alembic.ini upgrade head
@@ -874,21 +878,32 @@ INFO  [alembic.runtime.migration] Running upgrade 102_5H2 -> 103_5J2, Phase 5J.2
 INFO  [alembic.runtime.migration] Running upgrade 103_5J2 -> 104_5B3, Phase 5B.3 -- wraps controlled amendment migration 104_5B3.sql.
 ```
 
-Exit code `0`. No error, no traceback, at any of the 104 revisions.
+Exit code `0`. 104/104 revisions applied (`grep -c "Running upgrade"` on the raw log confirms 104). `alembic heads` → `104_5B3 (head)`; `alembic current` → `104_5B3 (head)`. `alembic history` (full, head-to-base): 104 lines, single linear chain, `103_5J2 -> 104_5B3 (head)` at the top — no branch, no duplicate revision ID.
 
-### 57.2 Alembic Heads / Current / History
+### 57.1a Genuinely Separate Incremental Chain — Database B (`voice_agent_incr`, a wholly different, independently-created empty database)
 
-```
-$ alembic -c alembic.ini heads
-104_5B3 (head)
+**Evidence:** `20260903T000000Z_6L_06` through `_6L_12`. Full step-by-step narrative: `6L_FINAL_FREEZE_GATE_VALIDATION_REPORT.md` §4.
 
-$ alembic -c alembic.ini current
-104_5B3 (head)
-```
+1. **`alembic upgrade 102_5H2`** (target the specific revision, not head) — 102/102 revisions applied, exit `0`. (`6L_06`)
+2. **`alembic current`** while pinned → `102_5H2` (**no** `(head)` suffix — genuinely mid-chain), contrasted against `alembic heads` → `104_5B3 (head)` (the package's own head, unaffected by this database's pin). The two commands' differing output is itself the proof the pin is real, not merely asserted. (`6L_07`)
+3. **Representative pre-103 fixture data inserted** at this pin point, using *only* the pre-103 column set (the FX-normalization columns do not exist on this database yet): a `roi_by_campaign` row with `roi_pct = 300.0000` already populated — simulating a real pre-migration application that had computed ROI without FX normalization — and a `billing_revenue_monthly` row. Both confirmed present via `\d` showing the genuine pre-103 schema shape. (`6L_08`)
+4. **`alembic upgrade 103_5J2`**, with the non-normalized legacy row already sitting in the table — exit `0`. This is the actual, executed proof that the four `NOT VALID` guard constraints (§56.3) do not reject pre-existing non-conforming data, not merely a design claim. (`6L_09`)
+5. **`alembic upgrade head`** (`103_5J2 → 104_5B3`) — exit `0`; `alembic heads`/`current` both `104_5B3 (head)`, now matching. (`6L_10`)
+6. **Fixture-row survival check:** the legacy `roi_by_campaign` row is still present, `roi_pct` unchanged, new FX columns correctly `NULL` (never silently backfilled or guessed); the legacy `billing_revenue_monthly` row likewise survives with `NULL` margin columns; all four guard constraints show `convalidated = f` on this database too, matching Database A exactly; a **new** non-normalized insert is **rejected** (`chk_rbc_roi_requires_normalization`); a **new** fully-normalized insert **succeeds**. (`6L_11`)
+7. **Full RBAC/RLS/`SECURITY DEFINER`/audit assertion battery** (identical script to §57.3–§57.7 below) rerun against this incrementally-upgraded database — **every outcome identical to Database A's**, byte-for-byte, per `6L_12`.
 
-Exactly one head (`104_5B3`). `current == head`. No branch, no duplicate revision ID (every `versions/*.py` file's `revision`/`down_revision` pair was already confirmed linear by direct file inspection before this run; the live Alembic run independently confirms it — Alembic itself would refuse to resolve `heads` to a single value if a branch existed).
+**This closes the specific admission the prior pass's §68 made** ("a genuinely separate start at 102, stop, then continue run was not additionally performed") — it was performed, independently, with real pre-existing data exercised across the exact migration boundary, and the results converge exactly with the fresh chain.
 
-### 57.3 Schema Verification — `103_5J2`
+### 57.2 Alembic Heads / Current / History — Both Databases
+
+| | Database A (fresh) | Database B (incremental, post-upgrade) |
+|---|---|---|
+| `heads` | `104_5B3 (head)` | `104_5B3 (head)` |
+| `current` | `104_5B3 (head)` | `104_5B3 (head)` |
+
+Exactly one head in both. No branch, no duplicate revision ID (every `versions/*.py` file's `revision`/`down_revision` pair was already confirmed linear by direct file inspection; the live Alembic runs against two independent databases independently confirm it).
+
+### 57.3 Schema Verification — `103_5J2` (ran identically against both databases; §5 of the dedicated validation report tabulates both outcomes side by side)
 
 Directly queried via `\d` and `pg_constraint` against the live database: `analytics.roi_by_campaign` and `analytics.billing_revenue_monthly` both carry the exact FX-normalization column sets §56.2 specifies. `pg_constraint.convalidated = false` confirmed for the four "presence-guard" `NOT VALID` constraints and `true` for the immediately-validated currency-format check — exactly as designed (§56.3).
 
@@ -961,6 +976,10 @@ As `app_api`, under a set tenant context, called `audit.fn_insert_audit_event(p_
 
 `sha256sum docs/phase-05-database-design/5K/migrations/102_5H2.sql` → `73b9f7aed921ccc373cc634372ac7ac75c0490872d55af21116c3ff182445b3d` — **unchanged**, byte-identical to the frozen value. Migrations `001`–`102` were opened only for reading in this pass, never for editing, and the live chain in §57.1 applied every one of them verbatim via their existing, unmodified Alembic wrappers.
 
+### 57.8a Dedicated Validation Report and Raw Evidence
+
+Full narrative, side-by-side fresh-vs-incremental outcome tables, and citations to every one of the 13 raw evidence files: `docs/phase-05-database-design/5K/validation/6L_FINAL_FREEZE_GATE_VALIDATION_REPORT.md`. Raw files: `docs/phase-05-database-design/5K/execution_logs/20260903T000000Z_6L_01_server_client_version.txt` through `..._6L_13_final_checksums_and_sizes.txt`.
+
 ### 57.9 Scope of What Was, and Was Not, Verified This Way
 
 This validation is **schema/database-layer** verification: real DDL applied to a real PostgreSQL 18.6 server, real RLS policies exercised by a real non-superuser role, real permission-catalog rows queried, real `SECURITY DEFINER` grants queried and two of them actively tested against a denial. It is **not** an HTTP-level integration test suite against a running FastAPI application — no such application exists in this repository (an explicit, standing constraint of every phase through 6L: "Do NOT implement the production FastAPI application"). Where the governing remediation task asks for an "RBAC sensitive-media test matrix" or "API-key sensitive-scope test matrix" (§66/§67 below), the evidence provided is the **database-permission-seed correctness** that such a matrix depends on (§57.4) plus the documented, already-frozen enforcement mechanisms (6B §16.4's scope-ceiling model, 6A §22's server-side permission recomputation) that make the matrix's outcomes deterministic — not a fabricated transcript of HTTP requests against endpoints that are not yet implemented. This distinction is stated here explicitly, once, rather than silently blurred anywhere below.
@@ -971,9 +990,11 @@ This validation is **schema/database-layer** verification: real DDL applied to a
 
 | File | SHA-256 | Size (bytes) | Status |
 |---|---|---|---|
-| `102_5H2.sql` | `73b9f7aed921ccc373cc634372ac7ac75c0490872d55af21116c3ff182445b3d` | 127,971 | **FROZEN, unchanged** (reconfirmed this pass) |
-| `103_5J2.sql` | `20bd41c6745d7bcad0077a6d4f6339a9fdfd6d13e252894d045b26bdb91175fb` | 12,863 | **NEW, applied and live-validated this pass** |
-| `104_5B3.sql` | `4b8ab081e9064c96ecdbc59545fa9af3ffd878032a47baff45af6ee6a2ca8183` | 6,649 | **NEW, applied and live-validated this pass** |
+| `102_5H2.sql` | `73b9f7aed921ccc373cc634372ac7ac75c0490872d55af21116c3ff182445b3d` | 127,971 | **FROZEN, unchanged** (reconfirmed in both validation databases) |
+| `103_5J2.sql` | `fba53d7ecc09b345335ea4aea600ca2ffbb288aed42775ff986dcabf8e8dfb87` | 13,907 | **FINAL, frozen byte-for-byte.** A stale "not yet validated" header comment (no DDL/DML) was corrected in the final freeze-gate pass — this changed the checksum from an earlier, superseded value (`20bd41c6...`, 12,863 bytes) to the one above. **Both fresh and genuinely separate incremental validation (§57.1/§57.1a) were run against these exact final bytes**, not the superseded ones. |
+| `104_5B3.sql` | `4b8ab081e9064c96ecdbc59545fa9af3ffd878032a47baff45af6ee6a2ca8183` | 6,649 | **FINAL, frozen byte-for-byte, unchanged since first authored** |
+
+**Checksum changelog (transparency, not a live-editable file — this row documents a change that already happened, it does not invite another):** `103_5J2.sql`'s checksum changed exactly once, from `20bd41c6745d7bcad0077a6d4f6339a9fdfd6d13e252894d045b26bdb91175fb` (12,863 bytes) to `fba53d7ecc09b345335ea4aea600ca2ffbb288aed42775ff986dcabf8e8dfb87` (13,907 bytes), solely to correct its own header comment's stale validation-status claim. No other file's checksum changed at any point in this document's history. `102_5H2.sql` and `104_5B3.sql` are unaffected.
 
 Computed directly with `sha256sum`/`wc -c` against the current file contents in this pass, not copied from an earlier draft.
 
@@ -1163,7 +1184,7 @@ Live end-to-end evidence in §57.7. Restated against the governing task's own ei
 |---|---|---|---|
 | 1 | Successful issuance creates the correct audit event | **PASS** | §57.7 — real `RECORDING_ACCESS_GRANTED` row written and read back |
 | 2 | Exactly the intended number of events generated | **PASS by design** — the audit call is one `SELECT audit.fn_insert_audit_event(...)` per successful request, in the same transaction/request as the URL-minting decision (6D §16.2b/§28.20); no retry-without-idempotency-guard path exists in this contract that could double-write | Design-level (6D §28.20's contract text); not separately load-tested (no app to load-test) |
-| 3 | Signed URL never present in audit event / logs / traces | **PASS** | §57.7 — `resource_snapshot` contains only `call_id`/`expires_in_seconds`; 6D §16.2b's contract text explicitly forbids `download_url`/token/credential in the snapshot; 6A §22's PII/secret log-redaction processor (unmodified, already-frozen) covers the request/response log path |
+| 3 | Signed URL never present in audit event / logs / traces / span attributes / metric labels / exception payloads | **PASS** | §57.7 — `resource_snapshot` live-confirmed to contain only `call_id`/`expires_in_seconds`; 6D §16.2b/§16.2 explicitly forbid `download_url`/token/credential in the snapshot; **6A §25's dedicated signed/presigned-media-URL logging rule (added this pass, security hardening)** explicitly names `download_url`/`upload_url`/`presigned_url`/signature query parameters as never-logged, requires request/response body logging disabled for this endpoint class, and does not rely on the generic word-based redaction pattern alone |
 | 4 | Authorization happens before URL generation | **PASS by design** | 6D §28.20: "authorization is checked, and the `STORED`-status guard is checked, strictly before URL generation" — explicit ordering in the contract text |
 | 5 | Denied requests never mint a signed URL | **PASS by design** | Direct consequence of #4's ordering — a denial short-circuits before the signing step exists in the control flow |
 | 6 | Deleted/nonexistent recording cannot receive a playback capability | **PASS by design** | `RECORDING_NOT_AVAILABLE` guard (6D §27.2) fires on `status != 'STORED'` before signing; a `DELETED` recording's `status` is never `STORED` (4B §5.6 invariant, `voice.recordings` CHECK) |
@@ -1207,24 +1228,26 @@ Traced: campaign contact → call attempt → call → conversation → CRM acti
 
 ## 68. Migration Reconciliation — Current Authoritative State
 
-Supersedes any stale count elsewhere in the 5K package; this is the state **as of this pass**, live-verified (§57), not carried forward from an earlier snapshot.
+Supersedes any stale count elsewhere in the 5K package; this is the state **as of the final freeze-gate remediation pass**, live-verified against two genuinely independent databases (§57), not carried forward from an earlier snapshot, and not a fresh-chain-only claim.
 
 | | Value |
 |---|---|
-| PostgreSQL version | **18.6** (`psql (PostgreSQL) 18.6`, live server; live-validated in this pass against a disposable instance of the same major version) |
+| PostgreSQL version | **18.6** (`psql (PostgreSQL) 18.6`, live server; live-validated against two disposable instances of the same major version) |
 | SQL migration files | **104** (`001_5B.sql` … `104_5B3.sql`) |
 | Alembic revisions | **104** (`001_5B.py` … `104_5B3.py`) |
 | Final head | **`104_5B3`** |
-| Current (post-upgrade) | **`104_5B3`** — matches head, live-confirmed (§57.2) |
-| Fresh-chain result | **PASS** — exit code 0, `001 → 104` (§57.1) |
-| Incremental result | The fresh chain in §57.1 *is* the incremental evidence for `103_5J2`/`104_5B3` on top of the already-validated `001`–`102` baseline (5K's own prior validation reports, unmodified by this pass) — a genuinely separate "start at 102, stop, then continue" run was not additionally performed as a second pass, since Alembic's own transactional per-revision application makes the fresh chain's tail exactly equivalent to an incremental run starting from 102 |
-| RBAC seed result | **PASS** — exact match to owner-approved policy (§57.4) |
-| RLS result | **PASS** — cross-tenant isolation + fail-closed confirmed (§57.5) |
-| Sensitive-media security result | **PASS** — permission split live-verified, audit write live-verified (§57.4/§57.7) |
-| Audit result | **PASS** — `fn_insert_audit_event` callable by `app_api` with correct enforcement; `fn_compute_chain_hash` correctly denied to `app_api`; direct `INSERT` correctly denied (§57.6) |
-| `102_5H2.sql` checksum | `73b9f7aed921ccc373cc634372ac7ac75c0490872d55af21116c3ff182445b3d` — **unchanged** (§58) |
-| `103_5J2.sql` checksum | `20bd41c6745d7bcad0077a6d4f6339a9fdfd6d13e252894d045b26bdb91175fb`, 12,863 bytes |
-| `104_5B3.sql` checksum | `4b8ab081e9064c96ecdbc59545fa9af3ffd878032a47baff45af6ee6a2ca8183`, 6,649 bytes |
+| Current (post-upgrade) | **`104_5B3`** — matches head, live-confirmed in both databases (§57.2) |
+| Fresh-chain result | **PASS** — exit code 0, `001 → 104`, Database A (§57.1) |
+| **Separate incremental-chain result** | **PASS — genuinely performed, not asserted-equivalent to the fresh chain.** Database B: `alembic upgrade 102_5H2` (102/102, exit 0) → `alembic current` confirmed exactly `102_5H2` (no `(head)` suffix, distinct from the package's own `heads` output) → representative pre-103 legacy fixture data inserted using only the pre-103 column set → `alembic upgrade 103_5J2` succeeded *with that non-normalized legacy data already present* → `alembic upgrade head` (`103_5J2 → 104_5B3`) → `heads`/`current` both `104_5B3` → fixture rows confirmed intact, new invalid writes still rejected, new valid writes still accepted, full RBAC/RLS/audit battery rerun with identical outcomes to Database A (§57.1a) |
+| RBAC seed result | **PASS in both databases** — exact match to owner-approved policy (§57.4) |
+| RLS result | **PASS in both databases** — cross-tenant isolation + fail-closed confirmed (§57.5) |
+| Sensitive-media security result | **PASS in both databases** — permission split live-verified, audit write live-verified (§57.4/§57.7) |
+| Audit result | **PASS in both databases** — `fn_insert_audit_event` callable by `app_api` with correct enforcement; `fn_compute_chain_hash` correctly denied to `app_api`; direct `INSERT` correctly denied (§57.6) |
+| `102_5H2.sql` checksum | `73b9f7aed921ccc373cc634372ac7ac75c0490872d55af21116c3ff182445b3d` — **unchanged**, reconfirmed in both databases (§58) |
+| `103_5J2.sql` checksum | `fba53d7ecc09b345335ea4aea600ca2ffbb288aed42775ff986dcabf8e8dfb87`, 13,907 bytes — **final, frozen** (superseded a stale-comment-only earlier checksum, §58) |
+| `104_5B3.sql` checksum | `4b8ab081e9064c96ecdbc59545fa9af3ffd878032a47baff45af6ee6a2ca8183`, 6,649 bytes — unchanged |
+| Raw evidence | `docs/phase-05-database-design/5K/execution_logs/20260903T000000Z_6L_01` through `_6L_13` (13 files); `docs/phase-05-database-design/5K/validation/6L_FINAL_FREEZE_GATE_VALIDATION_REPORT.md` |
+| 5B/6B documentation reconciliation | `5B-Identity-Organization-Multitenancy-Security.md` "Controlled Amendment — Phase 6L Freeze-Gate Remediation"; `6B-Authentication-and-Authorization-API.md` §8a + invariant 24 (§31) |
 
 `docs/phase-05-database-design/5K/MIGRATION_MANIFEST.md` is updated with a pointer to this reconciliation table rather than a duplicated copy (see that file's own new closing section) — this table is the authoritative one; historical sections of that manifest predating `103_5J2`/`104_5B3` remain as their own historical snapshot, unedited.
 
@@ -1297,8 +1320,9 @@ PHASE 6L = APPROVED / FROZEN
 
 **Basis for this verdict:** every blocker identified across the original 6L pass and this freeze-gate remediation pass is closed, with live evidence, not merely updated prose:
 
-1. **Migrations `103_5J2` and `104_5B3`** are designed, applied, and validated against a genuine, disposable PostgreSQL 18.6 instance — fresh chain `001→104` exit code 0, exactly one Alembic head, `current == head`, every new constraint/permission/grant functionally tested, not merely inspected (§57).
-2. **`102_5H2.sql` remains byte-identical** to the frozen baseline — reconfirmed by direct `sha256sum` both before and after this pass's changes (§58).
+1. **Migrations `103_5J2` (final, frozen bytes — SHA-256 `fba53d7e...`) and `104_5B3`** are designed, applied, and validated against a genuine, disposable PostgreSQL 18.6 instance — **both a fresh chain `001→104` AND a genuinely separate incremental chain pinned at `102_5H2`, with real pre-migration fixture data exercised across the exact migration boundary** — exit code 0 in both, exactly one Alembic head in both, `current == head` in both, every new constraint/permission/grant functionally tested in both databases with identical outcomes, not merely inspected (§57, §68; raw evidence: `execution_logs/20260903T000000Z_6L_01`–`_6L_13`, `validation/6L_FINAL_FREEZE_GATE_VALIDATION_REPORT.md`).
+2. **`102_5H2.sql` remains byte-identical** to the frozen baseline — reconfirmed by direct `sha256sum` in both validation databases (§58).
+2a. **The canonical 5B and 6B documents are reconciled**, not left silently stale: `5B-Identity-Organization-Multitenancy-Security.md` now documents the post-`104_5B3` metadata/content permission split and corrected role matrix as a controlled amendment; `6B-Authentication-and-Authorization-API.md` §8a explicitly states `call:read`/`recording:read`/`transcript:read` never imply the sensitive-media permissions, and its own permission count is corrected (68→71). A dedicated signed/presigned-media-URL logging prohibition was added to 6A §25, closing a real gap in the generic word-based redaction guidance.
 3. **Both owner decisions are resolved, FINAL, and applied throughout the document** — DEC-6L-01 = Option C (no CSAT in V1), DEC-6L-02 = Option A (provider cost/margin fully platform-internal) — no open owner decision remains that blocks this freeze (§60). One genuinely new architectural question was discovered while applying DEC-6L-02 (campaign-cost-attribution for a future "ROI on billed spend" feature) and is correctly recorded as a non-blocking Future Dependency, not a silent decision and not a freeze blocker (§61.2).
 4. **The confirmed RBAC contradiction is closed** — `104_5B3` splits sensitive-media content permissions from ordinary metadata permissions, live-verified to match the owner-approved default policy exactly, with no change to ordinary call/report metadata visibility (§57.4).
 5. **The recording-access audit gap is closed** — `GET /recordings/{id}/download-url` now writes a synchronous, governed `RECORDING_ACCESS_GRANTED` audit event on success only, live-verified end-to-end to contain no signed URL, token, or credential (§57.7, §65).

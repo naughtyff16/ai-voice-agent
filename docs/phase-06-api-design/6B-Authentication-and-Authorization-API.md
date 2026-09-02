@@ -101,7 +101,7 @@ Strictly derived from the frozen Phase 5 schema (5B) and the DDD aggregates that
 | **Organization** | `organization.organizations` | Tenant root. `status ∈ {ACTIVE, SUSPENDED, CANCELLED}`. Not RLS-protected (it *is* the RLS root — 5B §16.4). |
 | **Membership** | `organization.memberships` | Join of User↔Organization, exactly one `role_id` per active membership (single-role model, not multi-role — see §16). `status ∈ {ACTIVE, SUSPENDED, REMOVED}`. Partial-unique on `(organization_id, user_id) WHERE status='ACTIVE'` — a removed user can be re-invited (new row). |
 | **Role** | `organization.roles` | `organization_id IS NULL` ⇒ system role (5 seeded, §16); non-null ⇒ tenant-owned custom role. |
-| **Permission** | `organization.permissions` | Platform-owned reference data, `resource:action` string format, 64 seeded (§16.2), not tenant-scoped, no RLS. |
+| **Permission** | `organization.permissions` | Platform-owned reference data, `resource:action` string format, 71 seeded (5B §17.1/§32, as amended through `104_5B3.sql` — §8a below), not tenant-scoped, no RLS. |
 | **Session** | `identity.sessions` | Backs refresh-token lifecycle and "list/revoke my sessions." Not modeled as a domain aggregate in 4A, but exists as a first-class table in 5B — this document treats it as authoritative (§13). |
 | **API Key** | `identity.api_keys` | Organization-owned, not user-owned (`organization_id` FK; `created_by` records the issuing user). RLS-protected. |
 | **OAuth Identity** | `identity.oauth_identities` | Links a `User` to an external IdP subject. `credential_ref` only (`secret_manager://...`) — no raw OAuth token ever persisted in Postgres. |
@@ -173,6 +173,23 @@ evaluate(membership, role, organization, permission) -> ALLOWED | DENIED
 This is a pure function — no per-membership override step exists in the frozen schema (4A's `CustomPermissions` concept was DDD-aspirational only; `organization.memberships` has no such column — ADR-6B-05). The full evaluation pipeline, including where this function sits, is §16.
 
 Authorization decisions are **never cached beyond the compiled-permission-set cache** (`rbac:permissions:{org}:{user}`, 5-min TTL) — no endpoint-level "was this exact request allowed" cache exists, and role/membership/org-state changes invalidate that cache immediately and explicitly (§23).
+
+### 8a. Sensitive-Media Permissions — Controlled Amendment (Phase 6L Freeze-Gate Remediation, added this pass)
+
+Migration `104_5B3.sql` (`down_revision = '103_5J2'`) adds two permissions to the catalog this section's evaluation pipeline already handles identically to every other permission — `permission ∈ role.permissions` (step 3 above) requires no special-case code for these two, and none is added:
+
+| Permission | Governs | Default grant |
+|---|---|---|
+| `recording:access_media` | The recording's actual audio — the capability to obtain a signed, time-boxed playback/download URL (`docs/phase-06-api-design/6D-Voice-Call-Agent-APIs.md` §16.2). | `OWNER`, `ADMIN` |
+| `transcript:access_content` | The transcript's actual segment text content (6D §17.3). | `OWNER`, `ADMIN` |
+
+**Explicit statement, closing the confirmed gap this amendment exists to fix:** `call:read`, `recording:read`, and `transcript:read` **do not, and must never be treated as if they, imply** `recording:access_media` or `transcript:access_content`. `recording:read`/`transcript:read` govern metadata only (existence, status, duration, segment count) — never audio or transcript text — and their own grant set (`OWNER`/`ADMIN`/`MEMBER`/`VIEWER`, unchanged since `007_5B.sql`) is untouched by this amendment. Any authorization check, client integration, or future document that treats possession of `recording:read`/`transcript:read`/`call:read` as sufficient for a sensitive-media capability is incorrect and must be corrected to check the specific sensitive-media permission instead.
+
+**MEMBER extension path:** `MEMBER` holds neither new permission by default. A tenant's own `OWNER`/`ADMIN` may create a tenant-scoped custom role (`organization.roles`, `organization_id` set, `is_system = FALSE` — §21.31 `POST .../roles`, already-existing mechanism, no schema change from this amendment) and assign either or both new permissions to it via §21.33 `PATCH .../roles/{role_id}` (`{"permissions": [..., "recording:access_media"]}`), then add a specific `MEMBER`-tier user to that role. This is the exact, and only, mechanism by which a `MEMBER` may obtain sensitive-media access — evaluated by the same, unmodified pipeline at the top of this section, since a custom role's permission set is read from `organization.role_permissions` identically to a system role's.
+
+**API-key scope ceiling — explicit statement for these two permissions:** per §16.4's existing ceiling model (`effective permissions = key.scopes ∩ issuer's own permissions at issuance`), an API key is authorized for `recording:access_media`/`transcript:access_content` if and only if **both** of the following hold: (1) the permission string is explicitly present in the key's own `scopes` array, and (2) the user who created the key held that permission (directly or via a custom role) at the moment of key creation. Neither condition alone is sufficient. A key's `scopes` listing `call:read`/`recording:read` does **not** widen to cover `recording:access_media` — the ceiling model performs a set intersection on exact permission strings, not a semantic "related permission" expansion. §16.4 is restated, not changed, by this paragraph; it already specified exactly this behavior for every permission, including these two.
+
+Full rationale, live PostgreSQL 18.6 validation evidence, and the exact grant-set diff: `docs/phase-05-database-design/5K/migrations/104_5B3.sql`'s own header comment, `docs/phase-05-database-design/5B-Identity-Organization-Multitenancy-Security.md`'s "Controlled Amendment — Phase 6L Freeze-Gate Remediation" section, and `docs/phase-06-api-design/6L-Analytics-Audit-APIs.md` §56.5/§57/§64.
 
 ---
 
@@ -1825,7 +1842,7 @@ Every endpoint's contract instantiates: Purpose, Method & Path, Authentication, 
 - **Headers:** Standard bearer auth.
 - **Request Schema:** N/A (GET).
 - **Validation:** N/A.
-- **Response `200`:** `{ "data": [ {"key": "contact:read", "description": "..."}, ... ] }` — all 64 seeded permissions (§16.2).
+- **Response `200`:** `{ "data": [ {"key": "contact:read", "description": "..."}, ... ] }` — all 71 seeded permissions (5B §17.1/§32, as amended through `104_5B3.sql`).
 - **Errors:** `401`.
 - **Rate Limit:** 60/min.
 - **Idempotency:** N/A (GET).
@@ -2268,6 +2285,7 @@ Fail-closed wherever security requires it (§5.3):
 21. **(New this pass.)** The API layer never takes its own application-level lock (`SELECT ... FOR UPDATE`, `LOCK TABLE`, advisory lock, or equivalent) to coordinate concurrent access to `identity.sessions` — every such coordination (refresh rotation, password-reset global revocation, platform-admin revoke-all) is achieved exclusively through atomic, conditional `UPDATE ... WHERE <current-state predicate> ... RETURNING` statements, consistent with frozen 6A §17.3 (§13.2, §13.5, §21.36).
 22. **(New this pass.)** An MFA challenge can be consumed by at most one request, ever — enforced by a single atomic Redis `SET ... NX` claim evaluated strictly after TOTP validation and strictly before session creation, not by a separate check-then-write pair (§11.4, §15.3).
 23. **(Revised this pass — removes a false cross-system-atomicity claim.)** A successful password reset **durably and unconditionally** revokes every active session and ends refresh capability in the same database transaction as the password change; it additionally makes a **best-effort** attempt, immediately after that transaction commits, to globally denylist every currently-known access-token `jti` for that user. The endpoint never reports `access_token_revocation_completed: true` unless that denylisting step actually succeeded, and never implies that PostgreSQL and Redis committed as one atomic unit or that a retry of an already-consumed reset token can resume unfinished denylisting work (§13.5, §21.11, DEP-6B-08).
+24. **(New — Phase 6L freeze-gate remediation.)** Possession of `call:read`, `recording:read`, or `transcript:read` never grants, and is never treated by any endpoint as granting, `recording:access_media` or `transcript:access_content` — the metadata/content permission split is absolute, evaluated by the same unmodified §8 pipeline with no implicit widening. An API key's `scopes` array must explicitly list a sensitive-media permission, and the issuing user must have held it, for either to be honored (§8a, §16.4).
 
 ---
 

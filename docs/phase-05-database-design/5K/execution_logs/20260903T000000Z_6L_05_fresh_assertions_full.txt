@@ -1,0 +1,233 @@
+--- A. 103_5J2 schema: roi_by_campaign new columns ---
+                                    Table "analytics.roi_by_campaign"
+                Column                 |           Type           | Collation | Nullable |    Default    
+---------------------------------------+--------------------------+-----------+----------+---------------
+ id                                    | uuid                     |           | not null | gen_uuid_v7()
+ organization_id                       | uuid                     |           | not null | 
+ campaign_id                           | uuid                     |           | not null | 
+ total_cost_amount                     | numeric(18,4)            |           | not null | 0
+ total_cost_currency                   | character(3)             |           | not null | 'USD'::bpchar
+ estimated_revenue_amount              | numeric(18,4)            |           |          | 
+ estimated_revenue_currency            | character(3)             |           |          | 
+ roi_pct                               | numeric(8,4)             |           |          | 
+ cost_per_call                         | numeric(18,4)            |           |          | 
+ cost_per_qualified                    | numeric(18,4)            |           |          | 
+ cost_per_converted                    | numeric(18,4)            |           |          | 
+ computed_at                           | timestamp with time zone |           | not null | now()
+ org_currency                          | character(3)             |           |          | 
+ total_cost_amount_org_currency        | numeric(18,4)            |           |          | 
+ total_cost_fx_rate_used               | numeric(12,6)            |           |          | 
+ total_cost_fx_rate_source             | text                     |           |          | 
+ total_cost_fx_rate_captured_at        | timestamp with time zone |           |          | 
+ estimated_revenue_amount_org_currency | numeric(18,4)            |           |          | 
+ estimated_revenue_fx_rate_used        | numeric(12,6)            |           |          | 
+ estimated_revenue_fx_rate_source      | text                     |           |          | 
+ estimated_revenue_fx_rate_captured_at | timestamp with time zone |           |          | 
+Indexes:
+    "pk_rbc" PRIMARY KEY, btree (id)
+    "idx_rbc_org" btree (organization_id)
+    "uq_rbc_campaign" UNIQUE CONSTRAINT, btree (campaign_id)
+Check constraints:
+    "chk_rbc_cost_normalization_present" CHECK (org_currency IS NULL OR total_cost_currency = org_currency OR total_cost_amount_org_currency IS NOT NULL AND total_cost_fx_rate_used IS NOT NULL) NOT VALID
+    "chk_rbc_org_currency_code" CHECK (org_currency IS NULL OR org_currency ~ '^[A-Z]{3}$'::text)
+    "chk_rbc_revenue_normalization_present" CHECK (estimated_revenue_amount IS NULL OR org_currency IS NULL OR estimated_revenue_currency = org_currency OR estimated_revenue_amount_org_currency IS NOT NULL AND estimated_revenue_fx_rate_used IS NOT NULL) NOT VALID
+    "chk_rbc_roi_requires_normalization" CHECK (roi_pct IS NULL OR org_currency IS NOT NULL AND total_cost_amount_org_currency IS NOT NULL AND (estimated_revenue_amount IS NULL OR estimated_revenue_amount_org_currency IS NOT NULL)) NOT VALID
+Policies (forced row security enabled):
+    POLICY "rls_rbc_tenant"
+      USING ((organization_id = organization.current_tenant_id()))
+      WITH CHECK ((organization_id = organization.current_tenant_id()))
+
+--- B. 103_5J2 schema: billing_revenue_monthly new columns ---
+                        Partitioned table "analytics.billing_revenue_monthly"
+              Column               |           Type           | Collation | Nullable |    Default    
+-----------------------------------+--------------------------+-----------+----------+---------------
+ id                                | uuid                     |           | not null | gen_uuid_v7()
+ organization_id                   | uuid                     |           | not null | 
+ year_month                        | character(7)             |           | not null | 
+ year_bucket                       | integer                  |           | not null | 
+ invoices_generated                | integer                  |           | not null | 0
+ invoices_paid                     | integer                  |           | not null | 0
+ billed_amount                     | numeric(18,4)            |           | not null | 0
+ billed_currency                   | character(3)             |           | not null | 'INR'::bpchar
+ provider_cost_amount              | numeric(18,4)            |           | not null | 0
+ provider_cost_currency            | character(3)             |           | not null | 'USD'::bpchar
+ subscription_plan_id              | uuid                     |           |          | 
+ last_event_id                     | uuid                     |           |          | 
+ last_updated_at                   | timestamp with time zone |           | not null | now()
+ provider_cost_amount_org_currency | numeric(18,4)            |           |          | 
+ provider_cost_fx_rate_used        | numeric(12,6)            |           |          | 
+ provider_cost_fx_rate_source      | text                     |           |          | 
+ provider_cost_fx_rate_captured_at | timestamp with time zone |           |          | 
+ gross_margin_amount               | numeric(18,4)            |           |          | 
+ gross_margin_pct                  | numeric(8,4)             |           |          | 
+Partition key: RANGE (year_bucket)
+Indexes:
+    "pk_brm" PRIMARY KEY, btree (id, year_bucket)
+    "idx_brm_org" btree (organization_id, year_month DESC)
+    "uq_brm_grain" UNIQUE CONSTRAINT, btree (organization_id, year_month, year_bucket)
+Check constraints:
+    "chk_brm_margin_pct_requires_amount" CHECK (gross_margin_pct IS NULL OR gross_margin_amount IS NOT NULL) NOT VALID
+    "chk_brm_margin_requires_normalization" CHECK (gross_margin_amount IS NULL OR provider_cost_amount_org_currency IS NOT NULL) NOT VALID
+    "chk_brm_year_bucket" CHECK (year_bucket = "left"(year_month::text, 4)::integer)
+    "chk_brm_year_month" CHECK (year_month ~ '^\d{4}-\d{2}$'::text)
+Policies (forced row security enabled):
+    POLICY "rls_brm_tenant"
+      USING ((organization_id = organization.current_tenant_id()))
+      WITH CHECK ((organization_id = organization.current_tenant_id()))
+Number of partitions: 3 (Use \d+ to list them.)
+
+--- C. constraint validation status (NOT VALID confirmed) ---
+                         conname                         | convalidated 
+---------------------------------------------------------+--------------
+ chk_rbc_cost_normalization_present                      | f
+ chk_rbc_org_currency_code                               | t
+ chk_rbc_revenue_normalization_present                   | f
+ chk_rbc_roi_requires_normalization                      | f
+ pk_rbc                                                  | t
+ roi_by_campaign_campaign_id_not_null                    | t
+ roi_by_campaign_computed_at_not_null                    | t
+ roi_by_campaign_id_not_null                             | t
+ roi_by_campaign_organization_id_not_null                | t
+ roi_by_campaign_total_cost_amount_not_null              | t
+ roi_by_campaign_total_cost_currency_not_null            | t
+ uq_rbc_campaign                                         | t
+ billing_revenue_monthly_billed_amount_not_null          | t
+ billing_revenue_monthly_billed_currency_not_null        | t
+ billing_revenue_monthly_id_not_null                     | t
+ billing_revenue_monthly_invoices_generated_not_null     | t
+ billing_revenue_monthly_invoices_paid_not_null          | t
+ billing_revenue_monthly_last_updated_at_not_null        | t
+ billing_revenue_monthly_organization_id_not_null        | t
+ billing_revenue_monthly_provider_cost_amount_not_null   | t
+ billing_revenue_monthly_provider_cost_currency_not_null | t
+ billing_revenue_monthly_year_bucket_not_null            | t
+ billing_revenue_monthly_year_month_not_null             | t
+ chk_brm_margin_pct_requires_amount                      | f
+ chk_brm_margin_requires_normalization                   | f
+ chk_brm_year_bucket                                     | t
+ chk_brm_year_month                                      | t
+ pk_brm                                                  | t
+ uq_brm_grain                                            | t
+(29 rows)
+
+--- D. functional test: non-normalized ROI insert MUST be rejected ---
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/135a43a1-f00b-4d00-bff1-50d8576847f8/scratchpad/pgvalidate/assertions.sql:19: ERROR:  new row for relation "roi_by_campaign" violates check constraint "chk_rbc_roi_requires_normalization"
+DETAIL:  Failing row contains (01a063a9-fe48-7575-be95-953bb3533e0b, 01a063a9-fe49-7ca8-8d32-32a73a7ffea2, 01a063a9-fe49-7d2d-94b5-b5e397e13fa9, 100.0000, USD, null, null, 12.5000, null, null, null, 2026-09-03 01:18:00.198211+05:30, null, null, null, null, null, null, null, null, null).
+--- E. functional test: fully FX-normalized ROI insert MUST succeed ---
+                  id                  | roi_pct  | org_currency 
+--------------------------------------+----------+--------------
+ 01a063a9-fe50-7aff-8ade-ded69c7757d3 | -93.9759 | INR
+(1 row)
+
+INSERT 0 1
+--- F. 104_5B3: sensitive-media permission catalog + role grants ---
+        permission         |  role  
+---------------------------+--------
+ recording:access_media    | ADMIN
+ recording:access_media    | OWNER
+ recording:read            | ADMIN
+ recording:read            | MEMBER
+ recording:read            | OWNER
+ recording:read            | VIEWER
+ transcript:access_content | ADMIN
+ transcript:access_content | OWNER
+ transcript:read           | ADMIN
+ transcript:read           | MEMBER
+ transcript:read           | OWNER
+ transcript:read           | VIEWER
+(12 rows)
+
+--- F2. permission display_name clarification (documentation UPDATE) ---
+           name            |                          display_name                           
+---------------------------+-----------------------------------------------------------------
+ recording:access_media    | Access Recording Media (Playback/Download)
+ recording:read            | View Recording Metadata (status, duration, policy -- not audio)
+ transcript:access_content | Access Transcript Content
+ transcript:read           | View Transcript Metadata (status, segment count -- not text)
+(4 rows)
+
+--- G. custom-role sensitive-permission assignment (MEMBER extension path) ---
+DO
+       custom_role        | is_system |       permission       
+--------------------------+-----------+------------------------
+ SENSITIVE_MEDIA_REVIEWER | f         | recording:access_media
+(1 row)
+
+--- H. SECURITY DEFINER inventory (analytics/audit) ---
+  schema   |             function             | secdef |                       search_path                       |           execute_grantees            
+-----------+----------------------------------+--------+---------------------------------------------------------+---------------------------------------
+ analytics | fn_apply_projection_call_latency | t      | {"search_path=analytics, pg_catalog, public"}           | app_platform_admin,app_worker
+ analytics | fn_apply_projection_call_metrics | t      | {"search_path=analytics, pg_catalog, public"}           | app_platform_admin,app_worker
+ analytics | fn_claim_projection_slot         | t      | {"search_path=analytics, pg_catalog, public"}           | app_platform_admin,app_worker
+ analytics | fn_ingest_analytics_event        | t      | {"search_path=analytics, pg_catalog, public"}           | app_platform_admin,app_worker
+ analytics | fn_mark_event_dead_letter        | t      | {"search_path=analytics, pg_catalog"}                   | app_platform_admin,app_worker
+ analytics | fn_mark_event_projected          | t      | {"search_path=analytics, pg_catalog"}                   | app_platform_admin,app_worker
+ audit     | fn_claim_outbox_events           | t      | {"search_path=audit, pg_catalog"}                       | app_platform_admin,app_worker
+ audit     | fn_compute_chain_hash            | t      | {"search_path=audit, pg_catalog"}                       | app_platform_admin,app_worker
+ audit     | fn_insert_audit_event            | t      | {"search_path=audit, organization, public, pg_catalog"} | app_api,app_platform_admin,app_worker
+ audit     | fn_mark_outbox_failed            | t      | {"search_path=audit, pg_catalog"}                       | app_platform_admin,app_worker
+ audit     | fn_mark_outbox_published         | t      | {"search_path=audit, pg_catalog"}                       | app_platform_admin,app_worker
+ audit     | fn_outbox_tenant_check           | t      | {"search_path=audit, organization, pg_catalog"}         | (none besides owner)
+(12 rows)
+
+--- I. RLS cross-tenant isolation test (app_api, three tenant contexts) ---
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+BEGIN
+SET
+SET
+context = Org A -- expect exactly 1 row, organization_id = 11111111...
+           organization_id            | count 
+--------------------------------------+-------
+ 11111111-1111-1111-1111-111111111111 |     1
+(1 row)
+
+RESET
+ROLLBACK
+BEGIN
+SET
+SET
+context = Org B -- expect exactly 1 row, organization_id = 22222222...
+           organization_id            | count 
+--------------------------------------+-------
+ 22222222-2222-2222-2222-222222222222 |     1
+(1 row)
+
+RESET
+ROLLBACK
+BEGIN
+SET
+context = UNSET -- expect ZERO rows (fail-closed), not an error, not all rows
+ organization_id | count 
+-----------------+-------
+(0 rows)
+
+RESET
+ROLLBACK
+--- J. recording-access audit function end-to-end test ---
+BEGIN
+SET
+SET
+        fn_insert_audit_event         
+--------------------------------------
+ 01a063a9-fe6e-7198-ba05-05a83e8b4b72
+(1 row)
+
+RESET
+COMMIT
+read back the row -- MUST contain only call_id/expires_in_seconds, never a URL/token/credential
+       action_kind        | actor_type | resource_type | outcome |                               resource_snapshot                                | ip_address  
+--------------------------+------------+---------------+---------+--------------------------------------------------------------------------------+-------------
+ RECORDING_ACCESS_GRANTED | USER       | recording     | SUCCESS | {"call_id": "66666666-6666-6666-6666-666666666666", "expires_in_seconds": 900} | 203.0.113.9
+(1 row)
+
+--- K. direct INSERT into audit.audit_events as app_api MUST be denied ---
+SET
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/135a43a1-f00b-4d00-bff1-50d8576847f8/scratchpad/pgvalidate/assertions.sql:164: ERROR:  permission denied for table audit_events
+RESET
+--- L. fn_compute_chain_hash() as app_api MUST be denied ---
+SET
+psql:C:/Users/Dell/AppData/Local/Temp/claude/d--Chunk-Mates-ai-voice-agent/135a43a1-f00b-4d00-bff1-50d8576847f8/scratchpad/pgvalidate/assertions.sql:169: ERROR:  permission denied for function fn_compute_chain_hash
+RESET

@@ -1,0 +1,14 @@
+$ alembic -c alembic.ini upgrade head   (103_5J2 -> 104_5B3, same pinned DB)
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade 103_5J2 -> 104_5B3, Phase 5B.3 -- wraps controlled amendment migration 104_5B3.sql.
+
+EXIT_CODE=0
+
+$ alembic -c alembic.ini heads
+104_5B3 (head)
+
+$ alembic -c alembic.ini current
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+104_5B3 (head)

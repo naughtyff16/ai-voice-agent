@@ -1,0 +1,35 @@
+--- pre-103 legacy roi_by_campaign fixture row: MUST still exist, MUST NOT have been rejected/rolled back by the migration, new FX columns MUST be NULL (never backfilled/guessed) ---
+                  id                  | roi_pct  | total_cost_currency | estimated_revenue_currency | org_currency | total_cost_amount_org_currency | total_cost_fx_rate_used 
+--------------------------------------+----------+---------------------+----------------------------+--------------+--------------------------------+-------------------------
+ 88888888-8888-8888-8888-888888888888 | 300.0000 | USD                 | INR                        |              |                                |                        
+(1 row)
+
+--- pre-103 legacy billing_revenue_monthly fixture row: MUST still exist, new margin columns MUST be NULL ---
+                  id                  | year_month | billed_currency | provider_cost_currency | provider_cost_amount_org_currency | gross_margin_amount | gross_margin_pct 
+--------------------------------------+------------+-----------------+------------------------+-----------------------------------+---------------------+------------------
+ bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb | 2026-08    | INR             | USD                    |                                   |                     |                 
+(1 row)
+
+--- constraint validation status on THIS incrementally-upgraded database (must match the fresh DB exactly) ---
+                conname                | convalidated 
+---------------------------------------+--------------
+ chk_rbc_cost_normalization_present    | f
+ chk_rbc_org_currency_code             | t
+ chk_rbc_revenue_normalization_present | f
+ chk_rbc_roi_requires_normalization    | f
+ chk_brm_margin_pct_requires_amount    | f
+ chk_brm_margin_requires_normalization | f
+ chk_brm_year_bucket                   | t
+ chk_brm_year_month                    | t
+(8 rows)
+
+--- new invalid write MUST still be rejected on this incrementally-upgraded database ---
+ERROR:  new row for relation "roi_by_campaign" violates check constraint "chk_rbc_roi_requires_normalization"
+DETAIL:  Failing row contains (01a063ab-5c16-7194-aaff-ff3a1914269a, 01a063ab-5c18-7eca-9f86-86d34de8b37b, 01a063ab-5c18-769a-ab00-004243ae3e88, 100.0000, USD, null, null, 12.5000, null, null, null, 2026-09-03 01:19:29.748889+05:30, null, null, null, null, null, null, null, null, null).
+--- new fully-normalized write MUST still succeed on this incrementally-upgraded database ---
+                  id                  | roi_pct  | org_currency 
+--------------------------------------+----------+--------------
+ 01a063ab-5c19-7999-b547-4763e754a3cf | -93.9759 | INR
+(1 row)
+
+INSERT 0 1

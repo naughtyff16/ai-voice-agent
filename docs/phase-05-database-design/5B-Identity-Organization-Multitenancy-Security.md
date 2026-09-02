@@ -977,8 +977,8 @@ All permissions follow the pattern `{resource}:{action}`:
 | `compliance` | `read`, `manage` |
 | `data_subject` | `manage` |
 | `tax` | `manage` |
-| `recording` | `read`, `delete` |
-| `transcript` | `read` |
+| `recording` | `read` (metadata only), `delete`, `access_media` (audio content — added `104_5B3.sql`, see "Controlled Amendment — Phase 6L Freeze-Gate Remediation" below) |
+| `transcript` | `read` (metadata only), `access_content` (segment text — added `104_5B3.sql`, see the same amendment) |
 
 ### 17.2 Role-Permission Matrix
 
@@ -1049,9 +1049,11 @@ All permissions follow the pattern `{resource}:{action}`:
 | `compliance:manage` | ✅ | ✅ | — | — | — |
 | `data_subject:manage` | ✅ | ✅ | — | — | — |
 | `tax:manage` | ✅ | — | — | ✅ | — |
-| `recording:read` | ✅ | ✅ | ✅ | — | ✅ |
+| `recording:read` (metadata only — never audio) | ✅ | ✅ | ✅ | — | ✅ |
 | `recording:delete` | ✅ | ✅ | — | — | — |
-| `transcript:read` | ✅ | ✅ | ✅ | — | ✅ |
+| `recording:access_media` (audio content — added `104_5B3.sql`) | ✅ | ✅ | — (custom role only) | — | — |
+| `transcript:read` (metadata only — never segment text) | ✅ | ✅ | ✅ | — | ✅ |
+| `transcript:access_content` (segment text — added `104_5B3.sql`) | ✅ | ✅ | — (custom role only) | — | — |
 
 ---
 
@@ -2943,3 +2945,88 @@ Live-validated (disposable local PostgreSQL 18 database, full chain
 attaches to `OWNER`/`ADMIN` only via `organization.role_permissions`, and
 a second application of the same migration is a no-op (`ON CONFLICT DO
 NOTHING` on both the permission and role-permission inserts).
+
+---
+
+## Controlled Amendment — Phase 6L Freeze-Gate Remediation (2026-09-03)
+
+Migration `104_5B3.sql` adds two new permissions to the catalog in
+§17/§32: `recording:access_media` (`'Access Recording Media
+(Playback/Download)'`, resource `recording`, action `access_media`) and
+`transcript:access_content` (`'Access Transcript Content'`, resource
+`transcript`, action `access_content`), both granted to `OWNER` and
+`ADMIN` only. Purely additive — `007_5B.sql`'s existing rows are
+untouched.
+
+**Post-`104_5B3` canonical meaning — this is a correction to how this
+document must be read, not a new capability being introduced for the
+first time:**
+
+| Permission | Governs |
+|---|---|
+| `recording:read` (unchanged, `007_5B.sql`) | Recording **metadata only** — existence, status, duration, file size, retention/policy fields. **Never** the audio content itself. |
+| `recording:access_media` (new, `104_5B3.sql`) | The recording's actual audio — specifically, the capability to obtain a signed, time-boxed playback/download URL (6D §16.2). |
+| `transcript:read` (unchanged, `007_5B.sql`) | Transcript **metadata only** — status, segment count, completion timestamp. **Never** the transcript text itself. |
+| `transcript:access_content` (new, `104_5B3.sql`) | The transcript's actual segment text content (6D §17.3). |
+
+Prior to this amendment, this document's §17.1 resource/action catalog
+and §17.2 role-permission matrix listed only `recording:read`/
+`recording:delete`/`transcript:read` with no metadata/content
+distinction — which, read literally, implied `recording:read`/
+`transcript:read` governed the recording's audio and the transcript's
+text directly. That was never correct as a security boundary once 6D's
+own contract (amended in the same remediation pass) started gating the
+actual playback/content endpoints separately, and this document is
+corrected here to state the post-`104_5B3` boundary explicitly, closing
+that gap. **Trigger:** `docs/phase-06-api-design/6D-Voice-Call-Agent-APIs.md`
+§16.2a/§17.4 and `docs/phase-06-api-design/6L-Analytics-Audit-APIs.md`
+§56.5 — the confirmed RBAC contradiction where `007_5B.sql`'s single
+`recording:read`/`transcript:read` permissions, granted by default to
+`MEMBER` and `VIEWER` as well as `OWNER`/`ADMIN`, could not express the
+owner-approved sensitive-media policy (recording playback/transcript
+content = OWNER/ADMIN by default; MEMBER only via an explicit
+tenant-created custom role; VIEWER and BILLING_ADMIN never).
+
+**§17.1 resource/action catalog, corrected:**
+
+```
+recording      read, delete, access_media
+transcript     read, access_content
+```
+
+**§17.2 role-permission matrix, corrected (new rows; existing
+`recording:read`/`recording:delete`/`transcript:read` rows are
+unchanged — same grant set as originally seeded):**
+
+| Permission | OWNER | ADMIN | MEMBER | BILLING_ADMIN | VIEWER |
+|---|---|---|---|---|---|
+| `recording:access_media` | ✅ | ✅ | — (custom role only) | — | — |
+| `transcript:access_content` | ✅ | ✅ | — (custom role only) | — | — |
+
+`recording:read` and `transcript:read` remain exactly as originally
+seeded (`✅ OWNER, ✅ ADMIN, ✅ MEMBER, — BILLING_ADMIN, ✅ VIEWER`) — this
+amendment does not narrow, widen, or otherwise touch their grant set;
+ordinary call/report metadata visibility for MEMBER and VIEWER is fully
+preserved, exactly as the owner-approved policy requires.
+
+**MEMBER extension path (no schema change beyond `104_5B3` itself):** a
+tenant's own `OWNER`/`ADMIN` may create a tenant-scoped custom role
+(`organization.roles` with `organization_id` set and `is_system = FALSE`
+— already fully supported since `003_5B.sql`/`007_5B.sql`, `role:manage`
+permission) and assign it either or both of the new permissions via
+`organization.role_permissions`, then add a specific `MEMBER`-tier user
+to that role. This is the exact, and only, way a MEMBER may obtain
+sensitive-media access under the owner-approved policy — there is no
+system-role toggle for it, by design.
+
+Live-validated (disposable local PostgreSQL 18.6 database, both a fresh
+full chain `001_5B` → `104_5B3` and a genuinely separate chain pinned at
+`102_5H2` before continuing to `104_5B3`): the two new permission rows
+insert idempotently, attach to `OWNER`/`ADMIN` only via
+`organization.role_permissions`, `MEMBER`/`VIEWER`/`BILLING_ADMIN`
+receive neither by default, and a tenant custom role can be granted
+`recording:access_media` and successfully used to extend access to a
+specific `MEMBER`-tier user with no further schema change. Full raw
+evidence: `docs/phase-05-database-design/5K/execution_logs/` (files
+prefixed `20260903T000000Z_6L_`) and
+`docs/phase-05-database-design/5K/validation/6L_FINAL_FREEZE_GATE_VALIDATION_REPORT.md`.

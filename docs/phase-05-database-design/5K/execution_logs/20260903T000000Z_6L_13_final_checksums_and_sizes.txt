@@ -1,0 +1,10 @@
+$ sha256sum docs/phase-05-database-design/5K/migrations/102_5H2.sql docs/phase-05-database-design/5K/migrations/103_5J2.sql docs/phase-05-database-design/5K/migrations/104_5B3.sql
+73b9f7aed921ccc373cc634372ac7ac75c0490872d55af21116c3ff182445b3d *docs/phase-05-database-design/5K/migrations/102_5H2.sql
+fba53d7ecc09b345335ea4aea600ca2ffbb288aed42775ff986dcabf8e8dfb87 *docs/phase-05-database-design/5K/migrations/103_5J2.sql
+4b8ab081e9064c96ecdbc59545fa9af3ffd878032a47baff45af6ee6a2ca8183 *docs/phase-05-database-design/5K/migrations/104_5B3.sql
+
+$ wc -c docs/phase-05-database-design/5K/migrations/102_5H2.sql docs/phase-05-database-design/5K/migrations/103_5J2.sql docs/phase-05-database-design/5K/migrations/104_5B3.sql
+127971 docs/phase-05-database-design/5K/migrations/102_5H2.sql
+ 13907 docs/phase-05-database-design/5K/migrations/103_5J2.sql
+  6649 docs/phase-05-database-design/5K/migrations/104_5B3.sql
+148527 total

@@ -22,16 +22,21 @@ docs/phase-06-api-design/6L-Analytics-Audit-APIs.md Section 53-55.
 
 VALIDATION STATUS (recorded here per 5K's own established pattern of
 stating exactly what was and was not run against a live database):
-this revision has NOT been applied to a live PostgreSQL 18 instance.
-A local PostgreSQL 18.6 server was present in the authoring session but
-required a password that session did not have, and this migration
-package does not attempt to alter that server's authentication
-configuration to obtain one. No fabricated validation evidence is
-recorded anywhere in this package for this revision -- see 6L Section
-55 for what a live validation pass must still confirm before this file
-is applied to any environment (fresh 001->103 chain, incremental
-102_5H2->103_5J2, exactly one Alembic head, and the tenant-isolation /
-gross-margin-column-invisibility checks 6L Section 73 specifies).
+this revision HAS been applied to, and validated against, a disposable,
+locally self-hosted PostgreSQL 18.x instance -- never the operator's own
+shared/production server -- across BOTH a fresh 001_5B->104_5B3 chain
+AND a genuinely separate incremental chain (a second, independent
+database pinned at 102_5H2, `alembic current` confirmed equal to
+102_5H2, representative pre-103 fixture rows inserted, then upgraded
+102_5H2->103_5J2->104_5B3, with those fixture rows re-verified intact
+and the new NOT VALID constraints functionally tested against both new
+valid and new invalid writes). Raw command/query evidence and the
+dedicated validation report are at
+docs/phase-05-database-design/5K/execution_logs/ (6L_* prefixed files)
+and
+docs/phase-05-database-design/5K/validation/
+6L_FINAL_FREEZE_GATE_VALIDATION_REPORT.md. See 6L Section 57 for the
+full narrative.
 
 Revision ID: 103_5J2
 Revises: '102_5H2'

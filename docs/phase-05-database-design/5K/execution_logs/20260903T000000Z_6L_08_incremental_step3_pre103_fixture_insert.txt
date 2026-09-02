@@ -1,0 +1,38 @@
+--- pre-103 legacy fixture: a roi_by_campaign row with roi_pct already populated, using ONLY the columns that exist at 102_5H2 (no FX-normalization columns exist yet -- 103 has not been applied) ---
+                              Table "analytics.roi_by_campaign"
+           Column           |           Type           | Collation | Nullable |    Default    
+----------------------------+--------------------------+-----------+----------+---------------
+ id                         | uuid                     |           | not null | gen_uuid_v7()
+ organization_id            | uuid                     |           | not null | 
+ campaign_id                | uuid                     |           | not null | 
+ total_cost_amount          | numeric(18,4)            |           | not null | 0
+ total_cost_currency        | character(3)             |           | not null | 'USD'::bpchar
+ estimated_revenue_amount   | numeric(18,4)            |           |          | 
+ estimated_revenue_currency | character(3)             |           |          | 
+ roi_pct                    | numeric(8,4)             |           |          | 
+ cost_per_call              | numeric(18,4)            |           |          | 
+ cost_per_qualified         | numeric(18,4)            |           |          | 
+ cost_per_converted         | numeric(18,4)            |           |          | 
+ computed_at                | timestamp with time zone |           | not null | now()
+Indexes:
+    "pk_rbc" PRIMARY KEY, btree (id)
+    "idx_rbc_org" btree (organization_id)
+    "uq_rbc_campaign" UNIQUE CONSTRAINT, btree (campaign_id)
+Policies (forced row security enabled):
+    POLICY "rls_rbc_tenant"
+      USING ((organization_id = organization.current_tenant_id()))
+      WITH CHECK ((organization_id = organization.current_tenant_id()))
+
+                  id                  | roi_pct  | total_cost_currency | estimated_revenue_currency 
+--------------------------------------+----------+---------------------+----------------------------
+ 88888888-8888-8888-8888-888888888888 | 300.0000 | USD                 | INR
+(1 row)
+
+INSERT 0 1
+--- also a legacy billing_revenue_monthly row (pre-103 columns only, no gross_margin_* -- those columns do not exist yet) ---
+                  id                  | year_month | billed_currency | provider_cost_currency 
+--------------------------------------+------------+-----------------+------------------------
+ bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb | 2026-08    | INR             | USD
+(1 row)
+
+INSERT 0 1

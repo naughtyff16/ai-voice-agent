@@ -1,0 +1,6 @@
+$ alembic -c alembic.ini upgrade 103_5J2   (continuing the SAME pinned DB, 102_5H2 -> 103_5J2, with pre-103 fixture rows already present)
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade 102_5H2 -> 103_5J2, Phase 5J.2 -- wraps controlled amendment migration 103_5J2.sql.
+
+EXIT_CODE=0

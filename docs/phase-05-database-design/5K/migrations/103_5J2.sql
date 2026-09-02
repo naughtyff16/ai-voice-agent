@@ -5,14 +5,21 @@
 -- down_revision: 102_5H2
 -- Transaction: yes
 -- Source: docs/phase-06-api-design/6L-Analytics-Audit-APIs.md
---   §53 Schema Gap Analysis (SCHEMA-GAP-6L-01). DESIGNED, NOT YET
---   VALIDATED against a live PostgreSQL 18 instance -- no database
---   credentials were available in the authoring session (a local
---   PostgreSQL 18.6 server exists but requires a password this
---   session was not given, and this migration does not attempt to
---   alter the local server's auth configuration to obtain one). See
---   6L §55 for exact validation status and the required next step
---   before this file is applied to any environment.
+--   §55 Schema Gap Analysis (SCHEMA-GAP-6L-01). VALIDATED against a
+--   disposable, locally self-hosted PostgreSQL 18.x instance (never
+--   the operator's own shared/production server) across BOTH a fresh
+--   001_5B->104_5B3 chain and a genuinely separate incremental chain
+--   pinned at 102_5H2 before continuing to 103_5J2->104_5B3, including
+--   functional NOT VALID constraint-rejection tests and pre-existing-
+--   row backward-compatibility tests. Raw command/query evidence:
+--   docs/phase-05-database-design/5K/execution_logs/ (see the 6L_*
+--   prefixed files) and
+--   docs/phase-05-database-design/5K/validation/
+--   6L_FINAL_FREEZE_GATE_VALIDATION_REPORT.md. This file's own
+--   SHA-256/size were recomputed after this comment-only correction
+--   and re-validated against those exact final bytes -- no DDL/DML
+--   statement below was altered by this correction, only this header
+--   comment.
 --
 -- Trigger -- a genuine, evidenced cross-phase defect, not a
 -- convenience improvement:
@@ -79,19 +86,29 @@
 --
 -- Constraint-validation strategy: the four "normalization must be
 -- present before the derived figure is trusted" CHECK constraints
--- below are added NOT VALID. This is a deliberate safety choice, not
--- an oversight: this migration cannot prove, without live database
--- access (see the validation-status note above), whether either table
--- already holds test-fixture rows with roi_pct/gross_margin_amount
--- populated from an earlier, non-normalized computation. NOT VALID
--- adds the constraint immediately for all NEW writes without scanning
--- or rejecting on any pre-existing row, avoiding a spurious migration
--- failure against pre-existing fixture data while still closing the
--- gap for every row written from this point forward. A follow-up
--- VALIDATE CONSTRAINT pass (cheap once the population job backfills
--- org_currency on historical rows, or trivial if the tables are
--- confirmed empty) is an explicit implementation-phase follow-up, not
--- silently deferred -- see 6L §55.
+-- below are added NOT VALID. This is a deliberate safety choice for
+-- ANY environment this migration is applied to, not merely a
+-- workaround for the authoring session's own test access: a
+-- production or long-lived staging database may already hold
+-- roi_by_campaign/billing_revenue_monthly rows with roi_pct/
+-- gross_margin_amount populated from an earlier, non-normalized
+-- computation, and this migration has no way to know that in advance
+-- for every possible target. NOT VALID enforces the constraint
+-- immediately for all NEW writes without scanning or rejecting any
+-- pre-existing row, avoiding a spurious migration failure against
+-- historical data while still closing the gap for every row written
+-- from this point forward. Live validation in this pass (see the
+-- validation-status note above) confirmed the constraints reject a
+-- non-normalized new write and accept a properly normalized one
+-- against a freshly-migrated (and therefore empty) instance of these
+-- two tables -- it does not, and cannot, prove anything about a
+-- different target database's pre-existing row contents, which is
+-- exactly why NOT VALID remains the correct choice regardless. A
+-- follow-up VALIDATE CONSTRAINT pass (cheap once the population job
+-- backfills org_currency on historical rows, or trivial if a given
+-- target's tables are confirmed empty) is an explicit
+-- implementation-phase follow-up for whoever applies this migration
+-- to their own environment, not silently deferred -- see 6L §55.
 -- =================================================================
 
 -- ---------------------------------------------------------------

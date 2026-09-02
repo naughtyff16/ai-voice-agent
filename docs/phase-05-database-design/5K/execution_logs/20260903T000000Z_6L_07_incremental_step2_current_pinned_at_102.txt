@@ -1,0 +1,7 @@
+$ alembic -c alembic.ini current   (PINNED database, expect exactly 102_5H2)
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+102_5H2
+
+$ alembic -c alembic.ini heads   (PINNED database -- note: 'heads' reports the PACKAGE's head, 104_5B3, regardless of what this DB is pinned at; 'current' above is the authoritative per-database marker)
+104_5B3 (head)
