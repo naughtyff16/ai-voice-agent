@@ -1634,3 +1634,48 @@ remain byte-for-byte current (independently reconfirmed via `sha256sum`/
 (DEP-6C-16) — 6C's Revision 6 uses `audit.domain_event_outbox` as the
 concrete outbox relation for its `organization.created` and
 `compliance.policy_activated` event flows.
+
+---
+
+## Phase 6L — Analytics + Audit APIs freeze-gate remediation (rows 103-104, this pass)
+
+This section is the **current authoritative reconciliation** for the package as of this pass. It supersedes any migration-count/head reference elsewhere in this manifest that predates row 103 — those earlier sections remain as their own historical snapshot of the state at the time they were written and are not edited to match; this section is the one to read for the package's current state.
+
+### Row 103 — `103_5J2.sql` (Phase 5J.2, `down_revision = '102_5H2'`)
+
+Adds FX-normalization column sets (`{amount in a single common org currency, fx_rate_used, fx_rate_source, fx_rate_captured_at}`) to `analytics.roi_by_campaign` and `analytics.billing_revenue_monthly`, mirroring `billing.cost_entries`' own existing pattern (5H §7, migration `051_5H.sql`), closing a confirmed cross-currency-arithmetic defect: both tables previously stored cost and revenue amounts in independently-defaulted currencies (`USD`/`INR`) feeding a single `roi_pct`/margin figure with no normalization — contradicting Phase 4I §11.3/§17.4's own "ROI is currency-consistent" mandate and Phase 6K's INV-6K-14 "no implicit FX" invariant. Four `NOT VALID` presence-guard CHECK constraints make a currency-inconsistent `roi_pct`/`gross_margin_amount` structurally unrepresentable for any new write, without scanning or rejecting pre-existing rows. No table, function, role, or grant outside these two tables is touched; migrations `001`-`102` are unmodified.
+
+**SHA-256:** `20bd41c6745d7bcad0077a6d4f6339a9fdfd6d13e252894d045b26bdb91175fb`, **12,863 bytes**.
+
+**Consumer:** `docs/phase-06-api-design/6L-Analytics-Audit-APIs.md` §54-58 (FR-AN-003 traceability, schema gap analysis, validation evidence).
+
+### Row 104 — `104_5B3.sql` (Phase 5B.3, `down_revision = '103_5J2'`)
+
+Adds two permissions — `recording:access_media`, `transcript:access_content` — to `organization.permissions`, granted by default to `OWNER`/`ADMIN` only, closing a confirmed RBAC contradiction: `007_5B.sql`'s single `recording:read`/`transcript:read` permissions gated both ordinary call/report metadata *and* sensitive audio/transcript content, granted by default to `MEMBER`/`VIEWER` as well as `OWNER`/`ADMIN` — unable to express the owner-approved sensitive-media policy (recording playback/transcript content = OWNER/ADMIN by default, MEMBER only via an explicit custom-role grant, VIEWER never, BILLING_ADMIN never). `recording:read`/`transcript:read`'s own grant set is completely unchanged — ordinary metadata visibility is fully preserved. Their `display_name` values are updated (documentation only) to state their now-explicit metadata-only scope. No table, function, or grant outside `organization.permissions`/`organization.role_permissions` is touched.
+
+**SHA-256:** `4b8ab081e9064c96ecdbc59545fa9af3ffd878032a47baff45af6ee6a2ca8183`, **6,649 bytes**.
+
+**Consumer:** `docs/phase-06-api-design/6D-Voice-Call-Agent-APIs.md` §16.2a/§16.2b/§17.4/§25/§28.20/§28.23 (permission re-gating + new audited-access contract), `docs/phase-06-api-design/6H-Campaign-APIs.md` §15.6 (call-report composition, sensitive content gated identically).
+
+### Live PostgreSQL 18.6 Validation (this pass)
+
+Both rows were applied and validated against a genuine, disposable, locally self-hosted PostgreSQL 18.6 instance — an isolated data directory and port, entirely separate from any shared/production/user database, initialized and used solely within this remediation pass. Full command-level evidence: `docs/phase-06-api-design/6L-Analytics-Audit-APIs.md` §57.
+
+- **Fresh chain** `001_5B → ... → 102_5H2 → 103_5J2 → 104_5B3`: exit code 0.
+- **`alembic heads`/`current`**: exactly one head, `104_5B3`; `current == head`.
+- **Constraint functional test:** a `roi_by_campaign` insert with `roi_pct` set but no FX-normalized cost amount was rejected by `chk_rbc_roi_requires_normalization`; a fully-normalized row was accepted.
+- **Permission-seed functional test:** live-queried `role_permissions ⋈ roles ⋈ permissions` confirms `recording:access_media`/`transcript:access_content` granted to OWNER/ADMIN only, `recording:read`/`transcript:read` grant set unchanged (OWNER/ADMIN/MEMBER/VIEWER), `BILLING_ADMIN` holds none of the four — exact match to the owner-approved policy.
+- **RLS/IDOR test:** two tenants' rows in a live RLS-protected table, queried as the non-superuser `app_api` role — own-tenant visibility confirmed, cross-tenant invisibility confirmed, no-context-set fail-closed (zero rows) confirmed.
+- **SECURITY DEFINER re-audit:** live-queried `pg_proc`/`aclexplode` for every `analytics`/`audit` `SECURITY DEFINER` function; confirmed `app_api` holds EXECUTE on exactly `fn_insert_audit_event` and not `fn_compute_chain_hash`; live-tested a direct `INSERT` into `audit.audit_events` as `app_api` (denied) and a direct call to `fn_compute_chain_hash` as `app_api` (denied).
+- **Recording-access audit end-to-end test:** a real `RECORDING_ACCESS_GRANTED` audit event was written via `audit.fn_insert_audit_event()` as `app_api` and read back — confirmed correct `action_kind`, correct bounded `resource_snapshot` (`call_id`, `expires_in_seconds` only), no signed URL/token/credential present anywhere in the row.
+- **`102_5H2.sql` checksum reconfirmed unchanged**: `73b9f7aed921ccc373cc634372ac7ac75c0490872d55af21116c3ff182445b3d`.
+
+### Current Authoritative State (supersedes any earlier count in this file)
+
+| | Value |
+|---|---|
+| PostgreSQL version | 18.6 |
+| SQL migration files | 104 |
+| Alembic revisions | 104 |
+| Final head | `104_5B3` |
+| Current | `104_5B3` (matches head) |

@@ -779,6 +779,51 @@ GDPR-erased-placeholder (`phone_e164 = '[erased]'`) is never rendered as if a re
 
 **Readiness: IMPLEMENTATION-READY** for both read endpoints.
 
+### 15.6 Call-Report Composition (added this pass — Phase 6L freeze-gate remediation, Sections 8-10)
+
+**The gap this closes:** the enterprise tenant-admin workflow "Campaign → Contacts → select one contact → inspect every call attempt's result/report/AI outcome/summary/sentiment/lead-score, and play recording/read transcript if authorized" is a real, named product requirement. Building it today from §15.1–§15.4 alone requires the client to call `GetCampaignContact` (returns `call_session_refs[]` — up to 5 UUIDs, §16.2 invariant 6 — existence only), then, **per call**, separately call 6D's `GET /calls/{id}`, `GET /conversations/{id}`, `GET /calls/{id}/recording`, and `GET /conversations/{id}/transcript` — up to 20 round trips to render one contact's full attempt history. This is exactly the "excessive bounded-context stitching" the governing task instructs be closed with the smallest appropriate read-only composition contract, not solved by duplicating Voice data into Campaign tables.
+
+```
+GET /api/v1/campaigns/{campaign_id}/contacts/{campaign_contact_id}/call-reports
+```
+
+- **Purpose:** one bounded, read-only, per-attempt report row for every entry in that `CampaignContact`'s `call_session_refs[]` (≤5, §16.2 invariant 6 — this endpoint is therefore never unbounded and needs no pagination).
+- **Authz:** `campaign:read` **and** `call:read` — a caller must hold both, since the response synthesizes data this document owns (campaign attempt context) with data 6D owns (call/conversation outcome) — reusing 6A §9.1's ordinary multi-permission composition pattern, not a new permission.
+- **Ownership / composition boundary (Section 10, binding):** the response is assembled by an **application-service-layer composition** — this endpoint's handler calls Campaign's own `GetCampaignContact` read path for `call_session_refs[]`, then calls 6D's own existing internal read services (the same application services `GET /calls/{id}` / `GET /conversations/{id}` / `GET /calls/{id}/recording` / `GET /conversations/{id}/transcript` already call) once per ref, **never** a cross-schema SQL join between `campaign.campaign_contacts` and `voice.*` tables, and **never** a duplicated copy of any Voice-owned column persisted into a Campaign table. This is a read-model/composition service exactly as 4G/6L's own CQRS discipline already permits for cross-bounded-context reads (6L §9's own "bounded reference-label resolution... deferred to the owning context's own existing read endpoint" pattern, generalized here from a single field to a small, bounded (≤5) fan-out).
+- **Response `200`** — one row per attempt, newest first:
+
+```json
+{
+  "data": {
+    "campaign_contact_id": "...", "contact_id": "...",
+    "reports": [
+      {
+        "call_id": "...", "attempt_number": 3,
+        "attempted_at": "2026-08-30T10:15:00Z",
+        "started_at": "2026-08-30T10:15:04Z", "ended_at": "2026-08-30T10:17:41Z",
+        "direction": "OUTBOUND", "call_status": "COMPLETED", "duration_seconds": 157,
+        "outcome": "QUALIFIED",
+        "qualification_result": "QUALIFIED",
+        "qualification_reason": "Confirmed budget and timeline",
+        "lead_score": 78,
+        "conversation_summary": "Customer confirmed interest, requested a callback next week.",
+        "sentiment": "POSITIVE",
+        "recording_available": true,
+        "transcript_available": true
+      }
+    ]
+  },
+  "meta": { "request_id": "..." }
+}
+```
+
+- **DOES NOT include** (Section 9's explicit prohibition, restated as a binding rule): a signed recording URL, any recording binary, `storage_ref` in any form, or full transcript text. `recording_available`/`transcript_available` are booleans only — derived from `voice.recordings.status = 'STORED'` / `voice.transcripts.status = 'COMPLETE'` via 6D's own existing read services, never a raw storage reference passed through. **Least-privilege consequence:** an authorized human who wants the actual audio or transcript text must separately, explicitly invoke 6D's own gated endpoints (`GET /recordings/{id}/download-url`, gated by `recording:access_media` and audited on success, §16.2b of 6D; `GET /conversations/{id}/transcript/segments`, gated by `transcript:access_content`) — this endpoint never shortcuts around either permission gate merely because it is a "convenience" composition route. A caller lacking `recording:access_media`/`transcript:access_content` still sees `recording_available`/`transcript_available` (these booleans derive from `recording:read`/`transcript:read`-level metadata, not from the sensitive-content permissions) but cannot use them to skip the sensitive-media authorization check on the follow-up call.
+- **`qualification_reason`/`conversation_summary`/`sentiment`/`lead_score`** are included at this endpoint's own metadata-and-outcome sensitivity level (matching §15.4's existing `qualification_reason` Detail-DTO-only precedent) — gated by the same `campaign:read`+`call:read` pair as the rest of the response, no finer split, since none of these fields is raw audio/transcript content.
+- **Errors:** `404` for a foreign-tenant `campaign_id`/`campaign_contact_id` (never `403`, 6A/6B discipline). An empty `reports: []` array (a contact with `attempt_count = 0`) is a valid `200`, not an error.
+- **Latency Tier:** C (composition read, bounded fan-out ≤5 calls, no cross-context join) — not A, since it is not a single indexed query.
+- **Not an analytics endpoint:** this is operational drill-down for one specific contact's own attempt history, not an aggregate/projection read — it does not belong in, and is not duplicated by, 6L's analytics surface (6L §10's own "operational drill-down belongs to operational read composition; aggregated analytics belongs to 6L/CQRS projections" distinction, restated here at its point of use).
+- **Generalizes to non-campaign calls (documented, not built this pass):** the identical composition *pattern* — resolve call refs, fan out to 6D's read services, return metadata + availability booleans, gate sensitive content separately — applies equally to organic/inbound calls tracked via 6G's `GET /contacts/{contact_id}/activities?type=CALL` (`call_ref`/`recording_ref`/`transcript_ref` per activity). Building that second, symmetric endpoint is out of scope for this pass (no campaign-contact contradiction requires it); it is recorded as a natural, low-risk follow-up using the same pattern, not a new architectural question.
+
 ---
 
 ## 16. CampaignContact State Machine

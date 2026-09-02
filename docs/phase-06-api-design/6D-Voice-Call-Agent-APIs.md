@@ -691,13 +691,34 @@ GET /api/v1/recordings/{id}/download-url
 
 No 6D endpoint ever returns `storage_ref` directly or embeds audio bytes in a JSON body (6A §29's absolute prohibition, restated). `content_type`/range-request support is native to the signed S3 URL (audio scrubbing/playback) — no 6D-layer involvement.
 
+### 16.2a Sensitive-Media Permission Split (corrected this pass — Phase 6L freeze-gate remediation)
+
+**The gap this subsection closes:** every prior draft gated both recording *metadata* (status, duration, policy) and the recording *audio itself* (the signed download URL) behind the single permission `recording:read` — seeded by default to `OWNER`, `ADMIN`, `MEMBER`, **and** `VIEWER` alike (`007_5B.sql`). That means every ordinary MEMBER and VIEWER in every tenant could, by default, play back call audio — contradicting the owner-approved sensitive-media policy (recording playback = OWNER/ADMIN by default; MEMBER only via an explicit custom-role grant; VIEWER never).
+
+**Fix:** two permissions now exist for this resource, added by migration `104_5B3.sql` (`down_revision = '103_5J2'`) — no change to `recording:read`'s own grant set:
+
+| Permission | Governs | Default grant |
+|---|---|---|
+| `recording:read` (unchanged, `007_5B.sql`) | Recording **metadata only** — existence, `status`, `duration_seconds`, `file_size_bytes`, `recording_policy`, `consent_obtained`, `retention_days`/`delete_after`. **Never** the audio itself. | OWNER, ADMIN, MEMBER, VIEWER |
+| `recording:access_media` (new, `104_5B3.sql`) | The signed, time-boxed download/playback URL (§16.2) — the audio content itself. | OWNER, ADMIN only. A tenant's own OWNER/ADMIN may grant it to a specific MEMBER via a tenant-created custom role (`role:manage`, existing mechanism, no schema change) — never granted to VIEWER, never to BILLING_ADMIN. |
+
+**Ordinary call/report metadata visibility is fully preserved** — this correction narrows only the audio-content capability, exactly as the owner-approved policy requires ("do NOT solve this problem by unnecessarily removing ordinary call metadata/report visibility").
+
+### 16.2b Sensitive-Media Access Is Audited (corrected this pass — closes the prior "not audited" gap)
+
+`GET /recordings/{id}/download-url` now writes a synchronous, same-request `audit.fn_insert_audit_event(p_action_kind => 'RECORDING_ACCESS_GRANTED', ...)` call (5J §14.3 ‖ — new governed value, this pass) whenever it **successfully** issues a signed URL — never for a denied or `404`/`RECORDING_NOT_AVAILABLE` request. **Authorization is evaluated, and the `STORED`-status guard is checked, strictly before URL generation** — a denied or unavailable request never reaches the URL-minting step and therefore never reaches the audit-write step either; no signed URL is ever minted and then discarded. The audit `resource_snapshot` carries only `call_id` and `expires_in_seconds` — **never** the `download_url` value itself, any bearer token, or any storage credential (verified live in this pass, §16.2c). This is the sole change to this endpoint's audit posture from the prior draft's "not audited (read-only access-grant)" classification, which the governing remediation task identifies as no longer acceptable for a capability that hands out a bearer-usable, temporarily unauthenticated URL to sensitive customer voice content.
+
+### 16.2c Live Validation Evidence (this pass)
+
+Against a disposable, locally self-hosted PostgreSQL 18.6 instance (isolated from any shared/production database): a real `audit.fn_insert_audit_event()` call with `p_action_kind => 'RECORDING_ACCESS_GRANTED'` was executed as `app_api` under a tenant context, and the resulting `audit.audit_events` row was read back and confirmed to contain `resource_snapshot = {"call_id": "...", "expires_in_seconds": 900}` and no other field — no signed URL, no token, no credential in any column. Separately confirmed live: `app_api` cannot `INSERT` into `audit.audit_events` directly (`permission denied for table audit_events`) and cannot call `audit.fn_compute_chain_hash()` (`permission denied for function fn_compute_chain_hash`) — the only legal path to a durable audit row remains the function call above, and hash-chain computation remains worker/platform-admin-only, exactly as 5J §14.2/§15 specify. Full command transcript: `docs/phase-06-api-design/6L-Analytics-Audit-APIs.md` §57.
+
 ### 16.3 Endpoints (full contracts in §28)
 
-| Endpoint | Purpose |
-|---|---|
-| `GET /api/v1/calls/{call_id}/recording` | Get recording metadata for a call (status, duration, size, policy, retention) |
-| `GET /api/v1/recordings/{recording_id}/download-url` | Signed, time-boxed download URL |
-| `POST /api/v1/recordings/{recording_id}/delete` | Action endpoint — `STORED → DELETED` (clears `storage_ref`, retains the row for audit, 4B §5.6 invariant 2) |
+| Endpoint | Purpose | Permission |
+|---|---|---|
+| `GET /api/v1/calls/{call_id}/recording` | Get recording metadata for a call (status, duration, size, policy, retention) | `recording:read` (metadata only) |
+| `GET /api/v1/recordings/{recording_id}/download-url` | Signed, time-boxed download URL — **audited on success**, §16.2b | `recording:access_media` (corrected this pass — was `recording:read`) |
+| `POST /api/v1/recordings/{recording_id}/delete` | Action endpoint — `STORED → DELETED` (clears `storage_ref`, retains the row for audit, 4B §5.6 invariant 2) | `recording:delete` (unchanged) |
 
 **Why `POST .../delete`, not `DELETE`:** per 6A §7.6's Delete Semantics table, `recordings` is a **soft-delete resource** whose deletion also has a real external side effect (an S3 object removal job, async) beyond a simple `deleted_at` flag — 6A §8.3's action-endpoint criteria (b) applies ("has side effects beyond the row update"). A bare `DELETE` would also need to communicate the guard (only `STORED` recordings can be deleted; a `PENDING`/`IN_PROGRESS` one cannot) — matching 6A §8.3's criterion (a).
 
@@ -768,14 +789,18 @@ recording.deleted consumer (existing outbox → Redis Streams path, §24.1)
 
 ### 17.3 Endpoints (full contracts in §28)
 
-| Endpoint | Purpose |
-|---|---|
-| `GET /api/v1/conversations/{conversation_id}/transcript` | Metadata: `status`, `total_segments`, `completed_at` |
-| `GET /api/v1/conversations/{conversation_id}/transcript/segments` | Cursor-paginated (6A §14), sequence-ordered, finalized segments only |
+| Endpoint | Purpose | Permission |
+|---|---|---|
+| `GET /api/v1/conversations/{conversation_id}/transcript` | Metadata: `status`, `total_segments`, `completed_at` | `transcript:read` (metadata only) |
+| `GET /api/v1/conversations/{conversation_id}/transcript/segments` | Cursor-paginated (6A §14), sequence-ordered, finalized segments only — the `text` content itself | `transcript:access_content` (corrected this pass — was `transcript:read`) |
 
-### 17.4 Access Control / PII
+### 17.4 Access Control / PII — Sensitive-Media Permission Split (corrected this pass — Phase 6L freeze-gate remediation)
 
-Every segment's `text` field is `pii:voice` (5C §13) — gated by `transcript:read` (exact existing permission, §25), the same permission that already governs 6C's non-disclosure discipline for cross-tenant access (a foreign `conversation_id` yields `404`, never `403`). No field-level redaction is applied beyond the existing permission gate — 5B's role matrix already restricts `transcript:read` to `OWNER/ADMIN/MEMBER` (not `VIEWER`... actually `VIEWER` also holds `transcript:read` per 5B's seed data, §25 restates the exact grant table).
+**The gap this subsection closes:** the prior draft gated both transcript *metadata* (status, segment count) and the transcript's actual `text` content behind the single permission `transcript:read` — seeded by default to `OWNER`, `ADMIN`, `MEMBER`, **and** `VIEWER` (`007_5B.sql`), meaning every ordinary MEMBER/VIEWER could by default read the full word-for-word content of every call. This contradicted the owner-approved sensitive-media policy in exactly the same way §16.2a's recording gap did.
+
+**Fix, mirroring §16.2a exactly:** every segment's `text` field is `pii:voice` (5C §13), now gated by `transcript:access_content` (new permission, `104_5B3.sql`) — **not** `transcript:read`, which continues to gate only the metadata endpoint above and retains its existing grant set unchanged (`OWNER/ADMIN/MEMBER/VIEWER`, corrected from this section's prior, inaccurate claim that `VIEWER` does *not* hold it — 5B's actual seed grants it to all four roles, restated correctly at §25). `transcript:access_content` defaults to `OWNER`/`ADMIN` only, extendable to a specific MEMBER via a tenant-created custom role, never to VIEWER or BILLING_ADMIN — identical shape to `recording:access_media` (§16.2a).
+
+A foreign-tenant `conversation_id` continues to yield `404`, never `403`, for either endpoint (6C's non-disclosure discipline, unchanged). No field-level redaction beyond the permission gate is applied within an authorized response. Per-request audit is deliberately **not** added to the segments endpoint — see 5J §14.3 ‖'s own explanation for why the recording-URL-issuance case and the transcript-content-read case are not symmetric (a signed URL is an independently exfiltratable bearer capability whose *issuance* is the security-relevant moment; a transcript segment page is content returned directly inside an already-authenticated, already-request-logged call with no separate artifact minted).
 
 ---
 
@@ -1204,9 +1229,11 @@ Every row below states: endpoint, permission, actor eligibility, API-key eligibi
 | `POST /calls/{id}/transfer` | `call:transfer` (exact match) | USER, API_KEY | Yes | No |
 | `POST /calls/{id}/hold` / `resume` | `call:transfer` *(interim mapping — DEP-6D-01)* | USER, API_KEY | Yes | No |
 | `GET /conversations/{id}[/turns]` | `call:read` (conversation observation reuses the Call-family permission — no separate `conversation:*` permission exists or is needed, since Conversation is 1:1 with Call, §12.1) | USER, API_KEY | Yes | No |
-| `GET /calls/{id}/recording`, `GET /recordings/{id}/download-url` | `recording:read` | USER, API_KEY | Yes | No |
+| `GET /calls/{id}/recording` | `recording:read` (metadata only) | USER, API_KEY | Yes | No |
+| `GET /recordings/{id}/download-url` | `recording:access_media` *(corrected this pass — Phase 6L freeze-gate remediation, `104_5B3.sql`; was `recording:read`)* — **audited on success**, §16.2b | USER, API_KEY (key's `scopes` must independently include `recording:access_media`, §16.4 there — a normal `call:read`/`recording:read` scope never implies it) | Yes | No |
 | `POST /recordings/{id}/delete` | `recording:delete` | USER | No | No |
-| `GET /conversations/{id}/transcript[/segments]` | `transcript:read` | USER, API_KEY | Yes | No |
+| `GET /conversations/{id}/transcript` | `transcript:read` (metadata only) | USER, API_KEY | Yes | No |
+| `GET /conversations/{id}/transcript/segments` | `transcript:access_content` *(corrected this pass — `104_5B3.sql`; was `transcript:read`)* | USER, API_KEY (key's `scopes` must independently include `transcript:access_content`) | Yes | No |
 | `GET /tools`, `GET /tools/{id}` | `agent:read` *(interim mapping — DEP-6D-02)* | USER, API_KEY | Yes | No |
 | `POST /tools`, `PATCH /tools/{id}`, `POST /tools/{id}/deactivate` | `agent:write` *(interim mapping — DEP-6D-02)* | USER | Yes | No |
 | `GET /conversations/{id}/tool-executions`, `GET /tool-executions/{id}` | `call:read` (adequate reuse — read-only observability adjacent to call/conversation data, no gap flagged) | USER, API_KEY | Yes | No |
@@ -1218,7 +1245,19 @@ Every row below states: endpoint, permission, actor eligibility, API-key eligibi
 | `GET /internal/v1/agents/{id}/versions/{id}` | Same as above | PLATFORM_ADMIN via internal service | No | Yes |
 | `/ws/v1/voice/calls/{id}[/stream]` | `call:read`, re-verified on subscribe (§13.4) | USER only (no API-key WS auth, §13.2) | No | No |
 
-**Cross-tenant behavior:** every row above returns `404 RESOURCE_NOT_FOUND` for a resource ID belonging to another tenant — never `403` (6B/6C's established discipline, reused without exception). **Break-glass:** no Voice-specific break-glass mechanism is designed here; the two internal endpoints (§28) are the only cross-tenant-capable surface, gated by the platform-admin-only internal service mechanism 6B §17/6A §23.4 already define — 6D introduces no new break-glass concept.
+**Cross-tenant behavior:** every row above returns `404 RESOURCE_NOT_FOUND` for a resource ID belonging to another tenant — never `403` (6B/6C's established discipline, reused without exception). This includes `recording_id`/`transcript_id`/`conversation_id`/`call_id` path values: a foreign-tenant ID never distinguishes "exists in another org" from "does not exist at all" in the response (no existence-enumeration oracle).
+
+**API-key sensitive-media scope ceiling (restated this pass, closing DEC-6L-review's Section 14 requirement):** 6B §16.4's ceiling model (`effective permissions = key.scopes ∩ issuer's own permissions at issuance`) applies to `recording:access_media`/`transcript:access_content` exactly as to every other permission — an API key's `scopes` array must **explicitly** list the sensitive permission for a request to pass, and the issuing user must have held that permission at issuance time. A key created with only `call:read`/`recording:read` in its `scopes` can list calls and read recording *metadata* but is rejected (`403 AUTHORIZATION_DENIED`) at `GET /recordings/{id}/download-url` — a normal call-observability scope never implicitly widens to sensitive media. An expired or revoked key is rejected at the authentication layer (6B §16) before any permission check is even reached. A key scoped to Organization A can never satisfy a request whose resolved tenant is Organization B, regardless of its `scopes` content (§9.1's tenant-resolution rule, unaffected by scope content).
+
+**Break-glass / platform-admin sensitive media — explicit non-support, precise 6M handoff (this pass, Phase 6L freeze-gate remediation, Section 7):** no Voice-specific break-glass mechanism is designed here; the two internal endpoints (§28) are the only cross-tenant-capable surface, gated by the platform-admin-only internal service mechanism 6B §17/6A §23.4 already define — 6D introduces no new break-glass concept. **Concretely: today, a `PLATFORM_ADMIN` actor cannot reach `GET /recordings/{id}/download-url` or `GET /conversations/{id}/transcript/segments` at all** — those two routes accept only `USER`/`API_KEY` principals (table above), and `app_platform_admin`'s `BYPASSRLS` DB privilege is irrelevant here because the *API-layer* route simply does not authenticate a platform-admin principal for these paths in the first place; RLS bypass alone was never, and is not now, a substitute for that missing route-level authorization (the governing remediation task's own explicit prohibition). Should a future phase (6M) need cross-tenant support access to a tenant's recording/transcript content, it **must** compose, not bypass, every one of the following — reusing 6B §18.3/§18.3a's already-complete break-glass runtime-authorization contract verbatim, never a shortcut around it:
+
+1. `PLATFORM_ADMIN` actor type (§18.1/§18.2, actor-type check, not a permission string).
+2. A valid, non-expired, non-released break-glass grant (`X-Break-Glass-Grant` header, 6B §18.3a) bound to the specific target `organization_id`, the authenticated admin's `user_id`, **and** their current `session_id` — all three checked on every request, not once at grant time.
+3. A support reason/ticket reference captured at grant-open time (6B §18.3's "explicit justification, min length enforced") — already a mandatory field in the existing grant-open contract, requiring no new field for Voice's purposes.
+4. A sensitive-media-specific purpose marker on the grant (**new, not yet specified anywhere** — 6B's existing grant record has no notion of "this grant additionally authorizes cross-tenant recording playback / transcript content," only "this grant authorizes acting as this tenant" in general). This is the one genuinely new piece 6M must design — not a schema change 6D can make unilaterally, since the break-glass grant record itself is 6B-owned (§18.3, currently an interim Redis record with a documented future durable-table dependency, DEP-6B-01).
+5. A durable, synchronous audit write (`RECORDING_ACCESS_GRANTED` ‖/an equivalent transcript-content event, both carrying `grant_id` in `p_correlation_id` or an equivalent field) for every elevated sensitive-media disclosure — mirroring §16.2b's own audit requirement, extended to include the grant reference.
+
+**Until 6M delivers all five, no platform-admin recording/transcript endpoint is added anywhere in this platform** — per the remediation task's explicit instruction, this document does not "prematurely add insecure universal platform-admin playback endpoints." This paragraph is the complete, binding specification of what 6M must build; it is a handoff, not an implementation.
 
 ---
 
@@ -1488,11 +1527,11 @@ ReconcileDispatchByOperator(
 
 ### 28.19 `GET /api/v1/calls/{call_id}/recording`
 
-- **Purpose:** Recording metadata for a call. **Authz:** `recording:read`. **Response:** `status`, `duration_seconds`, `file_size_bytes`, `recording_policy` (snapshot, §16.1), `consent_obtained`, `retention_days`/`delete_after` — **never** `storage_ref`. **Errors:** `404` (no recording exists, e.g. `RecordingPolicy=DISABLED` at creation time).
+- **Purpose:** Recording metadata for a call. **Authz:** `recording:read` (metadata only, §16.2a). **Response:** `status`, `duration_seconds`, `file_size_bytes`, `recording_policy` (snapshot, §16.1), `consent_obtained`, `retention_days`/`delete_after` — **never** `storage_ref`. **Errors:** `404` (no recording exists, e.g. `RecordingPolicy=DISABLED` at creation time).
 
 ### 28.20 `GET /api/v1/recordings/{recording_id}/download-url`
 
-- **Purpose:** Signed, time-boxed download URL (§16.2, 6A §29). **Authz:** `recording:read`. **Guard:** `status` must be `STORED` → `404 RECORDING_NOT_AVAILABLE` otherwise (§27.2). **Response `200`:** `{ "download_url", "expires_at" }` (15-min expiry, matching 6A §29's platform-wide default). **Rate Limit:** 60/hour/org (signed-URL minting is cheap but not unlimited). **Audit:** not audited (read-only access-grant, matching 6C's own precedent for `logo/upload-url`-class endpoints, §15.4 there).
+- **Purpose:** Signed, time-boxed download URL (§16.2, 6A §29). **Authz:** `recording:access_media` (corrected this pass — §16.2a; **not** `recording:read`, which no longer suffices for this endpoint). **Guard:** authorization is checked, and `status` is verified to be `STORED` (→ `404 RECORDING_NOT_AVAILABLE` otherwise, §27.2), **strictly before** URL generation — a denied or unavailable request never reaches the signing step (§16.2b). **Response `200`:** `{ "download_url", "expires_at" }` (15-min expiry, matching 6A §29's platform-wide default). **Rate Limit:** 60/hour/org (signed-URL minting is cheap but not unlimited). **Audit — corrected this pass:** on successful issuance only, a synchronous `SELECT audit.fn_insert_audit_event(p_action_kind => 'RECORDING_ACCESS_GRANTED', p_resource_type => 'recording', p_resource_id => <recording_id>, p_outcome => 'SUCCESS', p_resource_snapshot => jsonb_build_object('call_id', <call_id>, 'expires_in_seconds', 900), ...)` call (§24.0's template, 5J §14.3 ‖ — **new governed value, this pass**; never a direct `INSERT`). **Never audited on denial** (no signed URL was minted, nothing to record as granted) and **never includes `download_url`, any token, or any storage credential** in `resource_snapshot` — live-verified in this pass (§16.2c).
 
 ### 28.21 `POST /api/v1/recordings/{recording_id}/delete`
 
@@ -1500,11 +1539,11 @@ ReconcileDispatchByOperator(
 
 ### 28.22 `GET /api/v1/conversations/{conversation_id}/transcript`
 
-- **Purpose:** Transcript metadata. **Authz:** `transcript:read`. **Response:** `status`, `total_segments`, `completed_at`. **Errors:** `404`.
+- **Purpose:** Transcript metadata. **Authz:** `transcript:read` (metadata only, §17.4). **Response:** `status`, `total_segments`, `completed_at`. **Errors:** `404`.
 
 ### 28.23 `GET /api/v1/conversations/{conversation_id}/transcript/segments`
 
-- **Purpose:** Cursor-paginated, sequence-ordered, **finalized-only** segments (§17.2). **Authz:** `transcript:read`. **Response fields per segment:** `sequence_number`, `speaker`, `text`, `start_ms`/`end_ms`, `confidence` (nullable, CALLER only), `language`. **Never** `is_partial=true` rows — none exist in Postgres to return (5C §5.10).
+- **Purpose:** Cursor-paginated, sequence-ordered, **finalized-only** segments (§17.2). **Authz:** `transcript:access_content` (corrected this pass — §17.4; **not** `transcript:read`, which no longer suffices for this endpoint). **Response fields per segment:** `sequence_number`, `speaker`, `text`, `start_ms`/`end_ms`, `confidence` (nullable, CALLER only), `language`. **Never** `is_partial=true` rows — none exist in Postgres to return (5C §5.10). **Audit:** none per request (§17.4's documented asymmetry with the recording-URL case).
 
 ### 28.24 `GET /api/v1/tools`
 
