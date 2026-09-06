@@ -1,0 +1,14 @@
+billing|fn_platform_fail_refund|postgres|t|search_path=billing, pg_catalog
+billing|fn_platform_reserve_refund|postgres|t|search_path=billing, pg_catalog
+billing|fn_platform_set_quota_override|postgres|t|search_path=billing, organization, pg_catalog
+billing|fn_platform_settle_refund|postgres|t|search_path=billing, pg_catalog
+billing|fn_validate_refund_amount|postgres|f|(none)
+organization|fn_break_glass_check|postgres|t|search_path=organization, pg_catalog
+organization|fn_break_glass_grant|postgres|t|search_path=organization, public, pg_catalog
+organization|fn_break_glass_grant|postgres|t|search_path=organization, pg_catalog
+organization|fn_break_glass_release|postgres|t|search_path=organization, pg_catalog
+organization|fn_platform_reactivate_organization|postgres|t|search_path=organization, pg_catalog
+organization|fn_platform_suspend_organization|postgres|t|search_path=organization, pg_catalog
+organization|is_platform_admin|postgres|f|(none)
+voice|fn_platform_access_recording|postgres|t|search_path=voice, organization, pg_catalog
+voice|fn_platform_access_transcript|postgres|t|search_path=voice, organization, pg_catalog

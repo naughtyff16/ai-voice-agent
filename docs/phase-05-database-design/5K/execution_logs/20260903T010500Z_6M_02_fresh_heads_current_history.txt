@@ -1,0 +1,6 @@
+=== heads ===
+106_5H3 (head)
+=== current ===
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+106_5H3 (head)

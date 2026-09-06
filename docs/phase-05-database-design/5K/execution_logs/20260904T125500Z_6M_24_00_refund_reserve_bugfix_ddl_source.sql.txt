@@ -1,0 +1,86 @@
+CREATE OR REPLACE FUNCTION billing.fn_platform_reserve_refund(
+  p_organization_id    UUID,
+  p_admin_user_id      UUID,
+  p_payment_attempt_id UUID,
+  p_amount             NUMERIC(18,4),
+  p_currency           CHAR(3),
+  p_reason             TEXT
+)
+RETURNS UUID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = billing, pg_catalog
+AS $$
+DECLARE
+  v_pa billing.payment_attempts%ROWTYPE;
+  v_already_refunded NUMERIC(18,4);
+  v_refund_id UUID;
+BEGIN
+  IF NOT organization.is_platform_admin() THEN
+    RAISE EXCEPTION 'fn_platform_reserve_refund: caller is not authorized.';
+  END IF;
+  IF p_admin_user_id IS NULL THEN
+    RAISE EXCEPTION 'fn_platform_reserve_refund: p_admin_user_id is required.';
+  END IF;
+  IF p_amount IS NULL OR p_amount <= 0 THEN
+    RAISE EXCEPTION 'fn_platform_reserve_refund: p_amount must be positive.';
+  END IF;
+  IF p_reason IS NULL OR length(p_reason) NOT BETWEEN 10 AND 2000 THEN
+    RAISE EXCEPTION 'fn_platform_reserve_refund: p_reason must be between 10 and 2000 characters.';
+  END IF;
+
+  SELECT * INTO v_pa
+  FROM billing.payment_attempts
+  WHERE id = p_payment_attempt_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'fn_platform_reserve_refund: payment_attempt % not found.', p_payment_attempt_id;
+  END IF;
+  IF v_pa.organization_id <> p_organization_id THEN
+    RAISE EXCEPTION 'fn_platform_reserve_refund: payment_attempt % does not belong to organization %.', p_payment_attempt_id, p_organization_id;
+  END IF;
+  IF v_pa.status <> 'SUCCEEDED' THEN
+    RAISE EXCEPTION 'fn_platform_reserve_refund: payment_attempt % is not SUCCEEDED (status=%).', p_payment_attempt_id, v_pa.status;
+  END IF;
+  IF v_pa.amount_currency <> p_currency THEN
+    RAISE EXCEPTION 'fn_platform_reserve_refund: currency % does not match payment_attempt currency %.', p_currency, v_pa.amount_currency;
+  END IF;
+
+  SELECT COALESCE(SUM(amount_amount), 0) INTO v_already_refunded
+  FROM billing.refunds
+  WHERE payment_attempt_id = p_payment_attempt_id
+    AND status IN ('PENDING', 'SUCCEEDED');
+
+  IF v_already_refunded + p_amount > v_pa.amount_amount THEN
+    RAISE EXCEPTION 'fn_platform_reserve_refund: requested refund % plus already-reserved/settled % would exceed original payment amount %.', p_amount, v_already_refunded, v_pa.amount_amount;
+  END IF;
+
+  INSERT INTO billing.refunds (
+    organization_id, payment_attempt_id, payment_provider, provider_refund_id,
+    amount_amount, amount_currency, reason, status
+  ) VALUES (
+    p_organization_id, p_payment_attempt_id, v_pa.payment_provider, NULL,
+    p_amount, p_currency, p_reason, 'PENDING'
+  )
+  RETURNING id INTO v_refund_id;
+
+  PERFORM set_config('app.tenant_id', p_organization_id::text, true);
+  PERFORM audit.fn_insert_audit_event(
+    p_organization_id, 'PLATFORM_ADMIN', p_admin_user_id, NULL,
+    'REFUND_RESERVED', 'REFUND', v_refund_id, 'SUCCESS', NULL,
+    NULL, NULL, NULL, NULL, NULL,
+    jsonb_build_object(
+      'payment_attempt_id', p_payment_attempt_id, 'amount', p_amount,
+      'currency', p_currency, 'reason', p_reason
+    ),
+    FALSE
+  );
+
+  RETURN v_refund_id;
+END;
+$$;
+REVOKE ALL ON FUNCTION billing.fn_platform_reserve_refund(UUID, UUID, UUID, NUMERIC, CHAR(3), TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION billing.fn_platform_reserve_refund(UUID, UUID, UUID, NUMERIC, CHAR(3), TEXT) FROM app_api;
+GRANT EXECUTE ON FUNCTION billing.fn_platform_reserve_refund(UUID, UUID, UUID, NUMERIC, CHAR(3), TEXT) TO app_platform_admin;
+

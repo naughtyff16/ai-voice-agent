@@ -1,0 +1,95 @@
+SET
+=== TEST 13R: generic grant (purposes={SUPPORT_GENERAL}) DENIED for SENSITIVE_MEDIA_ACCESS purpose (must return FALSE) ===
+ should_be_false 
+-----------------
+ f
+(1 row)
+
+=== TEST 14R: same grant PASSES for its own purpose SUPPORT_GENERAL (must return TRUE) ===
+ should_be_true 
+----------------
+ t
+(1 row)
+
+=== TEST 15R: wildcard purpose "*" rejected at grant issuance (must FAIL) ===
+psql:/tmp/6m_security_battery_part2.sql:23: ERROR:  fn_break_glass_grant: purposes {*} contains a value outside the allow-list.
+CONTEXT:  PL/pgSQL function fn_break_glass_grant(uuid,uuid,text,integer,text,text[]) line 21 at RAISE
+=== TEST 16R: wildcard purpose "ALL_ACCESS" rejected (must FAIL) ===
+psql:/tmp/6m_security_battery_part2.sql:26: ERROR:  fn_break_glass_grant: purposes {ALL_ACCESS} contains a value outside the allow-list.
+CONTEXT:  PL/pgSQL function fn_break_glass_grant(uuid,uuid,text,integer,text,text[]) line 21 at RAISE
+=== TEST 17R: purpose "SUPER_ADMIN" rejected (must FAIL) ===
+=== TEST 17B: mixed array with one wildcard among valid purposes still rejected (must FAIL) ===
+psql:/tmp/6m_security_battery_part2.sql:29: ERROR:  fn_break_glass_grant: purposes {SUPER_ADMIN} contains a value outside the allow-list.
+CONTEXT:  PL/pgSQL function fn_break_glass_grant(uuid,uuid,text,integer,text,text[]) line 21 at RAISE
+psql:/tmp/6m_security_battery_part2.sql:32: ERROR:  fn_break_glass_grant: purposes {SUPPORT_GENERAL,ALL} contains a value outside the allow-list.
+CONTEXT:  PL/pgSQL function fn_break_glass_grant(uuid,uuid,text,integer,text,text[]) line 21 at RAISE
+=== TEST 18R: legit grant with SENSITIVE_MEDIA_ACCESS purpose succeeds, and check with that purpose passes ===
+ should_be_true 
+----------------
+ t
+(1 row)
+
+=== TEST 18C: that same grant is DENIED for a DIFFERENT purpose it was not issued with (must return FALSE) ===
+ should_be_false 
+-----------------
+ f
+(1 row)
+
+=== TEST 19R: purposes column is immutable after creation (UPDATE attempt must FAIL) ===
+=== TEST 20R: fn_break_glass_check REJECTS entirely when caller lacks is_platform_admin GUC (must return FALSE, not error) ===
+RESET
+psql:/tmp/6m_security_battery_part2.sql:41: ERROR:  break_glass_grants identity/terms fields (including purposes) are immutable. grant_id: 01a06732-268e-759a-9bc8-c8fde367cb02
+CONTEXT:  PL/pgSQL function organization.prevent_bgg_immutable_field_mutation() line 10 at RAISE
+ should_be_false_no_admin_ctx 
+------------------------------
+ f
+(1 row)
+
+SET
+=== TEST 21R: quota override with an out-of-allow-list metric REJECTED (re-confirm after patch) ===
+psql:/tmp/6m_security_battery_part2.sql:49: ERROR:  fn_platform_set_quota_override: metric NOT_A_REAL_METRIC is outside the 5H §11.1 usage-dimension allow-list.
+CONTEXT:  PL/pgSQL function fn_platform_set_quota_override(uuid,uuid,text,numeric,numeric,text,timestamp with time zone,text) line 25 at RAISE
+=== TEST 22R: quota override with a valid, never-before-configured metric SUCCEEDS (creates new row, unit_label auto-derived) ===
+    fn_platform_set_quota_override    
+--------------------------------------
+ 01a06732-2693-7acd-af10-101ca9928d79
+(1 row)
+
+   metric   | soft_limit | hard_limit | unit_label 
+------------+------------+------------+------------
+ STORAGE_GB |   100.0000 |   200.0000 | GB
+(1 row)
+
+=== TEST 23R: repeat call on same metric is an idempotent upsert (updates limits, no duplicate row) ===
+    fn_platform_set_quota_override    
+--------------------------------------
+ 01a06732-2693-7acd-af10-101ca9928d79
+(1 row)
+
+ should_be_1_row |   metric   | soft_limit | hard_limit | unit_label 
+-----------------+------------+------------+------------+------------
+               1 | STORAGE_GB |   150.0000 |   250.0000 | GB
+(1 row)
+
+=== ALL PART-2 TESTS ISSUED ===
+=== TEST 27R: TRUE CONCURRENT double-refund race -- two simultaneous sessions each reserving 60.00 against a payment with only 100.00 remaining refundable balance (200+300 SUCCEEDED + 400 PENDING already reserved out of 1000.0000 total). Exactly ONE of the two must succeed; the other must be rejected by the FOR UPDATE-guarded balance re-check, never both. ===
+--- SESSION A OUTPUT ---
+SET
+psql:/tmp/race_a.sql:7: ERROR:  fn_platform_reserve_refund: currency USD does not match the original payment currency INR.
+CONTEXT:  PL/pgSQL function fn_platform_reserve_refund(uuid,uuid,uuid,numeric,character,text) line 45 at RAISE
+--- SESSION B OUTPUT ---
+SET
+psql:/tmp/race_b.sql:7: ERROR:  fn_platform_reserve_refund: currency USD does not match the original payment currency INR.
+CONTEXT:  PL/pgSQL function fn_platform_reserve_refund(uuid,uuid,uuid,numeric,character,text) line 45 at RAISE
+--- SESSION A OUTPUT (first attempt used wrong currency USD, fixed to INR matching fixture payment; retained below) ---
+SET
+           session_a_result           
+--------------------------------------
+ 01a0681a-47dc-7d13-b965-654f609d7b91
+(1 row)
+
+--- SESSION B OUTPUT ---
+SET
+psql:/tmp/race_b.sql:7: ERROR:  fn_platform_reserve_refund: refund amount 60.00 would exceed the remaining refundable balance (REFUND_AMOUNT_EXCEEDED).
+CONTEXT:  PL/pgSQL function fn_platform_reserve_refund(uuid,uuid,uuid,numeric,character,text) line 54 at RAISE
+--- POST-RACE STATE: exactly one of the two concurrent 60.00 reserves succeeded; cumulative non-FAILED refunds = 960.0000 of 1000.0000, remaining = 40.0000. Confirms fn_platform_reserve_refund's function-internal SELECT ... FOR UPDATE lock on the payment_attempts row correctly serializes truly concurrent sessions and the re-checked balance prevents the double-refund race, not merely sequential-call arithmetic. ---

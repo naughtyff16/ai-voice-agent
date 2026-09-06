@@ -1,0 +1,6 @@
+=== alembic heads (incremental DB) ===
+107_5B5 (head)
+=== alembic current (incremental DB) ===
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+107_5B5 (head)

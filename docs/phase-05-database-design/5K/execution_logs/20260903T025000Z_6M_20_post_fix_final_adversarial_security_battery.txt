@@ -1,0 +1,176 @@
+=== TEST 1: app_platform_admin cannot raw-INSERT into organizations (must FAIL) ===
+SET
+psql:/tmp/6M_final_battery.sql:25: ERROR:  permission denied for table organizations
+RESET
+=== TEST 2: app_platform_admin cannot raw-UPDATE organizations.status (must FAIL) ===
+SET
+psql:/tmp/6M_final_battery.sql:30: ERROR:  permission denied for table organizations
+RESET
+=== TEST 3: app_platform_admin cannot raw-DELETE organizations (must FAIL) ===
+SET
+psql:/tmp/6M_final_battery.sql:35: ERROR:  permission denied for table organizations
+RESET
+=== TEST 4: app_platform_admin cannot raw-INSERT billing.refunds (must FAIL) ===
+SET
+psql:/tmp/6M_final_battery.sql:41: ERROR:  permission denied for table refunds
+RESET
+=== TEST 5: app_platform_admin cannot raw-UPDATE billing.payment_attempts (must FAIL) ===
+SET
+psql:/tmp/6M_final_battery.sql:46: ERROR:  permission denied for table payment_attempts
+RESET
+=== TEST 6: app_platform_admin cannot raw-INSERT billing.quota_configs (must FAIL) ===
+SET
+psql:/tmp/6M_final_battery.sql:51: ERROR:  permission denied for table quota_configs
+RESET
+=== TEST 7: fn_platform_suspend_organization REJECTS caller without is_platform_admin GUC (must FAIL) ===
+psql:/tmp/6M_final_battery.sql:56: ERROR:  fn_platform_suspend_organization: caller is not authorized.
+CONTEXT:  PL/pgSQL function fn_platform_suspend_organization(uuid,uuid,text) line 6 at RAISE
+=== TEST 8: fn_platform_suspend_organization SUCCEEDS with is_platform_admin GUC true ===
+SET
+ fn_platform_suspend_organization 
+----------------------------------
+ SUSPENDED
+(1 row)
+
+                  id                  |  status   
+--------------------------------------+-----------
+ 33333333-3333-3333-3333-333333333333 | SUSPENDED
+(1 row)
+
+=== TEST 9: suspend is idempotent (already SUSPENDED -> no-op, no error) ===
+ fn_platform_suspend_organization 
+----------------------------------
+ SUSPENDED
+(1 row)
+
+                  id                  |  status   
+--------------------------------------+-----------
+ 33333333-3333-3333-3333-333333333333 | SUSPENDED
+(1 row)
+
+=== TEST 10: reactivate succeeds from SUSPENDED ===
+ fn_platform_reactivate_organization 
+-------------------------------------
+ ACTIVE
+(1 row)
+
+                  id                  | status 
+--------------------------------------+--------
+ 33333333-3333-3333-3333-333333333333 | ACTIVE
+(1 row)
+
+=== TEST 11: suspend then cancel then reactivate must be REJECTED (terminal state) ===
+UPDATE 1
+=== TEST 12: restore org to ACTIVE for subsequent tests (direct fixture repair, superuser) ===
+psql:/tmp/6M_final_battery.sql:73: ERROR:  fn_platform_reactivate_organization: organization 33333333-3333-3333-3333-333333333333 is CANCELLED (terminal state) and cannot be reactivated.
+CONTEXT:  PL/pgSQL function fn_platform_reactivate_organization(uuid,uuid,text) line 31 at RAISE
+UPDATE 1
+=== TEST 13R: fixture grant (purposes={SUPPORT_GENERAL}) DENIED for SENSITIVE_MEDIA_ACCESS (must return FALSE) ===
+ should_be_false 
+-----------------
+ f
+(1 row)
+
+=== TEST 14R: fixture grant PASSES for its own purpose SUPPORT_GENERAL (must return TRUE) ===
+ should_be_true 
+----------------
+ t
+(1 row)
+
+=== TEST 15R: wildcard purpose "*" rejected at grant issuance (must FAIL) ===
+psql:/tmp/6M_final_battery.sql:87: ERROR:  fn_break_glass_grant: purposes {*} contains a value outside the allow-list.
+CONTEXT:  PL/pgSQL function fn_break_glass_grant(uuid,uuid,text,integer,text,text[]) line 21 at RAISE
+=== TEST 16R: wildcard purpose "ALL_ACCESS" rejected (must FAIL) ===
+psql:/tmp/6M_final_battery.sql:90: ERROR:  fn_break_glass_grant: purposes {ALL_ACCESS} contains a value outside the allow-list.
+CONTEXT:  PL/pgSQL function fn_break_glass_grant(uuid,uuid,text,integer,text,text[]) line 21 at RAISE
+=== TEST 17R: purpose "SUPER_ADMIN" rejected (must FAIL) ===
+psql:/tmp/6M_final_battery.sql:93: ERROR:  fn_break_glass_grant: purposes {SUPER_ADMIN} contains a value outside the allow-list.
+CONTEXT:  PL/pgSQL function fn_break_glass_grant(uuid,uuid,text,integer,text,text[]) line 21 at RAISE
+=== TEST 17B: mixed array with one wildcard among valid purposes still rejected (must FAIL) ===
+psql:/tmp/6M_final_battery.sql:96: ERROR:  fn_break_glass_grant: purposes {SUPPORT_GENERAL,ALL} contains a value outside the allow-list.
+CONTEXT:  PL/pgSQL function fn_break_glass_grant(uuid,uuid,text,integer,text,text[]) line 21 at RAISE
+=== TEST 18R: legit grant with SENSITIVE_MEDIA_ACCESS purpose succeeds, and check with that purpose passes ===
+ should_be_true 
+----------------
+ t
+(1 row)
+
+=== TEST 18C: that same grant is DENIED for a DIFFERENT purpose it was not issued with (must return FALSE) ===
+ should_be_false 
+-----------------
+ f
+(1 row)
+
+=== TEST 19R: purposes column is immutable after creation (UPDATE attempt must FAIL) ===
+psql:/tmp/6M_final_battery.sql:107: ERROR:  break_glass_grants identity/terms fields (including purposes) are immutable. grant_id: 01a0682c-dbe9-78e9-b545-45fe1a4d09d9
+CONTEXT:  PL/pgSQL function organization.prevent_bgg_immutable_field_mutation() line 10 at RAISE
+=== TEST 20R: fn_break_glass_check REJECTS entirely when caller lacks is_platform_admin GUC (must return FALSE, not error) ===
+RESET
+ should_be_false_no_admin_ctx 
+------------------------------
+ f
+(1 row)
+
+SET
+=== TEST 21R: quota override with an out-of-allow-list metric REJECTED ===
+=== TEST 22R: quota override with a valid, never-before-configured metric SUCCEEDS (unit_label auto-derived) ===
+psql:/tmp/6M_final_battery.sql:116: ERROR:  fn_platform_set_quota_override: metric NOT_A_REAL_METRIC is outside the 5H §11.1 usage-dimension allow-list.
+CONTEXT:  PL/pgSQL function fn_platform_set_quota_override(uuid,uuid,text,numeric,numeric,text,timestamp with time zone,text) line 25 at RAISE
+    fn_platform_set_quota_override    
+--------------------------------------
+ 01a0682c-dbeb-777e-a51b-1b4d0cfead68
+(1 row)
+
+   metric   | soft_limit | hard_limit | unit_label 
+------------+------------+------------+------------
+ STORAGE_GB |   100.0000 |   200.0000 | GB
+(1 row)
+
+=== TEST 23R: repeat call on same metric is an idempotent upsert (updates limits, no duplicate row) ===
+    fn_platform_set_quota_override    
+--------------------------------------
+ 01a0682c-dbeb-777e-a51b-1b4d0cfead68
+(1 row)
+
+ should_be_1_row |   metric   | soft_limit | hard_limit | unit_label 
+-----------------+------------+------------+------------+------------
+               1 | STORAGE_GB |   150.0000 |   250.0000 | GB
+(1 row)
+
+=== TEST 24 (orig 22): refund reserve REJECTED when amount would exceed remaining refundable balance ===
+psql:/tmp/6M_final_battery.sql:130: ERROR:  fn_platform_reserve_refund: refund amount 900.00 would exceed the remaining refundable balance (REFUND_AMOUNT_EXCEEDED).
+CONTEXT:  PL/pgSQL function fn_platform_reserve_refund(uuid,uuid,uuid,numeric,character,text) line 54 at RAISE
+=== TEST 25 (orig 23): refund reserve SUCCEEDS within remaining balance, then settle succeeds ===
+ fn_platform_settle_refund 
+---------------------------
+ SUCCEEDED
+(1 row)
+
+  status   | provider_refund_id 
+-----------+--------------------
+ SUCCEEDED | prov_settle_test25
+(1 row)
+
+=== TEST 26 (orig 24): settle is idempotent (calling again on already-SUCCEEDED must no-op, not error) ===
+ fn_platform_settle_refund 
+---------------------------
+ SUCCEEDED
+(1 row)
+
+=== TEST 27P (orig 25): fail on an already-SUCCEEDED refund must be REJECTED (terminal state) ===
+psql:/tmp/6M_final_battery.sql:141: ERROR:  fn_platform_fail_refund: refund 01a0682c-dbef-7c56-8cd3-d3325be8426c is already SUCCEEDED (terminal state).
+CONTEXT:  PL/pgSQL function fn_platform_fail_refund(uuid,uuid,text) line 27 at RAISE
+=== TEST 28 (orig 26): reserve+fail path -- reserve then fail, fail is idempotent, then settle-after-fail REJECTED ===
+ fn_platform_fail_refund 
+-------------------------
+ FAILED
+(1 row)
+
+ fn_platform_fail_refund 
+-------------------------
+ FAILED
+(1 row)
+
+psql:/tmp/6M_final_battery.sql:147: ERROR:  fn_platform_settle_refund: refund 01a0682c-dbf3-7d4c-b351-51a7d4a51d71 is already FAILED (terminal state).
+CONTEXT:  PL/pgSQL function fn_platform_settle_refund(uuid,uuid,text) line 27 at RAISE
+=== ALL SEQUENTIAL TESTS ISSUED (see companion race_a.sql/race_b.sql output appended below for TEST 27R true-concurrency race) ===

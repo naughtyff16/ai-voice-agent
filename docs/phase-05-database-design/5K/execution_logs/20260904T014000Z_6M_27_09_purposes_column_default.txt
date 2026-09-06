@@ -1,0 +1,1 @@
+ARRAY['SUPPORT_GENERAL'::text]

@@ -1,0 +1,200 @@
+=== TEST 1: app_platform_admin cannot raw-INSERT into organizations (must FAIL: permission denied) ===
+SET
+psql:/tmp/6m_security_battery.sql:5: ERROR:  permission denied for table organizations
+RESET
+=== TEST 2: app_platform_admin cannot raw-UPDATE organizations.status (must FAIL) ===
+SET
+psql:/tmp/6m_security_battery.sql:10: ERROR:  permission denied for table organizations
+RESET
+=== TEST 3: app_platform_admin cannot raw-DELETE organizations (must FAIL) ===
+SET
+psql:/tmp/6m_security_battery.sql:15: ERROR:  permission denied for table organizations
+RESET
+=== TEST 4: app_platform_admin cannot raw-INSERT billing.refunds (must FAIL) ===
+SET
+psql:/tmp/6m_security_battery.sql:21: ERROR:  permission denied for table refunds
+RESET
+=== TEST 5: app_platform_admin cannot raw-UPDATE billing.payment_attempts (must FAIL) ===
+SET
+psql:/tmp/6m_security_battery.sql:26: ERROR:  permission denied for table payment_attempts
+RESET
+=== TEST 6: app_platform_admin cannot raw-INSERT billing.quota_configs (must FAIL) ===
+SET
+psql:/tmp/6m_security_battery.sql:32: ERROR:  permission denied for table quota_configs
+RESET
+=== TEST 7: fn_platform_suspend_organization REJECTS caller without is_platform_admin GUC (must FAIL: not platform admin) ===
+RESET
+=== TEST 8: fn_platform_suspend_organization SUCCEEDS with is_platform_admin GUC true ===
+psql:/tmp/6m_security_battery.sql:37: ERROR:  fn_platform_suspend_organization: caller is not authorized.
+CONTEXT:  PL/pgSQL function fn_platform_suspend_organization(uuid,uuid,text) line 6 at RAISE
+SET
+ fn_platform_suspend_organization 
+----------------------------------
+ SUSPENDED
+(1 row)
+
+                  id                  |  status   
+--------------------------------------+-----------
+ 33333333-3333-3333-3333-333333333333 | SUSPENDED
+(1 row)
+
+=== TEST 9: suspend is idempotent (already SUSPENDED -> no-op, no error) ===
+ fn_platform_suspend_organization 
+----------------------------------
+ SUSPENDED
+(1 row)
+
+                  id                  |  status   
+--------------------------------------+-----------
+ 33333333-3333-3333-3333-333333333333 | SUSPENDED
+(1 row)
+
+=== TEST 10: reactivate succeeds from SUSPENDED ===
+ fn_platform_reactivate_organization 
+-------------------------------------
+ ACTIVE
+(1 row)
+
+                  id                  | status 
+--------------------------------------+--------
+ 33333333-3333-3333-3333-333333333333 | ACTIVE
+(1 row)
+
+=== TEST 11: suspend then cancel then suspend/reactivate must be REJECTED (terminal state) ===
+UPDATE 1
+psql:/tmp/6m_security_battery.sql:54: ERROR:  fn_platform_reactivate_organization: organization 33333333-3333-3333-3333-333333333333 is CANCELLED (terminal state) and cannot be reactivated.
+CONTEXT:  PL/pgSQL function fn_platform_reactivate_organization(uuid,uuid,text) line 31 at RAISE
+=== TEST 12: restore org to ACTIVE for subsequent tests (direct fixture repair, superuser) ===
+UPDATE 1
+=== TEST 13: break-glass grant with only SUPPORT_GENERAL purpose FAILS fn_break_glass_check for SENSITIVE_MEDIA_ACCESS (must return FALSE) ===
+ should_be_false 
+-----------------
+ f
+(1 row)
+
+=== TEST 14: same grant PASSES fn_break_glass_check for SUPPORT_GENERAL (must return TRUE) ===
+ should_be_true 
+----------------
+ f
+(1 row)
+
+=== TEST 15: wildcard purpose "*" rejected by CHECK on grant issuance (must FAIL) ===
+psql:/tmp/6m_security_battery.sql:78: ERROR:  function organization.fn_break_glass_grant(unknown, unknown, unknown, unknown, integer, text[]) does not exist
+LINE 1: SELECT organization.fn_break_glass_grant('33333333-3333-3333...
+               ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+=== TEST 16: wildcard purpose "ALL_ACCESS" rejected (must FAIL) ===
+psql:/tmp/6m_security_battery.sql:81: ERROR:  function organization.fn_break_glass_grant(unknown, unknown, unknown, unknown, integer, text[]) does not exist
+LINE 1: SELECT organization.fn_break_glass_grant('33333333-3333-3333...
+               ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+=== TEST 17: SUPER_ADMIN purpose rejected (must FAIL) ===
+psql:/tmp/6m_security_battery.sql:84: ERROR:  function organization.fn_break_glass_grant(unknown, unknown, unknown, unknown, integer, text[]) does not exist
+LINE 1: SELECT organization.fn_break_glass_grant('33333333-3333-3333...
+               ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+=== TEST 18: legit grant with SENSITIVE_MEDIA_ACCESS purpose succeeds, and check passes it ===
+psql:/tmp/6m_security_battery.sql:87: ERROR:  function organization.fn_break_glass_grant(unknown, unknown, unknown, unknown, integer, text[]) does not exist
+LINE 1: SELECT organization.fn_break_glass_grant('33333333-3333-3333...
+               ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+psql:/tmp/6m_security_battery.sql:88: ERROR:  syntax error at or near ":"
+LINE 1: SELECT organization.fn_break_glass_check(:'new_grant_id', '3...
+                                                 ^
+=== TEST 19: purposes column is immutable after creation (UPDATE attempt must FAIL) ===
+psql:/tmp/6m_security_battery.sql:91: ERROR:  syntax error at or near ":"
+LINE 1: ...ts SET purposes = ARRAY['SUPER_ADMIN'] WHERE id = :'new_gran...
+                                                             ^
+=== TEST 20: quota override with an out-of-allow-list metric REJECTED ===
+psql:/tmp/6m_security_battery.sql:94: ERROR:  fn_platform_set_quota_override: metric NOT_A_REAL_METRIC is outside the 5H §11.1 usage-dimension allow-list.
+CONTEXT:  PL/pgSQL function fn_platform_set_quota_override(uuid,uuid,text,numeric,numeric,text,timestamp with time zone) line 24 at RAISE
+=== TEST 21: quota override with a valid metric SUCCEEDS and is idempotent upsert ===
+psql:/tmp/6m_security_battery.sql:97: ERROR:  null value in column "unit_label" of relation "quota_configs" violates not-null constraint
+DETAIL:  Failing row contains (01a0672f-0bc7-7b02-9213-134c1eee3421, 33333333-3333-3333-3333-333333333333, STORAGE_GB, 100.0000, 200.0000, null, valid metric test #21, 2026-09-03 12:12:11.590728+00, 2026-09-03 12:12:11.590728+00, 2026-09-03 12:12:11.590728+00, null, 22222222-2222-2222-2222-222222222222).
+CONTEXT:  SQL statement "INSERT INTO billing.quota_configs (
+    organization_id, metric, soft_limit, hard_limit, override_reason,
+    effective_from, expires_at, updated_by
+  ) VALUES (
+    p_organization_id, p_metric, p_soft_limit, p_hard_limit, p_reason,
+    NOW(), p_expires_at, p_admin_user_id
+  )
+  ON CONFLICT ON CONSTRAINT uq_qc_org_metric DO UPDATE SET
+    soft_limit     = EXCLUDED.soft_limit,
+    hard_limit     = EXCLUDED.hard_limit,
+    override_reason = EXCLUDED.override_reason,
+    effective_from = EXCLUDED.effective_from,
+    expires_at     = EXCLUDED.expires_at,
+    updated_by     = EXCLUDED.updated_by,
+    updated_at     = NOW()
+  RETURNING id"
+PL/pgSQL function fn_platform_set_quota_override(uuid,uuid,text,numeric,numeric,text,timestamp with time zone) line 33 at SQL statement
+psql:/tmp/6m_security_battery.sql:98: ERROR:  null value in column "unit_label" of relation "quota_configs" violates not-null constraint
+DETAIL:  Failing row contains (01a0672f-0bc8-7e7a-b74e-4e518f8a0981, 33333333-3333-3333-3333-333333333333, STORAGE_GB, 150.0000, 250.0000, null, valid metric test #21 re-run (upsert), 2026-09-03 12:12:11.591807+00, 2026-09-03 12:12:11.591807+00, 2026-09-03 12:12:11.591807+00, null, 22222222-2222-2222-2222-222222222222).
+CONTEXT:  SQL statement "INSERT INTO billing.quota_configs (
+    organization_id, metric, soft_limit, hard_limit, override_reason,
+    effective_from, expires_at, updated_by
+  ) VALUES (
+    p_organization_id, p_metric, p_soft_limit, p_hard_limit, p_reason,
+    NOW(), p_expires_at, p_admin_user_id
+  )
+  ON CONFLICT ON CONSTRAINT uq_qc_org_metric DO UPDATE SET
+    soft_limit     = EXCLUDED.soft_limit,
+    hard_limit     = EXCLUDED.hard_limit,
+    override_reason = EXCLUDED.override_reason,
+    effective_from = EXCLUDED.effective_from,
+    expires_at     = EXCLUDED.expires_at,
+    updated_by     = EXCLUDED.updated_by,
+    updated_at     = NOW()
+  RETURNING id"
+PL/pgSQL function fn_platform_set_quota_override(uuid,uuid,text,numeric,numeric,text,timestamp with time zone) line 33 at SQL statement
+ metric | soft_limit | hard_limit 
+--------+------------+------------
+(0 rows)
+
+=== TEST 22: refund reserve REJECTED when amount would exceed remaining refundable balance ===
+psql:/tmp/6m_security_battery.sql:102: ERROR:  fn_platform_reserve_refund: refund amount 900 would exceed the remaining refundable balance (REFUND_AMOUNT_EXCEEDED).
+CONTEXT:  PL/pgSQL function fn_platform_reserve_refund(uuid,uuid,uuid,numeric,character,text) line 54 at RAISE
+=== TEST 23: refund reserve SUCCEEDS within remaining balance, then settle succeeds ===
+ fn_platform_settle_refund 
+---------------------------
+ SUCCEEDED
+(1 row)
+
+  status   | provider_refund_id 
+-----------+--------------------
+ SUCCEEDED | prov_settle_test23
+(1 row)
+
+=== TEST 24: settle is idempotent (calling again on already-SUCCEEDED must no-op, not error) ===
+ fn_platform_settle_refund 
+---------------------------
+ SUCCEEDED
+(1 row)
+
+=== TEST 25: fail on an already-SUCCEEDED refund must be REJECTED (terminal state) ===
+psql:/tmp/6m_security_battery.sql:113: ERROR:  fn_platform_fail_refund: refund 01a0672f-0bca-78c4-8633-33359295d23f is already SUCCEEDED (terminal state).
+CONTEXT:  PL/pgSQL function fn_platform_fail_refund(uuid,uuid,text) line 27 at RAISE
+=== TEST 26: reserve+fail path -- reserve then fail, fail is idempotent, then settle-after-fail REJECTED ===
+ fn_platform_fail_refund 
+-------------------------
+ FAILED
+(1 row)
+
+ fn_platform_fail_refund 
+-------------------------
+ FAILED
+(1 row)
+
+psql:/tmp/6m_security_battery.sql:119: ERROR:  fn_platform_settle_refund: refund 01a0672f-0bcd-7229-b049-49d5383a86cd is already FAILED (terminal state).
+CONTEXT:  PL/pgSQL function fn_platform_settle_refund(uuid,uuid,text) line 27 at RAISE
+=== TEST 27: double-refund race -- two concurrent reserves that together exceed balance; second must fail under FOR UPDATE lock ===
+BEGIN
+COMMIT
+ status  | amount_amount 
+---------+---------------
+ PENDING |      400.0000
+(1 row)
+
+psql:/tmp/6m_security_battery.sql:126: ERROR:  fn_platform_reserve_refund: refund amount 200 would exceed the remaining refundable balance (REFUND_AMOUNT_EXCEEDED).
+CONTEXT:  PL/pgSQL function fn_platform_reserve_refund(uuid,uuid,uuid,numeric,character,text) line 54 at RAISE
+=== ALL TESTS ISSUED ===

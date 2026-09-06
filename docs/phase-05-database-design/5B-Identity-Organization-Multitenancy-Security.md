@@ -3030,3 +3030,240 @@ specific `MEMBER`-tier user with no further schema change. Full raw
 evidence: `docs/phase-05-database-design/5K/execution_logs/` (files
 prefixed `20260903T000000Z_6L_`) and
 `docs/phase-05-database-design/5K/validation/6L_FINAL_FREEZE_GATE_VALIDATION_REPORT.md`.
+
+## Controlled Amendment — Phase 6M Admin/Platform Control-Plane (2026-09-03, updated 2026-09-05)
+
+This is a **CONTROLLED CROSS-PHASE AMENDMENT**, not a rewrite of any frozen
+section above. Phase 6M (Admin/Platform Control-Plane APIs) added four
+additive migrations on top of this document's validated `001_5B`→`104_5B3`
+baseline — `105_5B4.sql`, `106_5H3.sql`, `107_5B5.sql`, and `108_5B6.sql` —
+and, in the course of live adversarial validation, found and fixed two
+pre-existing/emergent defects in functions and grants this document itself
+governs (items 4/5's `is_platform_admin()` fail-open/self-forgery defects,
+and item 6's child-partition ACL bypass). All four migrations are recorded
+here for traceability (items 1–3 for `105_5B4.sql`/`106_5H3.sql`, item 4 for
+`106_5H3.sql`'s fix, item 5 for `107_5B5.sql`, item 6 for `108_5B6.sql`);
+none reopens or edits any section above. `108_5B6` is the current Alembic
+head as of this update.
+
+**1. `organizations.status` gains a `SUSPENDED` value; suspend/reactivate
+functions (`105_5B4.sql`).** `organizations.status` (originally
+`ACTIVE | TRIAL | CANCELLED`, §5/§7) gains `SUSPENDED`. **Correction (this
+amendment originally, incorrectly, also claimed three new columns —
+`suspended_at TIMESTAMPTZ`, `suspended_reason TEXT`, `suspended_by UUID
+REFERENCES organization.users(id)` — were added alongside the status value.
+Independent re-verification against the actual executed SQL during the
+Phase 6M STRICT FINAL REMEDIATION pass found no such columns anywhere in
+`105_5B4.sql`, `106_5H3.sql`, or any later migration: the `ALTER TABLE` in
+`105_5B4.sql` sets only the `status` value and `updated_at`.** Two guarded
+`SECURITY DEFINER` functions — `organization.fn_platform_suspend_organization
+(p_organization_id, p_admin_user_id, p_reason)` and
+`fn_platform_reactivate_organization(...)` — are the only sanctioned
+mutation path; both reject a caller for whom `organization.is_platform_admin()`
+is not true, and both reject the terminal `CANCELLED` state. `p_reason` is
+validated (length 10-2000) at call time but, as originally shipped in
+`105_5B4.sql`/`106_5H3.sql`, was never persisted anywhere — no column, no
+audit row — the caller-supplied reason was silently discarded after
+validation. This is fixed, not by adding a column, but by `107_5B5.sql`
+(a later, additive Phase 6M migration — see item 5 below), which persists
+`p_reason` into the audit event's own `resource_snapshot`; that is where a
+suspension/reactivation reason durably lives (audit/support context), not
+a dedicated `organizations` column. No RLS policy or tenant-facing endpoint
+in this document changes: `SUSPENDED` behaves, for tenant-facing purposes,
+as an additional non-`ACTIVE` state alongside `TRIAL`/`CANCELLED`, gated
+the same way existing non-`ACTIVE` checks already are.
+
+**2. `organization.break_glass_grants` extended with purpose-scoping
+(`105_5B4.sql`).** **Correction (this amendment originally, incorrectly,
+described `break_glass_grants` as a table newly created by `105_5B4.sql`.**
+The durable table itself was created by the earlier, frozen `087_5B1.sql`
+(§37.5) — `105_5B4.sql` only *extends* it. The table's actual columns, per
+`087_5B1.sql`, are: `id, organization_id, admin_user_id, justification,
+session_id, issued_at, expires_at, status ('ACTIVE'|'RELEASED'),
+released_at, released_by` — **there are no `ttl_seconds`, `granted_at`, or
+`revoked_at` columns; `ttl_seconds` is only ever a function *parameter*
+(to `fn_break_glass_grant`) used to compute the stored `expires_at`, and
+`EXPIRED` is not a stored status but a value computed at read time from
+`expires_at < NOW()`, alongside the stored `ACTIVE`/`RELEASED` states.**
+`105_5B4.sql` adds one new column, `purposes TEXT[] NOT NULL DEFAULT
+ARRAY['SUPPORT_GENERAL']` (backfilled to that default by `106_5H3.sql`
+where previously absent), CHECK-constrained to an explicit allow-list —
+`SUPPORT_GENERAL, SUPPORT_BILLING, SUPPORT_ORG_LIFECYCLE, SUPPORT_QUOTA,
+SENSITIVE_MEDIA_ACCESS, SUPPORT_SECURITY_INCIDENT` — plus a
+belt-and-suspenders CHECK rejecting wildcard/superuser-shaped values
+(`'*'`, `'ALL'`, `'ALL_ACCESS'`, `'SUPER_ADMIN'`) even if the allow-list
+above is ever edited carelessly. **Correction: this amendment previously,
+incorrectly, listed `BYPASS_SENSITIVE_CHECKS` among the rejected wildcard
+values — that string does not appear anywhere in `105_5B4.sql`, in either
+the allow-list or the wildcard-reject constraint; it has been removed from
+this description.** `fn_break_glass_grant` independently re-validates
+`p_purposes` against the same allow-list before insert — a break-glass
+grant can never itself express "full access." The pre-existing
+`087_5B1.sql` immutability trigger (`prevent_bgg_immutable_field_mutation()`)
+is extended (`CREATE OR REPLACE`, not edited in place) so `purposes` is
+covered by the same post-insert immutability guarantee as
+`organization_id`/`admin_user_id`/`justification`/`session_id`/
+`issued_at`/`expires_at`; only `status`/`released_at`/`released_by` (via
+`fn_break_glass_release`) may change after issuance.
+`fn_break_glass_check(p_grant_id, p_admin_user_id, p_organization_id,
+p_session_id, p_required_purpose)` returns a plain boolean (never raises)
+and is the only sanctioned way for a caller elsewhere in the platform to
+ask "is this specific access, right now, covered by an active grant,
+issued to this admin, for this org, in this session, for this purpose" —
+per this document's original design intent for RLS-adjacent authorization
+helpers (§17, §37.5). RLS policies gated on `organization.is_platform_admin()`
+(e.g. `087_5B1.sql:83`) are unaffected in shape; see item 4 below for the
+one behavioral fix underneath them, and item 5 below for a further Phase
+6M hardening pass over this same function.
+
+**3. `billing.quota_configs` gains lifecycle columns, and `billing.refunds`
+gains a guarded three-phase saga (`106_5H3.sql`).** Out of scope for this
+5B document itself — `billing.*` is owned by `docs/phase-05-database-design/
+5H-Billing-Usage-Schema.md` — recorded here only because
+`fn_platform_set_quota_override`/`fn_platform_reserve_refund`/
+`fn_platform_settle_refund`/`fn_platform_fail_refund` share this document's
+`organization.is_platform_admin()` guard pattern and were exactly what
+surfaced the defect in item 4. Full detail: `docs/phase-06-api-design/
+6M-Admin-Platform-APIs.md` and `docs/phase-05-database-design/5K/
+MIGRATION_MANIFEST.md` (Phase 6M section).
+
+**4. CRITICAL FIX: `organization.is_platform_admin()` fail-open NULL defect
+(`106_5H3.sql`).** This document's `001_5B.sql` originally defined:
+```sql
+SELECT current_setting('app.is_platform_admin', true) = 'true'
+```
+Live adversarial testing under Phase 6M discovered that
+`current_setting(name, missing_ok=>true)` returns SQL NULL — not `'false'`
+— for a custom GUC never `SET`/`RESET` in the session, so `NULL = 'true'`
+is NULL, and every guard of the shape `IF NOT organization.is_platform_admin()
+THEN RAISE EXCEPTION ...; END IF;` (used throughout `087_5B1.sql`,
+`105_5B4.sql`, and `106_5H3.sql`'s own new functions) silently treats that
+NULL as false and lets the privileged body run — an unauthenticated caller
+that never touches `app.is_platform_admin` could successfully call
+`fn_platform_suspend_organization(...)`. This is a **pre-existing Phase 5B
+defect**, not something introduced by 105_5B4/106_5H3. Because `001_5B.sql`
+is frozen and may never be edited, the fix is a `CREATE OR REPLACE FUNCTION`
+of the same function issued from `106_5H3.sql` (an open Phase 6M migration),
+wrapping the comparison in `COALESCE`:
+```sql
+SELECT COALESCE(current_setting('app.is_platform_admin', true), 'false') = 'true'
+```
+PL/pgSQL resolves function calls by name/schema at call time, so this single
+redefinition transparently closes the gap for every caller of
+`organization.is_platform_admin()` in the system — including the still-frozen
+`087_5B1.sql` functions and the `break_glass_grants` RLS policy — with
+`001_5B.sql` itself never touched or re-checksummed. **This document's §37.5
+("RLS Security") and §37.6 ("Privilege Escalation Prevention") should be read
+as describing the corrected, post-`106_5H3` behavior of this function**, not
+the fail-open behavior that existed between `001_5B.sql` and `106_5H3.sql`.
+
+Live-validated (disposable local PostgreSQL 18.6, both a fresh full chain
+`001_5B`→`106_5H3` and a genuinely separate incremental chain pinned at
+`104_5B3` with legacy fixtures inserted before continuing to `106_5H3`):
+the fix is live and confirmed via `\sf organization.is_platform_admin()`;
+a fresh session that never sets the GUC now returns proper `f`; the full
+28-test adversarial security battery re-run shows the previously-passing
+unauthenticated-caller test now correctly rejecting, with zero regressions
+elsewhere; a true-concurrency double-refund race confirms the fix touched
+only the authorization guard, not any locking logic. Full raw evidence:
+`docs/phase-05-database-design/5K/execution_logs/` (files prefixed
+`20260903T0*Z_6M_`) and `docs/phase-05-database-design/5K/validation/
+6M_VALIDATION_REPORT.md`.
+
+**5. FURTHER CRITICAL FIX: `organization.is_platform_admin()` self-forgery
+defect, and `EXECUTE` narrowing on Platform-Admin-only functions
+(`107_5B5.sql`).** An independent freeze-gate re-review of Phase 6M found
+item 4's `COALESCE` fix correct but insufficient on its own: it closed the
+fail-open NULL bug, but the function still trusted a single
+caller-settable GUC — an ordinary `app_api` session could itself run
+`SET app.is_platform_admin = 'true'` (or `SELECT set_config('app.
+is_platform_admin', 'true', false)`) and self-authorize as Platform Admin,
+since nothing bound the check to the actual authenticated DB principal.
+`107_5B5.sql` (a later, additive Phase 6M migration, forward of
+`106_5H3.sql`) redefines the function once more — again via
+`CREATE OR REPLACE FUNCTION`, again never touching `001_5B.sql`'s bytes —
+to additionally require `session_user = 'app_platform_admin'`:
+```sql
+SELECT session_user = 'app_platform_admin'
+   AND COALESCE(current_setting('app.is_platform_admin', true), 'false') = 'true'
+```
+`session_user` is the actual authenticated connecting role, fixed for the
+lifetime of the DB connection and never settable by a SQL session (unlike
+`current_user`, which `SECURITY DEFINER` substitutes for the function
+owner and which must therefore never be used for this check) — this
+closes the self-`SET`/`set_config` forgery path that survived item 4's
+fix. `107_5B5.sql` additionally revokes `EXECUTE` on every
+Platform-Admin-only function this document and `105_5B4.sql` define
+(`fn_break_glass_check`, both `fn_break_glass_grant` overloads,
+`fn_break_glass_release`, `fn_platform_suspend_organization`,
+`fn_platform_reactivate_organization`) from `app_api`, retaining it only
+for `app_platform_admin` — none of these were previously restricted to
+Platform Admin's own DB principal at the grant level, only at the
+function-body check level. Both `fn_break_glass_grant` overloads and
+`fn_break_glass_release` are further redefined to call
+`audit.fn_insert_audit_event(...)` atomically, in the same local
+transaction as their own state change (this document's break-glass model
+did not previously guarantee that — see `docs/phase-06-api-design/
+6M-Admin-Platform-APIs.md` and the Phase 6M section of
+`MIGRATION_MANIFEST.md` for the full audit-atomicity rationale, which is
+out of scope for this identity/RLS document beyond noting it touches these
+same functions). This document's §37.5 ("RLS Security") and §37.6
+("Privilege Escalation Prevention") should be read as describing the
+further-corrected, post-`107_5B5` behavior of `is_platform_admin()`, not
+the GUC-only-trusting behavior that existed between `106_5H3.sql` and
+`107_5B5.sql`. Live PostgreSQL 18 validation of `107_5B5.sql` (fresh and
+incremental chains, plus the forgery test battery this defect requires)
+is tracked in `MIGRATION_MANIFEST.md`'s Row 107 section and **has now
+completed and passes** (fresh `001→107` and a separate incremental
+`104→[fixtures]→105→106→107` chain, both `EXIT=0` with zero errors and
+exactly one Alembic head, `107_5B5`) — see that manifest section for the
+full evidence file list.
+
+**6. FURTHER FINDING (Phase 6M stabilization pass, 2026-09-05): child-partition
+ACL bypass on `voice.transcript_segments`, finding F-26-1 (`108_5B6.sql`).**
+The physical table `voice.transcript_segments` is owned and defined by the
+Voice/Call schema document (`5C-...`, migration `014_5C.sql`), not by this
+document — but the defect it exposed is squarely this document's §37.6
+("Privilege Escalation Prevention") concern, so it is recorded here for the
+same reason item 5 is: it is a Platform-Admin DB-privilege boundary defect.
+`107_5B5.sql`'s sensitive-voice-content hardening (item (C) of its own
+header) issued `REVOKE ALL ON voice.transcript_segments FROM
+app_platform_admin` plus a column-restricted `GRANT SELECT` against the
+**parent** relation name only. `voice.transcript_segments` is RANGE
+(`created_at`) partitioned (`014_5C.sql`) with five physical child
+partitions; PostgreSQL privilege checks bind to the exact relation named in
+a query, and a parent-level `REVOKE`/`GRANT` does not propagate to
+already-existing child partitions — each retained `018_5C.sql`'s original
+unrestricted `GRANT SELECT, INSERT, UPDATE, DELETE ... TO app_platform_admin`
+untouched. Live-confirmed during Phase 6M re-verification: `SELECT text FROM
+voice.transcript_segments` correctly fails for `app_platform_admin`, but the
+identical query against a named child partition (e.g.
+`voice.transcript_segments_2026_09`) succeeded, as did an unrestricted
+`DELETE` against that partition — a live violation of this document's own
+"Platform Admin identity/BYPASSRLS alone must not be sufficient to read
+sensitive content outside purpose-bound break-glass" invariant (§37.6).
+`108_5B6.sql` (additive, forward of `107_5B5`, does not edit `001`–`107`)
+closes this by walking `pg_inherits` for every existing child partition and
+applying the identical `REVOKE ALL` + column-restricted `GRANT SELECT`
+already applied to the parent, with a self-verifying assertion block that
+raises if any partition remains over-privileged. This document's §37.5/§37.6
+should now be read as describing the further-corrected, post-`108_5B6`
+privilege surface of `voice.transcript_segments`, not the still-partially-open
+surface that existed between `107_5B5.sql` and `108_5B6.sql`. **Operational
+note carried forward from `108_5B6.sql`'s own header, restated here because
+it is a standing Platform-Admin-privilege obligation this document tracks:**
+this schema's transcript-segment partitions are created ahead of time by an
+explicit four-months-at-a-time `DO` block (`014_5C.sql`), not by an automated
+partition-maintenance job; any future migration that adds a new future-dated
+partition **must** apply this same `REVOKE ALL` + column-restricted
+`GRANT SELECT` to that new partition in the same migration, exactly as it
+must already grant `app_api`/`app_worker` their own access — `ALTER DEFAULT
+PRIVILEGES` does not apply to partition attachment. Full narrative, live
+re-verification evidence, and the operational runbook restatement:
+`docs/phase-06-api-design/6M-Admin-Platform-APIs.md`.
+
+**Trigger:** `docs/phase-06-api-design/6M-Admin-Platform-APIs.md`'s
+mandatory live adversarial validation requirement, which surfaced this
+defect as a direct violation of the break-glass/platform-admin model's
+explicit fail-closed design intent. Item 6 above was surfaced by the same
+document's Phase 6M stabilization/completion pass.

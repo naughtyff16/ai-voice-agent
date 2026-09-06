@@ -1,0 +1,8 @@
+SET
+ pg_sleep 
+----------
+ 
+(1 row)
+
+psql:/tmp/6M_24_concurrent_b.sql:9: ERROR:  fn_platform_reserve_refund: requested refund 1200 plus already-reserved/settled 1200.0000 would exceed original payment amount 2000.0000.
+CONTEXT:  PL/pgSQL function fn_platform_reserve_refund(uuid,uuid,uuid,numeric,character,text) line 44 at RAISE

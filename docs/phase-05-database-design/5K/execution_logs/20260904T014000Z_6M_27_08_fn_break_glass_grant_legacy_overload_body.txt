@@ -1,0 +1,36 @@
+CREATE OR REPLACE FUNCTION organization.fn_break_glass_grant(p_organization_id uuid, p_admin_user_id uuid, p_justification text, p_ttl_seconds integer, p_session_id text DEFAULT NULL::text)
+ RETURNS uuid
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'organization', 'pg_catalog'
+AS $function$
+DECLARE
+  v_id UUID;
+BEGIN
+  IF NOT organization.is_platform_admin() THEN
+    RAISE EXCEPTION 'fn_break_glass_grant: caller is not authorized to grant break-glass access.';
+  END IF;
+  IF p_ttl_seconds NOT BETWEEN 60 AND 86400 THEN
+    RAISE EXCEPTION 'fn_break_glass_grant: p_ttl_seconds % out of the conservative technical bound [60, 86400] seconds.', p_ttl_seconds;
+  END IF;
+
+  INSERT INTO organization.break_glass_grants (
+    organization_id, admin_user_id, justification, session_id, expires_at
+  ) VALUES (
+    p_organization_id, p_admin_user_id, p_justification, p_session_id,
+    NOW() + make_interval(secs => p_ttl_seconds)
+  )
+  RETURNING id INTO v_id;
+
+  PERFORM set_config('app.tenant_id', p_organization_id::text, true);
+  PERFORM audit.fn_insert_audit_event(
+    p_organization_id, 'PLATFORM_ADMIN', p_admin_user_id, NULL,
+    'BREAK_GLASS_GRANTED', 'BREAK_GLASS_GRANT', v_id, 'SUCCESS', NULL,
+    NULL, NULL, p_session_id, NULL, NULL,
+    jsonb_build_object('grant_id', v_id, 'ttl_seconds', p_ttl_seconds),
+    FALSE
+  );
+
+  RETURN v_id;
+END;
+$function$

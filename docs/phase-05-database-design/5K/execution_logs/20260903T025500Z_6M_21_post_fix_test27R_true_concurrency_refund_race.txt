@@ -1,0 +1,66 @@
+=== TEST 27R: true-concurrency double-refund race, re-run post-fix ===
+Fixture payment 66666666-...: 1000.0000 INR total.
+Remaining refundable balance before this test: 700.0000 INR
+  (1000.0000 - 200.0000 fixture refund - 100.0000 from sequential TEST 25;
+   the 50.0000 FAILED refund from TEST 28 does not count against balance).
+Two sessions each attempt to reserve 400.0000 INR simultaneously (800 > 700
+remaining); exactly one must succeed under fn_platform_reserve_refund's
+internal SELECT ... FOR UPDATE lock on the payment_attempts row.
+
+--- 6M_race_a.sql (session A) ---
+-- Session A of the TEST 27R true-concurrency double-refund race.
+-- Remaining refundable balance before this test: 700.0000 INR.
+-- Two sessions each reserve 400.0000 INR simultaneously (800 > 700 remaining);
+-- exactly one must succeed under fn_platform_reserve_refund's internal
+-- SELECT ... FOR UPDATE lock on the payment_attempts row.
+SET app.is_platform_admin = 'true';
+SELECT billing.fn_platform_reserve_refund(
+  '33333333-3333-3333-3333-333333333333',
+  '22222222-2222-2222-2222-222222222222',
+  '66666666-6666-6666-6666-666666666666',
+  400.00, 'INR', 'TEST 27R session A concurrent reserve'
+) AS session_a_result;
+
+--- 6M_race_b.sql (session B) ---
+-- Session B of the TEST 27R true-concurrency double-refund race. See 6M_race_a.sql header.
+SET app.is_platform_admin = 'true';
+SELECT billing.fn_platform_reserve_refund(
+  '33333333-3333-3333-3333-333333333333',
+  '22222222-2222-2222-2222-222222222222',
+  '66666666-6666-6666-6666-666666666666',
+  400.00, 'INR', 'TEST 27R session B concurrent reserve'
+) AS session_b_result;
+
+=== SESSION A OUTPUT ===
+SET
+           session_a_result           
+--------------------------------------
+ 01a0682d-d007-75e7-bdd5-d5ec7a0287eb
+(1 row)
+
+=== SESSION B OUTPUT ===
+SET
+psql:/tmp/race_b.sql:8: ERROR:  fn_platform_reserve_refund: refund amount 400.00 would exceed the remaining refundable balance (REFUND_AMOUNT_EXCEEDED).
+CONTEXT:  PL/pgSQL function fn_platform_reserve_refund(uuid,uuid,uuid,numeric,character,text) line 54 at RAISE
+=== POST-RACE STATE (billing.refunds for payment_attempt 66666666-...) ===
+  status   | amount_amount |                reason                 
+-----------+---------------+---------------------------------------
+ SUCCEEDED |      200.0000 | fixture pre-existing refund
+ SUCCEEDED |      100.0000 | reserve then settle test
+ FAILED    |       50.0000 | reserve then fail test
+ PENDING   |      400.0000 | TEST 27R session A concurrent reserve
+(4 rows)
+
+ remaining 
+-----------
+  300.0000
+(1 row)
+
+
+RESULT: Session A succeeded (400.0000 INR reserved, PENDING); Session B was
+correctly rejected with REFUND_AMOUNT_EXCEEDED (700 - 400 = 300 remaining,
+insufficient for a second 400.00 reserve). The FOR UPDATE lock inside
+fn_platform_reserve_refund correctly serialized the two concurrent
+invocations under true concurrency, confirmed post-fix (the is_platform_admin()
+COALESCE fix touched only the authorization guard, not the locking logic,
+and this run confirms no regression in the locking behavior).

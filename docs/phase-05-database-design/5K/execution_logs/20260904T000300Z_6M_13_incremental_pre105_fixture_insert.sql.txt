@@ -1,0 +1,16 @@
+BEGIN
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+COMMIT
+ users | orgs | quota_configs | refunds | bgg 
+-------+------+---------------+---------+-----
+     2 |    1 |             1 |       1 |   1
+(1 row)
+

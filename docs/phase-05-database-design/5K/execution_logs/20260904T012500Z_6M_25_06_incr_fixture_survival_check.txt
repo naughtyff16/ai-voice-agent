@@ -1,0 +1,32 @@
+        tbl         | count 
+--------------------+-------
+ users              |     2
+ organizations      |     1
+ billing_accounts   |     1
+ invoices           |     1
+ payment_attempts   |     1
+ refunds            |     1
+ quota_configs      |     1
+ break_glass_grants |     1
+(8 rows)
+
+                  id                  | status | total_due_amount | amount_paid_amount 
+--------------------------------------+--------+------------------+--------------------
+ f0000000-0000-4000-8000-0000000000c1 | PAID   |        1180.0000 |          1180.0000
+(1 row)
+
+                  id                  | status  | amount_amount | provider_refund_id 
+--------------------------------------+---------+---------------+--------------------
+ f0000000-0000-4000-8000-0000000000e1 | PENDING |      500.0000 | rfnd_fix0001
+(1 row)
+
+                  id                  | status |                      justification                      |     purposes      
+--------------------------------------+--------+---------------------------------------------------------+-------------------
+ f0000000-0000-4000-8000-0000000000a9 | ACTIVE | fixture pre-105 break-glass survival test justification | {SUPPORT_GENERAL}
+(1 row)
+
+                  id                  | status 
+--------------------------------------+--------
+ f0000000-0000-4000-8000-0000000000a1 | ACTIVE
+(1 row)
+

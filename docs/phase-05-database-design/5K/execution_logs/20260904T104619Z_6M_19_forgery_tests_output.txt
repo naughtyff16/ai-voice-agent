@@ -1,0 +1,45 @@
+=== A. app_api, no GUC set -> is_platform_admin() expect false ===
+ is_admin | session_user | current_user 
+----------+--------------+--------------
+ f        | app_api      | app_api
+(1 row)
+
+=== B. app_api + SET app.is_platform_admin=true -> is_platform_admin() expect still false (session_user check blocks it) ===
+SET
+ is_admin | session_user | current_user | guc_value 
+----------+--------------+--------------+-----------
+ f        | app_api      | app_api      | true
+(1 row)
+
+=== C. app_api + set_config(...,...,false) (non-local, "durable" within session) -> still expect false ===
+ set_config 
+------------
+ true
+(1 row)
+
+ is_admin 
+----------
+ f
+(1 row)
+
+=== B/C follow-on: app_api attempts fn_break_glass_grant directly despite forged GUC -> expect permission denied (REVOKE EXECUTE FROM app_api) ===
+psql:/tmp/6M_19_forgery_tests.sql:22: ERROR:  permission denied for function fn_break_glass_grant
+=== app_api attempts fn_platform_suspend_organization directly despite forged GUC -> expect permission denied ===
+psql:/tmp/6M_19_forgery_tests.sql:29: ERROR:  permission denied for function fn_platform_suspend_organization
+=== app_api attempts voice.fn_platform_access_recording directly despite forged GUC + forged grant id -> expect permission denied (function not GRANTed to app_api) ===
+psql:/tmp/6M_19_forgery_tests.sql:38: ERROR:  permission denied for function fn_platform_access_recording
+=== app_api attempts billing.fn_platform_settle_refund directly -> expect permission denied (not granted to app_api) ===
+psql:/tmp/6M_19_forgery_tests.sql:45: ERROR:  permission denied for function fn_platform_settle_refund
+=== D. app_api + caller-controlled tenant context (app.tenant_id set to a foreign org) does not confer platform admin or cross-tenant break-glass capability ===
+SET
+ is_admin 
+----------
+ f
+(1 row)
+
+psql:/tmp/6M_19_forgery_tests.sql:56: ERROR:  permission denied for function fn_platform_access_recording
+=== G. app_api raw SELECT of protected voice content columns (ordinary tenant path uses RLS, not this GUC forgery) -> expect RLS-scoped/denied per tenant grants, not a bypass ===
+ storage_ref 
+-------------
+(0 rows)
+

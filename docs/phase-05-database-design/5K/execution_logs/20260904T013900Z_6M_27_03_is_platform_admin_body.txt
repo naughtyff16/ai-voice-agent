@@ -1,0 +1,8 @@
+CREATE OR REPLACE FUNCTION organization.is_platform_admin()
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE
+AS $function$
+  SELECT session_user = 'app_platform_admin'
+     AND COALESCE(current_setting('app.is_platform_admin', true), 'false') = 'true'
+$function$

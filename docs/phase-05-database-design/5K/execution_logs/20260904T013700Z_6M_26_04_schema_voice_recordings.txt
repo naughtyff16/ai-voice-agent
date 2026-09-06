@@ -1,0 +1,39 @@
+                               Table "voice.recordings"
+      Column      |           Type           | Collation | Nullable |     Default     
+------------------+--------------------------+-----------+----------+-----------------
+ id               | uuid                     |           | not null | gen_uuid_v7()
+ organization_id  | uuid                     |           | not null | 
+ call_id          | uuid                     |           | not null | 
+ conversation_id  | uuid                     |           |          | 
+ status           | text                     |           | not null | 'PENDING'::text
+ storage_ref      | text                     |           |          | 
+ storage_provider | text                     |           |          | 
+ content_type     | text                     |           |          | 
+ duration_seconds | integer                  |           |          | 
+ file_size_bytes  | bigint                   |           |          | 
+ checksum_sha256  | character(64)            |           |          | 
+ recording_policy | text                     |           | not null | 
+ consent_obtained | boolean                  |           |          | 
+ retention_days   | integer                  |           |          | 
+ delete_after     | timestamp with time zone |           |          | 
+ deleted_at       | timestamp with time zone |           |          | 
+ deleted_by       | uuid                     |           |          | 
+ created_at       | timestamp with time zone |           | not null | now()
+ updated_at       | timestamp with time zone |           | not null | now()
+Indexes:
+    "pk_recordings" PRIMARY KEY, btree (id)
+    "idx_rec_org_status" btree (organization_id, status)
+    "idx_rec_retention" btree (delete_after) WHERE delete_after IS NOT NULL AND status = 'STORED'::text
+    "uq_rec_call_id" UNIQUE, btree (call_id)
+Check constraints:
+    "chk_rec_policy" CHECK (recording_policy = ANY (ARRAY['ENABLED'::text, 'DISABLED'::text, 'REQUIRES_CONSENT'::text, 'REQUIRES_DISCLOSURE'::text]))
+    "chk_rec_retention" CHECK (retention_days IS NULL OR retention_days > 0)
+    "chk_rec_status" CHECK (status = ANY (ARRAY['PENDING'::text, 'IN_PROGRESS'::text, 'STORED'::text, 'FAILED'::text, 'DELETED'::text]))
+    "chk_rec_storage_ref_path" CHECK (storage_ref IS NULL OR storage_ref ~~ 'org/%'::text)
+Policies (forced row security enabled):
+    POLICY "rls_rec_tenant"
+      USING ((organization_id = organization.current_tenant_id()))
+      WITH CHECK ((organization_id = organization.current_tenant_id()))
+Triggers:
+    trg_rec_updated_at BEFORE UPDATE ON voice.recordings FOR EACH ROW EXECUTE FUNCTION set_updated_at()
+

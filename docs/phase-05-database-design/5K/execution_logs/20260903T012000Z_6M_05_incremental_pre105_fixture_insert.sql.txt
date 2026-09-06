@@ -1,0 +1,20 @@
+BEGIN
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+COMMIT
+       t       | count 
+---------------+-------
+ users         |     2
+ orgs          |     1
+ quota_configs |     1
+ refunds       |     1
+ bgg           |     1
+(5 rows)
+

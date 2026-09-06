@@ -1,0 +1,24 @@
+=== [I4] pre-state: g1 purposes/status ===
+                  id                  | status |         purposes         
+--------------------------------------+--------+--------------------------
+ f0000000-0000-4000-8000-000000000401 | ACTIVE | {SENSITIVE_MEDIA_ACCESS}
+(1 row)
+
+=== [I5] item 10: widen g1 purposes (append SUPPORT_BILLING to existing SENSITIVE_MEDIA_ACCESS) -> expect exception ===
+psql:/tmp/6M_21b_bgg_immutability_triggercheck.sql:18: ERROR:  break_glass_grants identity/terms fields (including purposes) are immutable. grant_id: f0000000-0000-4000-8000-000000000401
+CONTEXT:  PL/pgSQL function organization.prevent_bgg_immutable_field_mutation() line 10 at RAISE
+=== [I6] item 9: mutate g1 purposes to a wholly different single purpose -> expect exception ===
+psql:/tmp/6M_21b_bgg_immutability_triggercheck.sql:23: ERROR:  break_glass_grants identity/terms fields (including purposes) are immutable. grant_id: f0000000-0000-4000-8000-000000000401
+CONTEXT:  PL/pgSQL function organization.prevent_bgg_immutable_field_mutation() line 10 at RAISE
+=== [I7] control: an UPDATE that does NOT touch any protected field (e.g. a no-op status re-set to its current value) -> expect ALLOW (proves trigger is scoped to protected fields, not a table-wide freeze) ===
+UPDATE 1
+=== [I8] additional control: g4 is already RELEASED (terminal). Attempt ANY update at all, even to a non-listed field -> expect exception (terminal-state guard, second IF in the trigger) ===
+psql:/tmp/6M_21b_bgg_immutability_triggercheck.sql:33: ERROR:  break_glass_grants f0000000-0000-4000-8000-000000000404 is already RELEASED (terminal state).
+CONTEXT:  PL/pgSQL function organization.prevent_bgg_immutable_field_mutation() line 13 at RAISE
+=== [I9] post-attempt state: g1 and g4 unchanged by any of the rejected attempts ===
+                  id                  |  status  |         purposes         
+--------------------------------------+----------+--------------------------
+ f0000000-0000-4000-8000-000000000401 | ACTIVE   | {SENSITIVE_MEDIA_ACCESS}
+ f0000000-0000-4000-8000-000000000404 | RELEASED | {SENSITIVE_MEDIA_ACCESS}
+(2 rows)
+

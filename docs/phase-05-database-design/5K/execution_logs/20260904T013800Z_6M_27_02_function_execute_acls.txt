@@ -1,0 +1,13 @@
+billing.fn_platform_fail_refund(p_refund_id uuid, p_admin_user_id uuid, p_failure_reason text)|postgres=X/postgres | app_billing_reconciler=X/postgres
+billing.fn_platform_reserve_refund(p_organization_id uuid, p_admin_user_id uuid, p_payment_attempt_id uuid, p_amount numeric, p_currency character, p_reason text)|postgres=X/postgres | app_platform_admin=X/postgres
+billing.fn_platform_set_quota_override(p_organization_id uuid, p_admin_user_id uuid, p_metric text, p_soft_limit numeric, p_hard_limit numeric, p_reason text, p_expires_at timestamp with time zone, p_unit_label text)|postgres=X/postgres | app_platform_admin=X/postgres
+billing.fn_platform_settle_refund(p_refund_id uuid, p_admin_user_id uuid, p_provider_refund_id text)|postgres=X/postgres | app_billing_reconciler=X/postgres
+organization.fn_break_glass_check(p_grant_id uuid, p_admin_user_id uuid, p_organization_id uuid, p_session_id text, p_required_purpose text)|postgres=X/postgres | app_platform_admin=X/postgres
+organization.fn_break_glass_grant(p_organization_id uuid, p_admin_user_id uuid, p_justification text, p_ttl_seconds integer, p_session_id text)|postgres=X/postgres | app_platform_admin=X/postgres
+organization.fn_break_glass_grant(p_organization_id uuid, p_admin_user_id uuid, p_justification text, p_ttl_seconds integer, p_session_id text, p_purposes text[])|postgres=X/postgres | app_platform_admin=X/postgres
+organization.fn_break_glass_release(p_grant_id uuid, p_released_by uuid)|postgres=X/postgres | app_platform_admin=X/postgres
+organization.fn_platform_reactivate_organization(p_organization_id uuid, p_admin_user_id uuid, p_reason text)|postgres=X/postgres | app_platform_admin=X/postgres
+organization.fn_platform_suspend_organization(p_organization_id uuid, p_admin_user_id uuid, p_reason text)|postgres=X/postgres | app_platform_admin=X/postgres
+organization.is_platform_admin()|(NULL proacl -> PUBLIC EXECUTE default)
+voice.fn_platform_access_recording(p_grant_id uuid, p_admin_user_id uuid, p_organization_id uuid, p_session_id text, p_recording_id uuid)|postgres=X/postgres | app_platform_admin=X/postgres
+voice.fn_platform_access_transcript(p_grant_id uuid, p_admin_user_id uuid, p_organization_id uuid, p_session_id text, p_transcript_id uuid)|postgres=X/postgres | app_platform_admin=X/postgres

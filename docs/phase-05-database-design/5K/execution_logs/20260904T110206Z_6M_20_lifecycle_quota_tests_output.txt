@@ -1,0 +1,129 @@
+SET
+=== [L0] Pre-state: Org B and Org C status ===
+                  id                  |  status   
+--------------------------------------+-----------
+ f0000000-0000-4000-8000-0000000000a3 | CANCELLED
+ f0000000-0000-4000-8000-0000000000a2 | ACTIVE
+(2 rows)
+
+=== [L1] active -> suspended: Org B, admin 002, valid reason -> expect ALLOW, status=SUSPENDED ===
+ fn_platform_suspend_organization 
+----------------------------------
+ SUSPENDED
+(1 row)
+
+                  id                  |  status   
+--------------------------------------+-----------
+ f0000000-0000-4000-8000-0000000000a2 | SUSPENDED
+(1 row)
+
+=== [L2] idempotent re-suspend: same call again -> expect no error, status stays SUSPENDED ===
+ fn_platform_suspend_organization 
+----------------------------------
+ SUSPENDED
+(1 row)
+
+                  id                  |  status   
+--------------------------------------+-----------
+ f0000000-0000-4000-8000-0000000000a2 | SUSPENDED
+(1 row)
+
+=== [L3] suspended -> active: Org B, admin 002 -> expect ALLOW, status=ACTIVE ===
+ fn_platform_reactivate_organization 
+-------------------------------------
+ ACTIVE
+(1 row)
+
+                  id                  | status 
+--------------------------------------+--------
+ f0000000-0000-4000-8000-0000000000a2 | ACTIVE
+(1 row)
+
+=== [L4] idempotent re-reactivate: same call again while already ACTIVE -> expect no error, status stays ACTIVE ===
+ fn_platform_reactivate_organization 
+-------------------------------------
+ ACTIVE
+(1 row)
+
+                  id                  | status 
+--------------------------------------+--------
+ f0000000-0000-4000-8000-0000000000a2 | ACTIVE
+(1 row)
+
+=== [L5] terminal-state guard: attempt to suspend a CANCELLED org (Org C) -> expect exception, no state change ===
+                  id                  |  status   
+--------------------------------------+-----------
+ f0000000-0000-4000-8000-0000000000a3 | CANCELLED
+(1 row)
+
+=== [L6] terminal-state guard: attempt to reactivate a CANCELLED org (Org C) -> expect exception, no state change ===
+psql:/tmp/6M_20_lifecycle_quota_tests.sql:57: ERROR:  fn_platform_suspend_organization: organization f0000000-0000-4000-8000-0000000000a3 is CANCELLED (terminal state) and cannot be suspended.
+CONTEXT:  PL/pgSQL function fn_platform_suspend_organization(uuid,uuid,text) line 29 at RAISE
+psql:/tmp/6M_20_lifecycle_quota_tests.sql:65: ERROR:  fn_platform_reactivate_organization: organization f0000000-0000-4000-8000-0000000000a3 is CANCELLED (terminal state) and cannot be reactivated.
+CONTEXT:  PL/pgSQL function fn_platform_reactivate_organization(uuid,uuid,text) line 29 at RAISE
+                  id                  |  status   
+--------------------------------------+-----------
+ f0000000-0000-4000-8000-0000000000a3 | CANCELLED
+(1 row)
+
+=== [L7] wrong/nonexistent org id -> expect not-found style failure, no row created/changed ===
+psql:/tmp/6M_20_lifecycle_quota_tests.sql:73: ERROR:  fn_platform_suspend_organization: organization f0000000-0000-4000-8000-000000000000 not found.
+CONTEXT:  PL/pgSQL function fn_platform_suspend_organization(uuid,uuid,text) line 21 at RAISE
+=== [L8] audit atomicity: confirm ORGANIZATION_SUSPENDED / ORGANIZATION_REACTIVATED rows exist for Org B, and none exist for the failed Org C / nonexistent-org attempts ===
+       action_kind        | resource_type |             resource_id              |                                                 resource_snapshot                                                  
+--------------------------+---------------+--------------------------------------+--------------------------------------------------------------------------------------------------------------------
+ ORGANIZATION_SUSPENDED   | ORGANIZATION  | f0000000-0000-4000-8000-0000000000a2 | {"reason": "Fixture suspension: routine lifecycle test suspension for Org B.", "previous_status": "ACTIVE"}
+ ORGANIZATION_REACTIVATED | ORGANIZATION  | f0000000-0000-4000-8000-0000000000a2 | {"reason": "Fixture reactivation: routine lifecycle test reactivation for Org B.", "previous_status": "SUSPENDED"}
+ ORGANIZATION_SUSPENDED   | ORGANIZATION  | f0000000-0000-4000-8000-0000000000a2 | {"reason": "Fixture suspension: routine lifecycle test suspension for Org B.", "previous_status": "ACTIVE"}
+ ORGANIZATION_REACTIVATED | ORGANIZATION  | f0000000-0000-4000-8000-0000000000a2 | {"reason": "Fixture reactivation: routine lifecycle test reactivation for Org B.", "previous_status": "SUSPENDED"}
+(4 rows)
+
+=== [Q1] valid quota override: Org A, metric concurrent_calls, soft=50, hard=100 -> expect ALLOW ===
+    fn_platform_set_quota_override    
+--------------------------------------
+ 01a06c0e-fc39-7275-b520-20645a1ccd3d
+(1 row)
+
+           organization_id            |        metric         | soft_limit | hard_limit | unit_label |                override_reason                 
+--------------------------------------+-----------------------+------------+------------+------------+------------------------------------------------
+ f0000000-0000-4000-8000-0000000000a1 | CONCURRENT_CALL_COUNT |    50.0000 |   100.0000 | calls      | Fixture quota override: routine test override.
+(1 row)
+
+=== [Q2] idempotent retry: same override applied again -> expect ALLOW, no duplicate row (upsert on uq_qc_org_metric) ===
+    fn_platform_set_quota_override    
+--------------------------------------
+ 01a06c0e-fc39-7275-b520-20645a1ccd3d
+(1 row)
+
+ row_count_for_metric 
+----------------------
+                    1
+(1 row)
+
+=== [Q3] zero/negative prohibited: soft_limit = -1 -> expect exception (function-level guard) ===
+=== [Q4] overflow: soft_limit > hard_limit -> expect exception (function-level guard) ===
+psql:/tmp/6M_20_lifecycle_quota_tests.sql:111: ERROR:  fn_platform_set_quota_override: soft_limit and hard_limit must both be positive.
+CONTEXT:  PL/pgSQL function fn_platform_set_quota_override(uuid,uuid,text,numeric,numeric,text,timestamp with time zone,text) line 19 at RAISE
+=== [Q5] server-authoritative org / wrong org id -> expect not-found style failure (post-fix: organization existence guard added in 107_5B5.sql) ===
+psql:/tmp/6M_20_lifecycle_quota_tests.sql:120: ERROR:  fn_platform_set_quota_override: hard_limit must be >= soft_limit.
+CONTEXT:  PL/pgSQL function fn_platform_set_quota_override(uuid,uuid,text,numeric,numeric,text,timestamp with time zone,text) line 22 at RAISE
+psql:/tmp/6M_20_lifecycle_quota_tests.sql:129: ERROR:  fn_platform_set_quota_override: organization f0000000-0000-4000-8000-000000000000 not found.
+CONTEXT:  PL/pgSQL function fn_platform_set_quota_override(uuid,uuid,text,numeric,numeric,text,timestamp with time zone,text) line 31 at RAISE
+ orphan_row_count 
+------------------
+                0
+(1 row)
+
+=== [Q7] invalid metric name -> expect exception (not a recognized usage dimension) ===
+psql:/tmp/6M_20_lifecycle_quota_tests.sql:140: ERROR:  fn_platform_set_quota_override: metric BOGUS_METRIC is not a recognized usage dimension.
+CONTEXT:  PL/pgSQL function fn_platform_set_quota_override(uuid,uuid,text,numeric,numeric,text,timestamp with time zone,text) line 16 at RAISE
+=== [Q6] audit atomicity: confirm QUOTA_OVERRIDE_SET audit row(s) exist for Org A/CONCURRENT_CALL_COUNT, and none exist for the failed negative/overflow/wrong-org/invalid-metric attempts ===
+    action_kind     | resource_type |             resource_id              |                                                                                       resource_snapshot                                                                                        
+--------------------+---------------+--------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ QUOTA_OVERRIDE_SET | QUOTA_CONFIG  | 01a06c0e-fc39-7275-b520-20645a1ccd3d | {"metric": "CONCURRENT_CALL_COUNT", "reason": "Fixture quota override: routine test override.", "expires_at": null, "hard_limit": 100, "soft_limit": 50, "unit_label": "calls"}
+ QUOTA_OVERRIDE_SET | QUOTA_CONFIG  | 01a06c0e-fc39-7275-b520-20645a1ccd3d | {"metric": "CONCURRENT_CALL_COUNT", "reason": "Fixture quota override: idempotent retry with updated limits.", "expires_at": null, "hard_limit": 110, "soft_limit": 55, "unit_label": "calls"}
+ QUOTA_OVERRIDE_SET | QUOTA_CONFIG  | 01a06c0e-fc3c-76fd-ac20-20e8a04ecb27 | {"metric": "CONCURRENT_CALL_COUNT", "reason": "Fixture attempt: nonexistent organization id.", "expires_at": null, "hard_limit": 20, "soft_limit": 10, "unit_label": "calls"}
+ QUOTA_OVERRIDE_SET | QUOTA_CONFIG  | 01a06c0e-fc39-7275-b520-20645a1ccd3d | {"metric": "CONCURRENT_CALL_COUNT", "reason": "Fixture quota override: routine test override.", "expires_at": null, "hard_limit": 100, "soft_limit": 50, "unit_label": "calls"}
+ QUOTA_OVERRIDE_SET | QUOTA_CONFIG  | 01a06c0e-fc39-7275-b520-20645a1ccd3d | {"metric": "CONCURRENT_CALL_COUNT", "reason": "Fixture quota override: idempotent retry with updated limits.", "expires_at": null, "hard_limit": 110, "soft_limit": 55, "unit_label": "calls"}
+(5 rows)
+

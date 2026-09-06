@@ -1,0 +1,4 @@
+break_glass_grants_purposes_not_null|NOT NULL purposes
+chk_bgg_purposes_allowed|CHECK ((purposes <@ ARRAY['SUPPORT_GENERAL'::text, 'SUPPORT_BILLING'::text, 'SUPPORT_ORG_LIFECYCLE'::text, 'SUPPORT_QUOTA'::text, 'SENSITIVE_MEDIA_ACCESS'::text, 'SUPPORT_SECURITY_INCIDENT'::text]))
+chk_bgg_purposes_no_wildcard|CHECK (((NOT ('*'::text = ANY (purposes))) AND (NOT ('ALL'::text = ANY (purposes))) AND (NOT ('ALL_ACCESS'::text = ANY (purposes))) AND (NOT ('SUPER_ADMIN'::text = ANY (purposes)))))
+chk_bgg_purposes_nonempty|CHECK (((array_length(purposes, 1) IS NOT NULL) AND ((array_length(purposes, 1) >= 1) AND (array_length(purposes, 1) <= 5))))

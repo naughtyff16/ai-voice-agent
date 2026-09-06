@@ -1,0 +1,22 @@
+BEGIN
+INSERT 0 2
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+COMMIT
+        tbl         | count 
+--------------------+-------
+ users              |     2
+ organizations      |     1
+ billing_accounts   |     1
+ invoices           |     1
+ payment_attempts   |     1
+ refunds            |     1
+ quota_configs      |     1
+ break_glass_grants |     1
+(8 rows)
+

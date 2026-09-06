@@ -1,0 +1,36 @@
+                     Partitioned table "voice.transcript_segments"
+       Column        |           Type           | Collation | Nullable |    Default    
+---------------------+--------------------------+-----------+----------+---------------
+ id                  | uuid                     |           | not null | gen_uuid_v7()
+ created_at          | timestamp with time zone |           | not null | now()
+ organization_id     | uuid                     |           | not null | 
+ transcript_id       | uuid                     |           | not null | 
+ conversation_id     | uuid                     |           | not null | 
+ call_id             | uuid                     |           | not null | 
+ sequence_number     | integer                  |           | not null | 
+ speaker             | text                     |           | not null | 
+ text                | text                     |           | not null | 
+ is_partial          | boolean                  |           | not null | false
+ start_ms            | integer                  |           |          | 
+ end_ms              | integer                  |           |          | 
+ confidence          | numeric(4,3)             |           |          | 
+ language            | text                     |           |          | 
+ stt_provider_id     | text                     |           |          | 
+ provider_segment_id | text                     |           |          | 
+Partition key: RANGE (created_at)
+Indexes:
+    "pk_ts" PRIMARY KEY, btree (id, created_at)
+    "idx_ts_call_time" btree (call_id, created_at)
+    "idx_ts_conversation" btree (conversation_id, sequence_number)
+    "idx_ts_org_time_brin" brin (organization_id, created_at)
+    "idx_ts_transcript_seq" btree (transcript_id, sequence_number)
+Check constraints:
+    "chk_ts_confidence" CHECK (confidence IS NULL OR confidence >= 0::numeric AND confidence <= 1::numeric)
+    "chk_ts_seq_nn" CHECK (sequence_number >= 0)
+    "chk_ts_speaker" CHECK (speaker = ANY (ARRAY['CALLER'::text, 'AGENT'::text, 'SYSTEM'::text]))
+Policies (forced row security enabled):
+    POLICY "rls_ts_tenant"
+      USING ((organization_id = organization.current_tenant_id()))
+      WITH CHECK ((organization_id = organization.current_tenant_id()))
+Number of partitions: 5 (Use \d+ to list them.)
+

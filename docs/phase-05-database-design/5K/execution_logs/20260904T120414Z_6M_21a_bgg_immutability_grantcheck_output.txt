@@ -1,0 +1,11 @@
+SET
+=== [I1] app_platform_admin attempts to widen g1 purposes via raw UPDATE -> expect permission denied (no UPDATE grant) ===
+psql:/tmp/6M_21a_bgg_immutability_grantcheck.sql:13: ERROR:  permission denied for table break_glass_grants
+=== [I2] app_platform_admin attempts to replace g1 purposes entirely via raw UPDATE -> expect permission denied (no UPDATE grant) ===
+psql:/tmp/6M_21a_bgg_immutability_grantcheck.sql:18: ERROR:  permission denied for table break_glass_grants
+=== [I3] post-attempt state: g1 purposes/status unchanged ===
+                  id                  | status |         purposes         
+--------------------------------------+--------+--------------------------
+ f0000000-0000-4000-8000-000000000401 | ACTIVE | {SENSITIVE_MEDIA_ACCESS}
+(1 row)
+

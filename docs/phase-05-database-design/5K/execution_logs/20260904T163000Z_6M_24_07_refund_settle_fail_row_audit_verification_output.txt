@@ -1,0 +1,55 @@
+=== [F16 verify, as postgres] f1 row ===
+                  id                  |  status   | provider_refund_id | has_completed_at 
+--------------------------------------+-----------+--------------------+------------------
+ 01a06c2d-5e47-7248-9f03-034cd2ea6b02 | SUCCEEDED | razorpay_rfnd_001  | t
+(1 row)
+
+=== [F17 verify] REFUND_SETTLED audit event for f1 ===
+=== [F18b verify] count of REFUND_SETTLED audit rows for f1 (expect exactly 1 despite 2 settle calls) ===
+psql:/tmp/6M_24_verify_as_postgres.sql:10: ERROR:  column "metadata" does not exist
+LINE 1: ...CT action_kind, actor_type, resource_id, outcome, metadata->...
+                                                             ^
+ count 
+-------
+     1
+(1 row)
+
+=== [F19c verify] f5 row -- provider_refund_id must remain the FIRST callback value, unchanged by later duplicate/conflicting callbacks ===
+                  id                  |  status   |  provider_refund_id   
+--------------------------------------+-----------+-----------------------
+ 01a06c2d-5e4d-76df-ac5b-5bfe9fdb42d7 | SUCCEEDED | razorpay_rfnd_dup_001
+(1 row)
+
+ count 
+-------
+     1
+(1 row)
+
+=== [F21 verify] f11 row ===
+                  id                  | status |                        failure_reason                        | has_completed_at 
+--------------------------------------+--------+--------------------------------------------------------------+------------------
+ 01a06c2d-5e51-7e01-9f85-8512d535d16e | FAILED | Provider declined the refund: insufficient merchant balance. | t
+(1 row)
+
+=== [F22 verify] REFUND_FAILED audit event for f11 ===
+  action_kind  | actor_type |             resource_id              | outcome 
+---------------+------------+--------------------------------------+---------
+ REFUND_FAILED | WORKER     | 01a06c2d-5e51-7e01-9f85-8512d535d16e | SUCCESS
+(1 row)
+
+=== [privilege check] confirm app_billing_reconciler has NO direct table privileges on billing.refunds / audit.audit_events -- least-privilege worker principal, execute-only via guarded functions ===
+ table_schema | table_name | privilege_type 
+--------------+------------+----------------
+(0 rows)
+
+ has_audit_schema_usage 
+------------------------
+ f
+(1 row)
+
+=== [F17 corrected] REFUND_SETTLED audit event for f1, using actual column resource_snapshot (not metadata) ===
+  action_kind   | actor_type |             resource_id              | outcome |          requested_by_admin          | provider_refund_id 
+----------------+------------+--------------------------------------+---------+--------------------------------------+--------------------
+ REFUND_SETTLED | WORKER     | 01a06c2d-5e47-7248-9f03-034cd2ea6b02 | SUCCESS | f0000000-0000-4000-8000-000000000002 | razorpay_rfnd_001
+(1 row)
+

@@ -1,0 +1,55 @@
+=== ALL partitioned parent tables with any app_platform_admin table-level privilege (post-108) ===
+            parent             |  schema   | parent_privs_for_platform_admin 
+-------------------------------+-----------+---------------------------------
+ agent_utilization_hourly      | analytics | {DELETE,INSERT,SELECT,UPDATE}
+ analytics_events              | analytics | {DELETE,INSERT,SELECT,UPDATE}
+ billing_revenue_monthly       | analytics | {DELETE,INSERT,SELECT,UPDATE}
+ call_latency_stage_hourly     | analytics | {DELETE,INSERT,SELECT,UPDATE}
+ call_metrics_hourly           | analytics | {DELETE,INSERT,SELECT,UPDATE}
+ conversation_turn_stats_daily | analytics | {DELETE,INSERT,SELECT,UPDATE}
+ lead_funnel_daily             | analytics | {DELETE,INSERT,SELECT,UPDATE}
+ provider_health_5min          | analytics | {DELETE,INSERT,SELECT,UPDATE}
+ tool_execution_stats_daily    | analytics | {DELETE,INSERT,SELECT,UPDATE}
+ usage_cost_daily              | analytics | {DELETE,INSERT,SELECT,UPDATE}
+ webhook_delivery_stats_daily  | analytics | {DELETE,INSERT,SELECT,UPDATE}
+ audit_events                  | audit     | {SELECT}
+ cost_entries                  | billing   | {DELETE,INSERT,SELECT,UPDATE}
+ usage_events                  | billing   | {DELETE,INSERT,SELECT,UPDATE}
+ campaign_contacts             | campaign  | {DELETE,INSERT,SELECT,UPDATE}
+ activities                    | crm       | {DELETE,INSERT,SELECT,UPDATE}
+ consent_records               | crm       | {DELETE,INSERT,SELECT,UPDATE}
+ document_chunks               | knowledge | {DELETE,INSERT,SELECT,UPDATE}
+ call_sessions                 | voice     | {DELETE,INSERT,SELECT,UPDATE}
+ webhook_deliveries            | webhooks  | {DELETE,INSERT,SELECT,UPDATE}
+ workflow_executions           | workflow  | {SELECT}
+(21 rows)
+
+=== audit.audit_events children (expect SELECT only, no I/U/D) ===
+          partition          | sel | ins | upd | del 
+-----------------------------+-----+-----+-----+-----
+ audit.audit_events_y2026m08 | t   | f   | f   | f
+ audit.audit_events_y2026m09 | t   | f   | f   | f
+ audit.audit_events_y2026m10 | t   | f   | f   | f
+ audit.audit_events_default  | t   | f   | f   | f
+(4 rows)
+
+=== workflow.workflow_executions children (expect SELECT only, no I/U/D -- 076/100 fix durability check) ===
+              partition               | sel | ins | upd | del 
+--------------------------------------+-----+-----+-----+-----
+ workflow.workflow_executions_2026_09 | t   | f   | f   | f
+ workflow.workflow_executions_2026_10 | t   | f   | f   | f
+ workflow.workflow_executions_2026_11 | t   | f   | f   | f
+ workflow.workflow_executions_2026_12 | t   | f   | f   | f
+ workflow.workflow_executions_default | t   | f   | f   | f
+(5 rows)
+
+=== voice.transcript_segments children post-108 (expect all false, including text column SELECT) ===
+             partition             | sel | ins | upd | del | text_col_sel 
+-----------------------------------+-----+-----+-----+-----+--------------
+ voice.transcript_segments_2026_09 | f   | f   | f   | f   | f
+ voice.transcript_segments_2026_10 | f   | f   | f   | f   | f
+ voice.transcript_segments_2026_11 | f   | f   | f   | f   | f
+ voice.transcript_segments_2026_12 | f   | f   | f   | f   | f
+ voice.transcript_segments_default | f   | f   | f   | f   | f
+(5 rows)
+

@@ -1,0 +1,45 @@
+CREATE OR REPLACE FUNCTION voice.fn_platform_access_transcript(p_grant_id uuid, p_admin_user_id uuid, p_organization_id uuid, p_session_id text, p_transcript_id uuid)
+ RETURNS TABLE(sequence_number integer, speaker text, text text, is_partial boolean, start_ms integer, end_ms integer, language text)
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'voice', 'organization', 'pg_catalog'
+AS $function$
+DECLARE
+  v_tr voice.transcripts%ROWTYPE;
+BEGIN
+  IF session_user <> 'app_platform_admin' THEN
+    RAISE EXCEPTION 'fn_platform_access_transcript: caller % is not the Platform Admin principal.', session_user;
+  END IF;
+
+  IF NOT organization.fn_break_glass_check(
+      p_grant_id, p_admin_user_id, p_organization_id, p_session_id, 'SENSITIVE_MEDIA_ACCESS'
+    ) THEN
+    RAISE EXCEPTION 'fn_platform_access_transcript: no valid SENSITIVE_MEDIA_ACCESS break-glass grant for this organization/admin/session.';
+  END IF;
+
+  SELECT * INTO v_tr
+  FROM voice.transcripts t
+  WHERE t.id = p_transcript_id
+    AND t.organization_id = p_organization_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'fn_platform_access_transcript: transcript % not found for organization %.', p_transcript_id, p_organization_id;
+  END IF;
+
+  PERFORM set_config('app.tenant_id', p_organization_id::text, true);
+  PERFORM audit.fn_insert_audit_event(
+    p_organization_id, 'PLATFORM_ADMIN', p_admin_user_id, NULL,
+    'TRANSCRIPT_ACCESS_GRANTED', 'TRANSCRIPT', p_transcript_id, 'SUCCESS', NULL,
+    NULL, NULL, p_session_id, NULL, NULL,
+    jsonb_build_object('grant_id', p_grant_id, 'call_id', v_tr.call_id, 'transcript_id', p_transcript_id),
+    FALSE
+  );
+
+  RETURN QUERY
+  SELECT ts.sequence_number, ts.speaker, ts.text, ts.is_partial, ts.start_ms, ts.end_ms, ts.language
+  FROM voice.transcript_segments ts
+  WHERE ts.transcript_id = p_transcript_id
+    AND ts.organization_id = p_organization_id
+  ORDER BY ts.sequence_number;
+END;
+$function$

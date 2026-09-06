@@ -1,0 +1,5 @@
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade 104_5B3 -> 105_5B4, Phase 5B.4 -- wraps controlled amendment migration 105_5B4.sql.
+INFO  [alembic.runtime.migration] Running upgrade 105_5B4 -> 106_5H3, Phase 5H.3 -- wraps controlled amendment migration 106_5H3.sql.
+INFO  [alembic.runtime.migration] Running upgrade 106_5H3 -> 107_5B5, Phase 5B.5 -- wraps controlled hardening migration 107_5B5.sql.

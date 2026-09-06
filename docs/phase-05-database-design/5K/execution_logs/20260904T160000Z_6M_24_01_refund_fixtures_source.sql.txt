@@ -1,0 +1,44 @@
+-- §30 refund test fixtures. Run as postgres (BYPASSRLS/superuser) so
+-- fixture inserts are not blocked by RLS regardless of tenant context.
+\set ON_ERROR_STOP on
+
+\echo '=== billing_account for Org B ==='
+INSERT INTO billing.billing_accounts (id, organization_id, billing_status, currency)
+VALUES ('f0000000-0000-4000-8000-0000000000b2', 'f0000000-0000-4000-8000-0000000000a2', 'ACTIVE', 'INR')
+ON CONFLICT (id) DO NOTHING;
+
+\echo '=== invoice for Org B ==='
+INSERT INTO billing.invoices (id, organization_id, billing_account_id, invoice_number, invoice_kind, status, currency, subtotal_amount, subtotal_currency, total_tax_amount, total_tax_currency, total_due_amount, total_due_currency, amount_paid_amount, amount_paid_currency, total_credits_amount, total_credits_currency, paid_at)
+VALUES ('f0000000-0000-4000-8000-0000000000c2', 'f0000000-0000-4000-8000-0000000000a2', 'f0000000-0000-4000-8000-0000000000b2', 'INV-6M24-B2', 'TAX_INVOICE', 'PAID', 'INR', 800, 'INR', 0, 'INR', 800, 'INR', 800, 'INR', 0, 'INR', now())
+ON CONFLICT (id) DO NOTHING;
+
+\echo '=== payment_attempt: Org A, SUCCEEDED, 1000 INR (pa1, pre-existing d1) -- used for reserve/settle/fail battery ==='
+\echo '(already present as f0000000-0000-4000-8000-0000000000d1)'
+
+\echo '=== payment_attempt: Org A, FAILED, 500 INR (pa2) -- for "failed payment cannot be refunded" ==='
+INSERT INTO billing.payment_attempts (id, organization_id, invoice_id, payment_provider, provider_transaction_id, status, amount_amount, amount_currency, failure_code, failure_message)
+VALUES ('f0000000-0000-4000-8000-0000000000d2', 'f0000000-0000-4000-8000-0000000000a1', 'f0000000-0000-4000-8000-0000000000c1', 'RAZORPAY', 'pa2-provider-tx', 'FAILED', 500, 'INR', 'CARD_DECLINED', 'card declined')
+ON CONFLICT (id) DO NOTHING;
+
+\echo '=== payment_attempt: Org B, SUCCEEDED, 800 INR (pa3) -- for cross-org / wrong-org-id tests ==='
+INSERT INTO billing.payment_attempts (id, organization_id, invoice_id, payment_provider, provider_transaction_id, status, amount_amount, amount_currency)
+VALUES ('f0000000-0000-4000-8000-0000000000d3', 'f0000000-0000-4000-8000-0000000000a2', 'f0000000-0000-4000-8000-0000000000c2', 'RAZORPAY', 'pa3-provider-tx', 'SUCCEEDED', 800, 'INR')
+ON CONFLICT (id) DO NOTHING;
+
+\echo '=== payment_attempt: Org A, SUCCEEDED, 2000 INR (pa4) -- dedicated to concurrent-reservation test (fresh, unrefunded) ==='
+INSERT INTO billing.payment_attempts (id, organization_id, invoice_id, payment_provider, provider_transaction_id, status, amount_amount, amount_currency)
+VALUES ('f0000000-0000-4000-8000-0000000000d4', 'f0000000-0000-4000-8000-0000000000a1', 'f0000000-0000-4000-8000-0000000000c1', 'RAZORPAY', 'pa4-provider-tx', 'SUCCEEDED', 2000, 'INR')
+ON CONFLICT (id) DO NOTHING;
+
+\echo '=== payment_attempt: Org A, SUCCEEDED, 100 INR (pa5) -- dedicated to duplicate-provider-callback idempotency test ==='
+INSERT INTO billing.payment_attempts (id, organization_id, invoice_id, payment_provider, provider_transaction_id, status, amount_amount, amount_currency)
+VALUES ('f0000000-0000-4000-8000-0000000000d5', 'f0000000-0000-4000-8000-0000000000a1', 'f0000000-0000-4000-8000-0000000000c1', 'RAZORPAY', 'pa5-provider-tx', 'SUCCEEDED', 100, 'INR')
+ON CONFLICT (id) DO NOTHING;
+
+\echo '=== payment_attempt: Org A, SUCCEEDED, 150 INR (pa6) -- dedicated to failed-provider-call retry/failure-state test ==='
+INSERT INTO billing.payment_attempts (id, organization_id, invoice_id, payment_provider, provider_transaction_id, status, amount_amount, amount_currency)
+VALUES ('f0000000-0000-4000-8000-0000000000d6', 'f0000000-0000-4000-8000-0000000000a1', 'f0000000-0000-4000-8000-0000000000c1', 'RAZORPAY', 'pa6-provider-tx', 'SUCCEEDED', 150, 'INR')
+ON CONFLICT (id) DO NOTHING;
+
+\echo '=== fixtures loaded ==='
+SELECT id, organization_id, status, amount_amount, amount_currency FROM billing.payment_attempts ORDER BY id;

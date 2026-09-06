@@ -1,0 +1,238 @@
+PHASE 6M FREEZE EVIDENCE 02 -- Platform Billing Security Test Battery
+Generated: 2026-09-05; AUGMENTED 2026-09-06 with the P1 remediation regression
+batteries below (positive-path re-confirmation of P1 #1-#4, and a 10-assertion
+negative battery closing the P1#5 evidence gap that the independent freeze-gate
+review flagged -- the original run below only exercised one, always-valid
+fn_platform_create_tax_rule call and had no negative/grain/overlap coverage).
+Covers migration 109_5B7's guarded Platform Admin billing commands: manual
+CREDIT, BILLING ADJUSTMENT, PLAN/PLAN_VERSION/PLAN_PRICE catalog commands,
+Commercial Pricing Agreement (CPA) lifecycle, and TAX category/rule commands.
+All statements executed inside BEGIN/ROLLBACK -- no test data persisted.
+Trust boundary: SET SESSION AUTHORIZATION app_platform_admin + app.is_platform_admin
+GUC, matching organization.is_platform_admin()'s real definition (session_user check).
+
+############################################################
+# RUN 1 of 2: against phase6m_fresh (full 001..109 chain applied)
+############################################################
+BEGIN
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+SET
+ set_config 
+------------
+ true
+(1 row)
+
+    session_user    |    current_user    | trust_check_ok 
+--------------------+--------------------+----------------
+ app_platform_admin | app_platform_admin | t
+(1 row)
+
+=== CREDIT ===
+              credit_id               
+--------------------------------------
+ 01a07127-899d-7e84-82bd-bd0bc71ba872
+(1 row)
+
+=== BILLING ADJUSTMENT ===
+            adjustment_id             
+--------------------------------------
+ 01a07127-89a0-7ac2-8d3a-3a78f762289f
+(1 row)
+
+=== PLAN / VERSION / PRICE ===
+            plan_price_id             
+--------------------------------------
+ 01a07127-89a3-7d26-98c4-c4f1ad43854b
+(1 row)
+
+ published 
+-----------
+ 
+(1 row)
+
+=== CPA ===
+ activated 
+-----------
+ 
+(1 row)
+
+ expired 
+---------
+ 
+(1 row)
+
+=== TAX ===
+             tax_rule_id              
+--------------------------------------
+ 01a07127-89ad-7298-b2de-dea0159c64d0
+(1 row)
+
+
+############################################################
+# RUN 2 of 2: against phase6m_incr (108_5B6 -> 109_5B7 incremental chain applied)
+############################################################
+BEGIN
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+SET
+ set_config 
+------------
+ true
+(1 row)
+
+    session_user    |    current_user    | trust_check_ok 
+--------------------+--------------------+----------------
+ app_platform_admin | app_platform_admin | t
+(1 row)
+
+=== CREDIT ===
+              credit_id               
+--------------------------------------
+ 01a07127-89d4-7da4-b495-950bcaeb65ce
+(1 row)
+
+=== BILLING ADJUSTMENT ===
+            adjustment_id             
+--------------------------------------
+ 01a07127-89d8-750c-81fa-faca8f47e406
+(1 row)
+
+=== PLAN / VERSION / PRICE ===
+            plan_price_id             
+--------------------------------------
+ 01a07127-89dc-7425-a30d-0d503b171ad8
+(1 row)
+
+ published 
+-----------
+ 
+(1 row)
+
+=== CPA ===
+ activated 
+-----------
+ 
+(1 row)
+
+ expired 
+---------
+ 
+(1 row)
+
+=== TAX ===
+             tax_rule_id              
+--------------------------------------
+ 01a07127-89e5-7400-a823-23c44aba06ff
+(1 row)
+
+
+RESULT: identical clean pass on both databases. All CREDIT/BILLING ADJUSTMENT/
+PLAN/PLAN_VERSION/PLAN_PRICE/CPA/TAX guarded commands executed successfully as
+app_platform_admin with trust_check_ok = t; plan price was created before the
+plan version was published (correct order -- publish makes prices immutable);
+CPA version used effective_from = CURRENT_DATE - 1 to satisfy the pre-existing
+chk_cpav_dates constraint on its later same-day expire step. No defects found.
+
+############################################################
+# 2026-09-06 REMEDIATION REGRESSION -- P1 #1-#4 positive-path re-confirmation
+# (against the amended 109_5B7; identical assertions on phase6m_fresh and
+# phase6m_incr; each RUN below is one full BEGIN/ROLLBACK, no data persisted)
+############################################################
+
+# RUN 1 of 2: against phase6m_fresh
+=== P1#2 CREDIT: fn_platform_apply_credit, currency must be server-derived (billing_accounts.currency), no client currency param exists ===
+ credit_balance_amount | credit_balance_currency
+-----------------------+-------------------------
+              100.0000 | INR
+(1 row)
+=== P1#3 BILLING ADJUSTMENT (no invoice) -- currency must come from billing_accounts.currency (INR) ===
+ amount_amount | amount_currency
+---------------+-----------------
+       25.0000 | INR
+(1 row)
+=== P1#3 BILLING ADJUSTMENT (with invoice) -- currency must come from the invoice (USD), not the account (INR) ===
+ amount_amount | amount_currency
+---------------+-----------------
+       10.0000 | USD
+(1 row)
+=== P1#4 PLAN lifecycle: create plan -> version -> price -> publish -> deactivate (+ idempotent re-deactivate) ===
+ is_published
+--------------
+ t
+(1 row)
+=== CPA lifecycle smoke (base plan still ACTIVE when CPA created, per fn_create_commercial_pricing_agreement's requirement) ===
+ status: ACTIVE (after activate) -> EXPIRED (after expire)
+=== P1#4 (cont.): deactivate the now CPA-referenced plan -- deactivation does not require/cascade to the CPA ===
+ is_active
+-----------
+ f
+--- idempotent re-deactivate of an already-inactive plan: SUCCESS, no error ---
+=== P1#1 SESSION REVOKE: revoke-all durability ===
+ revoked_count = 2, outbox_rows_after_first_call = 1
+--- second call against an already-fully-revoked user: true no-op ---
+ revoked_count_again = 0, outbox_rows_after_second_call = 1 (unchanged)
+--- post-revoke row state (verified as table owner) ---
+ status  | has_revoked_at
+---------+----------------
+ REVOKED | t
+ REVOKED | t
+(2 rows)
+
+# RUN 2 of 2: against phase6m_incr -- byte-for-byte identical assertions and results
+# (credit 100.0000 INR; adjustments 25.0000 INR / 10.0000 USD; plan published t;
+#  CPA ACTIVE->EXPIRED; plan deactivated f then idempotent re-deactivate succeeds;
+#  revoke-all: 2 revoked / 1 outbox row, then 0 revoked / still 1 outbox row;
+#  both sessions REVOKED with has_revoked_at = t)
+
+RESULT: P1 #1 (forced-session revoke-all durability), #2 (manual credit currency
+server-authoritative), #3 (billing adjustment currency server-authoritative,
+both no-invoice and with-invoice paths), and #4 (plan deactivation, including
+idempotent re-deactivate and non-cascade to a referencing CPA) all reconfirmed
+green, identically, on both the fresh and incremental databases against the
+amended 109_5B7. No defects found. Full raw psql transcript retained at
+scratchpad artifact 6m_p1_positive_regression_FINAL.txt (source script:
+6m_p1_positive_regression.sql) for this validation run.
+
+############################################################
+# 2026-09-06 REMEDIATION REGRESSION -- P1 #5 negative battery (closes the
+# TaxRule grain/overlap + component-validation evidence gap). 12 assertions:
+# 8 hard component-validation exceptions (non-array, empty array, missing/
+# blank name, missing/non-numeric rate, rate<0, rate>1) + a same-category
+# date-overlap rejection (9c) + three SUCCESS paths (9a baseline, 9b
+# different-category-allowed, 9d adjacent-date-allowed, no overlap). Each
+# guarded call runs in its own SAVEPOINT inside one outer BEGIN/ROLLBACK.
+# stdout and stderr were captured to SEPARATE files per database
+# (6m_p1_5_fresh_stdout.txt/6m_p1_5_fresh_stderr.txt,
+#  6m_p1_5_incr_stdout.txt/6m_p1_5_incr_stderr.txt) to eliminate the
+# stdout/stderr interleaving-order artifact seen in an earlier combined-
+# stream capture; source script: 6m_p1_5_negative_battery.sql.
+############################################################
+
+=== phase6m_fresh: stderr (exactly 9 ERROR lines: tests 1-8 + 9c) ===
+1: components must be a JSON array.
+2: components must not be empty.
+3: each component must have a non-empty name.
+4: each component must have a non-empty name.
+5: each component must have a numeric rate.
+6: each component must have a numeric rate.
+7: component rate -0.01 must be between 0 and 1.
+8: component rate 1.5 must be between 0 and 1.
+9c: an overlapping tax rule already exists for regime IN-GST, tax_category
+    00000000-0000-0000-0000-00000000ac01, supplier_jurisdiction IN-KA.
+=== phase6m_fresh: stdout (9a/9b/9d all RELEASE with a returned UUID where
+     applicable; 9c correctly ROLLBACK) -- all SUCCESS paths confirmed ===
+
+=== phase6m_incr: stderr -- identical 9 ERROR lines, same text, same order ===
+=== phase6m_incr: stdout -- identical SUCCESS-path confirmation ===
+
+RESULT: all 12 P1#5 sub-assertions (8 component-validation exceptions + 1
+overlap-rejection + the 3 success paths 9a/9b/9d proving different-category
+and adjacent-date rules are correctly ALLOWED while same-category/overlapping-
+date is correctly DENIED) are genuinely green on both phase6m_fresh and
+phase6m_incr, with byte-identical error text on both databases. No defects
+found. (An earlier combined-stdout+stderr capture had produced a misleading
+interleaved-ordering artifact around test 5/6 -- confirmed a display artifact
+only, not a test failure, once stdout/stderr were captured separately.)

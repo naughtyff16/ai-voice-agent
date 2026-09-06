@@ -1,0 +1,5 @@
+ users | orgs_active | billing_accounts | invoices | payment_attempts | quota_configs | refunds_pending | bgg_active | bgg_purposes_after_105_add 
+-------+-------------+------------------+----------+------------------+---------------+-----------------+------------+----------------------------
+     2 |           1 |                1 |        1 |                1 |             1 |               1 |          1 | {SUPPORT_GENERAL}
+(1 row)
+

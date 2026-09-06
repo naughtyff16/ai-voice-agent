@@ -1,0 +1,74 @@
+################ SECTION A: as app_api -- expect DENIED on every privileged refund function ################
+You are now connected to database "postgres" as user "app_api".
+=== [F13] app_api attempts fn_platform_settle_refund -- expect permission denied (not GRANTed to app_api at all) ===
+=== [F14] app_api attempts fn_platform_reserve_refund -- expect permission denied (Platform-Admin-only) ===
+psql:/tmp/6M_24_refund_battery_part2.sql:17: ERROR:  permission denied for function fn_platform_settle_refund
+psql:/tmp/6M_24_refund_battery_part2.sql:20: ERROR:  permission denied for function fn_platform_reserve_refund
+=== [F14b] app_api attempts fn_platform_fail_refund -- expect permission denied ===
+psql:/tmp/6M_24_refund_battery_part2.sql:23: ERROR:  permission denied for function fn_platform_fail_refund
+################ SECTION B: as app_billing_reconciler -- the ONLY principal that may settle/fail ################
+You are now connected to database "postgres" as user "app_billing_reconciler".
+=== [F15] trusted reconciler settles f1 with a real-looking provider_refund_id -- expect SUCCESS/SUCCEEDED ===
+ f15_result 
+------------
+ SUCCEEDED
+(1 row)
+
+=== [F16] verify f1 refund row is now SUCCEEDED, provider_refund_id and completed_at populated ===
+psql:/tmp/6M_24_refund_battery_part2.sql:32: ERROR:  permission denied for table refunds
+=== [F17] verify REFUND_SETTLED audit event, actor_type WORKER (not PLATFORM_ADMIN -- the settlement is attributed to the trusted worker principal, with the requesting admin recorded only inside metadata) ===
+psql:/tmp/6M_24_refund_battery_part2.sql:36: ERROR:  permission denied for schema audit
+LINE 2: FROM audit.audit_events WHERE resource_type = 'REFUND' AND r...
+             ^
+=== [F18] duplicate settle call on f1 (same provider_refund_id) -- expect idempotent no-op, still returns SUCCEEDED, no error, no state change ===
+ f18_result 
+------------
+ SUCCEEDED
+(1 row)
+
+=== [F18b] confirm only ONE REFUND_SETTLED audit row exists for f1 after two settle calls -- the idempotent no-op path returns before the audit insert, so it does not double-write ===
+psql:/tmp/6M_24_refund_battery_part2.sql:42: ERROR:  permission denied for schema audit
+LINE 1: SELECT count(*) AS refund_settled_audit_rows FROM audit.audi...
+                                                          ^
+=== [F19] duplicate provider callback idempotency on f5: first settle -- expect SUCCEEDED ===
+ f19a_result 
+-------------
+ SUCCEEDED
+(1 row)
+
+=== [F19b] second callback for f5 with the SAME provider_refund_id -- expect idempotent no-op, SUCCEEDED, no error ===
+ f19b_result 
+-------------
+ SUCCEEDED
+(1 row)
+
+=== [F19c] a THIRD callback for f5 with a DIFFERENT provider_refund_id -- function has no equality re-check once terminal; still returns SUCCEEDED as a no-op and the ORIGINAL provider_refund_id on the row is left untouched (documented behavior, not a defect: once terminal, the row is immutable via this path) ===
+ f19c_result 
+-------------
+ SUCCEEDED
+(1 row)
+
+psql:/tmp/6M_24_refund_battery_part2.sql:52: ERROR:  permission denied for table refunds
+=== [F20] trusted reconciler fails f11 (simulating a provider decline) -- expect FAILED ===
+ f20_result 
+------------
+ FAILED
+(1 row)
+
+=== [F21] verify f11 refund row is FAILED, failure_reason and completed_at populated ===
+psql:/tmp/6M_24_refund_battery_part2.sql:58: ERROR:  permission denied for table refunds
+=== [F22] verify REFUND_FAILED audit event, actor_type WORKER ===
+psql:/tmp/6M_24_refund_battery_part2.sql:61: ERROR:  permission denied for schema audit
+LINE 1: ...ction_kind, actor_type, resource_id, outcome FROM audit.audi...
+                                                             ^
+=== [F23] attempt to SETTLE f11 after it is already FAILED (terminal) -- expect EXCEPTION, proving no accidental success-after-failure retry path ===
+psql:/tmp/6M_24_refund_battery_part2.sql:64: ERROR:  fn_platform_settle_refund: refund 01a06c2d-5e51-7e01-9f85-8512d535d16e is already FAILED (terminal state).
+CONTEXT:  PL/pgSQL function fn_platform_settle_refund(uuid,uuid,text) line 27 at RAISE
+=== [F24] attempt to FAIL f1 after it is already SUCCEEDED (terminal) -- expect EXCEPTION ===
+psql:/tmp/6M_24_refund_battery_part2.sql:67: ERROR:  fn_platform_fail_refund: refund 01a06c2d-5e47-7248-9f03-034cd2ea6b02 is already SUCCEEDED (terminal state).
+CONTEXT:  PL/pgSQL function fn_platform_fail_refund(uuid,uuid,text) line 27 at RAISE
+################ SECTION C: back to app_platform_admin -- symmetric fail-refund fabrication check ################
+You are now connected to database "postgres" as user "app_platform_admin".
+SET
+=== [F25] app_platform_admin attempts fn_platform_fail_refund directly on f9 (still PENDING) -- expect permission denied, symmetric to F12 ===
+psql:/tmp/6M_24_refund_battery_part2.sql:74: ERROR:  permission denied for function fn_platform_fail_refund

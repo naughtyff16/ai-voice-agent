@@ -1,0 +1,62 @@
+Command:
+  docker ps --filter "name=phase6m-pg18-incr" --format "table {{.Names}}\t{{.Status}}"
+  docker cp <scratchpad>/6M_17_extra_fixtures.sql phase6m-pg18-incr:/tmp/6M_17_extra_fixtures.sql
+  docker exec -i phase6m-pg18-incr psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f /tmp/6M_17_extra_fixtures.sql
+
+Context: this is a re-run after (a) the original run failed on the g3
+(expired-grant) INSERT with a chk_bgg_expires_after_issued CHECK-constraint
+violation because issued_at was left at its now() default instead of being
+explicitly backdated, and (b) both phase6m-pg18-incr and phase6m-pg18-fresh
+containers were separately found to have exited cleanly (STATUS "Exited (0)")
+some hours earlier for an unrelated host-level reason, and were restarted via
+`docker start phase6m-pg18-incr phase6m-pg18-fresh`. A post-restart check
+confirmed the earlier failed fixture transaction had rolled back cleanly with
+no partial/corrupt rows (user3=0, org_b=0, conversations=0, bgg_total=1
+before this re-run), so no prior validation evidence was invalidated by the
+container outage. The g3 INSERT was corrected to explicitly set
+issued_at = now() - interval '2 hours' alongside expires_at = now() -
+interval '1 hour', satisfying chk_bgg_expires_after_issued while still being
+expired relative to "now" at test time.
+
+Raw output:
+
+NAMES               STATUS
+phase6m-pg18-incr   Up 5 minutes
+BEGIN
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 2
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+COMMIT
+ user3 | org_b | conversations | recordings | transcripts | segments | grants_g1_to_g7
+-------+-------+---------------+------------+-------------+----------+-----------------
+     1 |     1 |             2 |          2 |           2 |        2 |               7
+(1 row)
+
+Result: PASS. All expected fixture rows present:
+  - 1 new fixture user (f...003, second Platform Admin actor)
+  - 1 new organization (Org B, f...a2)
+  - 2 conversations (Org A f...201, Org B f...211)
+  - 2 recordings (Org A f...202, Org B f...212)
+  - 2 transcripts (Org A f...203, Org B f...213)
+  - 2 transcript_segments (Org A f...204/205)
+  - 7 break-glass grants (g1..g7, f...401..f...407) covering the SS10
+    adversarial-matrix distinguishing conditions: valid SENSITIVE_MEDIA_ACCESS
+    (g1), valid-but-wrong-purpose (g2), expired (g3), released (g4),
+    wrong-org (g5, issued for Org B), wrong-admin (g6, issued to f...003),
+    wrong-session (g7, bound to fixture-session-002).
+
+The source SQL used for this load is preserved alongside this log as
+20260904T104619Z_6M_17_extra_fixtures_source.sql in this same directory.

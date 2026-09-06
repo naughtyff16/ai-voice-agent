@@ -1,0 +1,69 @@
+PHASE 6M FREEZE EVIDENCE 04 -- Alembic Heads/Current and Migration File Checksums
+Generated: 2026-09-05; RECONFIRMED 2026-09-06 after the independent freeze-gate
+review's P1=6 finding was remediated by amending 109_5B7 in place (108 and
+earlier untouched, no migration 110 created). Confirms exactly one Alembic
+head (109_5B7) on both the fresh and incremental validation databases after
+the amendment, and records the current SHA-256 checksums of the two migration
+109 files as amended (superseding the pre-remediation checksums recorded at
+the original 2026-09-05 generation).
+
+=== FRESH: alembic history (tail, confirm single linear chain) ===
+019_5D -> 020_5D, Phase 5K — wraps frozen migration 020_5D.sql.
+018_5C -> 019_5D, Phase 5K — wraps frozen migration 019_5D.sql.
+017_5C -> 018_5C, Phase 5K — wraps frozen migration 018_5C.sql.
+016_5C -> 017_5C, Phase 5K — wraps frozen migration 017_5C.sql.
+015_5C -> 016_5C, Phase 5K — wraps frozen migration 016_5C.sql.
+014_5C -> 015_5C, Phase 5K — wraps frozen migration 015_5C.sql.
+013_5C -> 014_5C, Phase 5K — wraps frozen migration 014_5C.sql.
+012_5C -> 013_5C, Phase 5K — wraps frozen migration 013_5C.sql.
+011_5C -> 012_5C, Phase 5K — wraps frozen migration 012_5C.sql.
+010_5C -> 011_5C, Phase 5K — wraps frozen migration 011_5C.sql.
+009_5C -> 010_5C, Phase 5K — wraps frozen migration 010_5C.sql.
+008_5B -> 009_5C, Phase 5K — wraps frozen migration 009_5C.sql.
+007_5B -> 008_5B, Phase 5K — wraps frozen migration 008_5B.sql.
+006_5B -> 007_5B, Phase 5K — wraps frozen migration 007_5B.sql.
+005_5B -> 006_5B, Phase 5K — wraps frozen migration 006_5B.sql.
+004_5B -> 005_5B, Phase 5K — wraps frozen migration 005_5B.sql.
+003_5B -> 004_5B, Phase 5K — wraps frozen migration 004_5B.sql.
+002_5B -> 003_5B, Phase 5K — wraps frozen migration 003_5B.sql.
+001_5B -> 002_5B, Phase 5K — wraps frozen migration 002_5B.sql.
+<base> -> 001_5B, Phase 5K — wraps frozen migration 001_5B.sql.
+
+=== FRESH: alembic heads ===
+109_5B7 (head)
+=== FRESH: alembic current ===
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+109_5B7 (head)
+
+=== INCR: alembic heads ===
+109_5B7 (head)
+=== INCR: alembic current ===
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+109_5B7 (head)
+
+=== 2026-09-06 RECONFIRMATION: alembic heads/current, config-driven (alembic -c alembic/alembic.ini), post-amendment ===
+--- heads (config-only, no DB connection required) ---
+109_5B7 (head)
+--- current: phase6m_fresh (port 55433) ---
+109_5B7 (head)
+--- current: phase6m_incr (port 55434) ---
+109_5B7 (head)
+--- history (head segment, most-recent-first; confirms single linear chain, no branching, after the in-place amendment) ---
+108_5B6 -> 109_5B7 (head), Phase 5B.7 -- wraps Phase 6M Admin Platform API DB-layer closure
+migration 109_5B7.sql.
+107_5B5 -> 108_5B6, Phase 5B.6 -- wraps controlled hardening migration 108_5B6.sql.
+106_5H3 -> 107_5B5, Phase 5B.5 -- wraps controlled hardening migration 107_5B5.sql.
+105_5B4 -> 106_5H3, Phase 5H.3 -- wraps controlled amendment migration 106_5H3.sql.
+104_5B3 -> 105_5B4, Phase 5B.4 -- wraps controlled amendment migration 105_5B4.sql.
+103_5J2 -> 104_5B3, Phase 5B.3 -- wraps controlled amendment migration 104_5B3.sql.
+102_5H2 -> 103_5J2, Phase 5J.2 -- wraps controlled amendment migration 103_5J2.sql.
+
+=== SHA256 checksums of the two migration 109 files (CURRENT, post-in-place-amendment -- supersedes the 2026-09-05 values below) ===
+a761239d7e63e3d2d982f4dbf7291b81711a24dc051c2577bc44ff46052b0cf3  migrations/109_5B7.sql (53,473 bytes)
+d60f497b9c6c494e051b86d2f086211c77aef8e6b46bc390321e179e83fb9602  alembic/versions/109_5B7.py (4,949 bytes)
+
+=== SHA256 checksums of the two new migration 109 files (2026-09-05, PRE-REMEDIATION -- superseded, retained for audit trail only) ===
+07e80f76a58da9d552c4eddcf49c02372a211c73cc074251da7d310c658fa0b7  migrations/109_5B7.sql (45,004 bytes)
+9c543782102c823154051c61cda31f71a688c5b1c09ff455a617743153fc567c  alembic/versions/109_5B7.py (4,921 bytes)

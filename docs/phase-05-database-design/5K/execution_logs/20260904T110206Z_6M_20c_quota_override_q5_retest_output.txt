@@ -1,0 +1,16 @@
+SET
+=== [Q5-RETEST] server-authoritative org / wrong org id -> expect not-found style failure (fixed) ===
+psql:/tmp/6M_20c_quota_override_q5_retest.sql:11: ERROR:  fn_platform_set_quota_override: organization f0000000-0000-4000-8000-000000000000 not found.
+CONTEXT:  PL/pgSQL function fn_platform_set_quota_override(uuid,uuid,text,numeric,numeric,text,timestamp with time zone,text) line 31 at RAISE
+=== [Q5-RETEST verify] confirm no row was created for the nonexistent org ===
+ orphan_row_count 
+------------------
+                0
+(1 row)
+
+=== [Q5-RETEST verify] confirm no new audit row was created for the nonexistent org ===
+ orphan_audit_count 
+--------------------
+                  0
+(1 row)
+

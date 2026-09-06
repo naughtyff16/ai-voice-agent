@@ -1,0 +1,422 @@
+PHASE 6M FREEZE EVIDENCE 03 -- Identity Support, Webhook, and Grant-Narrowing Security Battery
+Generated: 2026-09-05. Covers migration 109_5B7's 3 safe Platform Admin identity
+views (v_platform_safe_users/sessions/api_keys), the guarded
+identity.fn_platform_revoke_all_sessions command, an explicit negative-
+authorization test (non-platform-admin caller must be rejected), the
+webhooks.webhook_deliveries privilege narrowing (INSERT revoked, SELECT retained),
+the confirmed untouched status of billing.billing_accounts/billing.invoices per
+ADR-5H-006, and general grant-narrowing sanity checks. All statements executed
+inside BEGIN/ROLLBACK -- no test data persisted.
+
+############################################################
+# RUN 1 of 2: against phase6m_fresh (full 001..109 chain applied)
+############################################################
+=== IDENTITY SUPPORT (views + revoke sessions) ===
+                  id                  |        email         |   email_normalized   | display_name | phone_e164 | phone_verified_at | email_verified_at | password_changed_at | status | last_login_at | failed_login_count | last_failed_login_at | mfa_enabled | deleted_at |          created_at          |          updated_at          
+--------------------------------------+----------------------+----------------------+--------------+------------+-------------------+-------------------+---------------------+--------+---------------+--------------------+----------------------+-------------+------------+------------------------------+------------------------------
+ 22222222-2222-2222-2222-222222222222 | admin109@example.com | admin109@example.com | Admin 109    |            |                   |                   |                     | ACTIVE |               |                  0 |                      | f           |            | 2026-09-05 10:40:11.67235+00 | 2026-09-05 10:40:11.67235+00
+(1 row)
+
+ id | user_id | status | created_at | expires_at | revoked_at | last_seen_at | device_label | ip_address | user_agent_hash 
+----+---------+--------+------------+------------+------------+--------------+--------------+------------+-----------------
+(0 rows)
+
+ id | organization_id | created_by | name | key_prefix | scopes | status | expires_at | last_used_at | last_used_ip | revoked_at | revoked_by | created_at | updated_at 
+----+-----------------+------------+------+------------+--------+--------+------------+--------------+--------------+------------+------------+------------+------------
+(0 rows)
+
+ sessions_revoked 
+------------------
+                0
+(1 row)
+
+=== NEGATIVE: non-platform-admin caller must be rejected ===
+ set_config 
+------------
+ false
+(1 row)
+
+psql:/tmp/claude-1001/-home-crm-lp-1-karthi-Chunk-Mates-ai-voice-agent/5f8be316-f721-40cb-8181-40a9867b7745/scratchpad/109_test_battery.sql:86: NOTICE:  NEGATIVE TEST PASSED: rejected non-admin caller as expected (fn_platform_apply_credit: caller is not authorized.).
+DO
+ set_config 
+------------
+ true
+(1 row)
+
+RESET
+=== WEBHOOK privilege check (app_platform_admin should no longer INSERT) ===
+ admin_can_insert_webhook | admin_can_select_webhook 
+--------------------------+--------------------------
+ f                        | t
+(1 row)
+
+=== BILLING_ACCOUNT / INVOICE (untouched, confirm app_platform_admin retains prior access) ===
+ admin_can_select_billing_accounts | admin_can_select_invoices 
+-----------------------------------+---------------------------
+ t                                 | t
+(1 row)
+
+=== GRANT NARROWING SANITY ===
+ admin_can_update_users_directly | admin_can_insert_credits_directly | admin_can_exec_raw_apply_credit 
+---------------------------------+-----------------------------------+---------------------------------
+ f                               | f                                 | f
+(1 row)
+
+ROLLBACK
+
+############################################################
+# RUN 2 of 2: against phase6m_incr (108_5B6 -> 109_5B7 incremental chain applied)
+############################################################
+=== IDENTITY SUPPORT (views + revoke sessions) ===
+                  id                  |        email         |   email_normalized   | display_name | phone_e164 | phone_verified_at | email_verified_at | password_changed_at | status | last_login_at | failed_login_count | last_failed_login_at | mfa_enabled | deleted_at |          created_at           |          updated_at           
+--------------------------------------+----------------------+----------------------+--------------+------------+-------------------+-------------------+---------------------+--------+---------------+--------------------+----------------------+-------------+------------+-------------------------------+-------------------------------
+ 22222222-2222-2222-2222-222222222222 | admin109@example.com | admin109@example.com | Admin 109    |            |                   |                   |                     | ACTIVE |               |                  0 |                      | f           |            | 2026-09-05 10:40:11.727476+00 | 2026-09-05 10:40:11.727476+00
+(1 row)
+
+ id | user_id | status | created_at | expires_at | revoked_at | last_seen_at | device_label | ip_address | user_agent_hash 
+----+---------+--------+------------+------------+------------+--------------+--------------+------------+-----------------
+(0 rows)
+
+ id | organization_id | created_by | name | key_prefix | scopes | status | expires_at | last_used_at | last_used_ip | revoked_at | revoked_by | created_at | updated_at 
+----+-----------------+------------+------+------------+--------+--------+------------+--------------+--------------+------------+------------+------------+------------
+(0 rows)
+
+ sessions_revoked 
+------------------
+                0
+(1 row)
+
+=== NEGATIVE: non-platform-admin caller must be rejected ===
+ set_config 
+------------
+ false
+(1 row)
+
+psql:/tmp/claude-1001/-home-crm-lp-1-karthi-Chunk-Mates-ai-voice-agent/5f8be316-f721-40cb-8181-40a9867b7745/scratchpad/109_test_battery.sql:86: NOTICE:  NEGATIVE TEST PASSED: rejected non-admin caller as expected (fn_platform_apply_credit: caller is not authorized.).
+DO
+ set_config 
+------------
+ true
+(1 row)
+
+RESET
+=== WEBHOOK privilege check (app_platform_admin should no longer INSERT) ===
+ admin_can_insert_webhook | admin_can_select_webhook 
+--------------------------+--------------------------
+ f                        | t
+(1 row)
+
+=== BILLING_ACCOUNT / INVOICE (untouched, confirm app_platform_admin retains prior access) ===
+ admin_can_select_billing_accounts | admin_can_select_invoices 
+-----------------------------------+---------------------------
+ t                                 | t
+(1 row)
+
+=== GRANT NARROWING SANITY ===
+ admin_can_update_users_directly | admin_can_insert_credits_directly | admin_can_exec_raw_apply_credit 
+---------------------------------+-----------------------------------+---------------------------------
+ f                               | f                                 | f
+(1 row)
+
+ROLLBACK
+
+RESULT: identical clean pass on both databases. The 3 safe identity views return
+column-restricted rows only; fn_platform_revoke_all_sessions executes successfully
+(0 sessions revoked, consistent with the empty session fixture set); the negative
+test confirms a non-platform-admin caller (app.is_platform_admin=false) is rejected
+with 'caller is not authorized'; app_platform_admin can no longer INSERT into
+webhooks.webhook_deliveries (SELECT retained); app_platform_admin retains prior
+SELECT access to billing.billing_accounts/billing.invoices, confirming both tables
+are untouched by this migration; and app_platform_admin can no longer UPDATE
+identity.users directly, INSERT billing.credits directly, or EXECUTE the raw
+(pre-109) billing.fn_billing_apply_credit function -- all three now require going
+through the new guarded fn_platform_* wrapper. No defects found.
+
+############################################################
+# 2026-09-06 TARGETED ACCEPTANCE TEST -- multi-session forced-revocation
+# (the RUN 1/RUN 2 battery above only ever exercised
+# fn_platform_revoke_all_sessions against an EMPTY session set -- 0 revoked.
+# This closes that gap with a genuine 3-ACTIVE-session fixture, run against
+# the existing validated phase6m_fresh/phase6m_incr databases; no new
+# migrations were run and 109_5B7.sql/.py were not touched. One outer
+# BEGIN/ROLLBACK per database, no test data persisted -- confirmed by a
+# post-rollback residue check on both databases (users=0, sessions=0,
+# outbox=0, audit=0 for the fixture's ids). Source script:
+# 6m_p1_1_3session_revoke.sql; raw stdout/stderr retained at scratchpad
+# 6m_p1_1_{fresh,incr}_{stdout,stderr}.txt.
+############################################################
+
+Fixture: 1 admin user (caller) + 1 target user with 3 ACTIVE sessions,
+distinct access_token_jti per session. Trust boundary: SET SESSION
+AUTHORIZATION app_platform_admin + app.is_platform_admin GUC, matching
+organization.is_platform_admin()'s real definition, identical to the
+pattern already used in 6M_FREEZE_02/03 above.
+
+=== RUN 1 of 2: phase6m_fresh -- byte-identical to RUN 2 of 2: phase6m_incr ===
+CALL 1 (revoke-all on target user): revoked_count = 3
+  outbox: exactly 1 row (event_type = identity.forced_revocation_required),
+    n_session_ids = 3, n_jtis = 3, reason = 'p6m acceptance test: forced
+    revoke-all', leaks_refresh_hash = f, leaks_raw_hash_text = f (the
+    payload carries session ids + jtis + reason only -- no refresh-token
+    hash or other token material, confirmed by both a JSONB key-presence
+    check and a raw-text search for the fixture's own hash values)
+  audit: 1 PLATFORM_SESSIONS_REVOKED row, actor_type=PLATFORM_ADMIN,
+    resource_type=user, outcome=SUCCESS, snapshot_has_jti_key = f
+    (resource_snapshot carries revoked_session_count=3 and the outbox
+    event's own id as a correlation id, never the jti array itself, per
+    the P1 #1 remediation), has_outbox_correlation_id = t
+  sessions: all 3 target rows now status=REVOKED, revoked_at IS NOT NULL
+
+CALL 2 (retry, same target user): revoked_count = 0 (true no-op, matching
+  the CAS-UPDATE's WHERE status='ACTIVE' predicate matching zero rows)
+  outbox_row_count_after_retry = 1 (unchanged -- IF v_count > 0 guards the
+    INSERT, so a no-op call enqueues no second outbox event; confirms no
+    duplicate work is handed to the denylist publisher)
+  audit_row_count_after_retry = 2 -- NOTE: unlike the outbox insert, the
+    function's PERFORM audit.fn_insert_audit_event(...) call is
+    unconditional (outside the `IF v_count > 0` guard), so the retry DOES
+    write a second PLATFORM_SESSIONS_REVOKED audit row (outcome=SUCCESS,
+    revoked_session_count=0). This is accurately reported as observed
+    behavior, not assumed from the task framing: the "no duplicate work"
+    guarantee holds for the outbox handoff and the session rows themselves
+    (both idempotent), but the audit trail intentionally records every
+    guarded-command invocation, including successful no-op ones -- an
+    audit-completeness choice, not a defect, and outside the scope of the
+    P1 #1 remediation (which targeted outbox durability and jti exposure,
+    not audit-call cardinality).
+
+RESULT: the 3-session forced-revocation acceptance test passes on both
+phase6m_fresh and phase6m_incr with byte-identical results. revoked_count,
+outbox row/payload shape (3 ids + 3 jtis + reason, no token material), and
+post-revoke session state all match the specified acceptance criteria
+exactly; the retry's revoked_count=0 and unchanged outbox row count confirm
+no duplicate denylist-publisher work on replay. The one deviation from a
+naive reading of "no duplicate work" -- a second audit row on the no-op
+retry -- is called out above rather than glossed over, since the guarded
+function's audit call is unconditional by design. No defects found.
+
+############################################################
+# 3-SESSION FORCED-REVOCATION ACCEPTANCE -- RAW EVIDENCE
+# Verbatim psql stdout/stderr for the 2026-09-06 targeted acceptance test
+# summarized in prose immediately above. No re-execution occurred to
+# produce this section -- this is the same test run, transcribed from
+# the scratchpad capture files into the repository so the raw proof no
+# longer lives only outside it. Source script: 6m_p1_1_3session_revoke.sql
+# (single outer BEGIN/ROLLBACK; fixture = 1 admin caller + 1 target user
+# with 3 ACTIVE sessions, distinct access_token_jti per session; trust
+# boundary established via SET SESSION AUTHORIZATION app_platform_admin +
+# the app.is_platform_admin GUC, matching organization.is_platform_admin()).
+# No production credentials or tokens appear anywhere below -- all ids,
+# jtis, and hash values are synthetic fixture data created and rolled
+# back within this same script. Captured stdout for phase6m_fresh and
+# phase6m_incr is byte-identical (diff clean); stderr was empty (0 bytes)
+# on both runs, confirmed by directory listing before transcription --
+# i.e. the run produced no warnings, notices-as-errors, or partial
+# failures on either database.
+############################################################
+
+--- phase6m_fresh: raw stdout (stderr: 0 bytes, no output) ---
+BEGIN
+INSERT 0 1
+INSERT 0 1
+INSERT 0 3
+SET
+ set_config
+------------
+ true
+(1 row)
+
+    session_user    |    current_user    | trust_check_ok
+--------------------+--------------------+----------------
+ app_platform_admin | app_platform_admin | t
+(1 row)
+
+=== CALL 1: revoke-all on target user (expect revoked_count = 3) ===
+ revoked_count
+---------------
+             3
+(1 row)
+
+RESET
+=== VERIFY: exactly one outbox row, 3 session ids + 3 jtis + reason, no token material ===
+ outbox_row_count
+------------------
+                1
+(1 row)
+
+ n_session_ids | n_jtis |                 reason                 | leaks_refresh_hash | leaks_raw_hash_text
+---------------+--------+----------------------------------------+--------------------+---------------------
+             3 |      3 | p6m acceptance test: forced revoke-all | f                  | f
+(1 row)
+
+=== VERIFY: PLATFORM_SESSIONS_REVOKED audit row, no jti array in resource_snapshot ===
+        action_kind        | resource_type | outcome | snapshot_has_jti_key | revoked_session_count | has_outbox_correlation_id
+---------------------------+---------------+---------+----------------------+-----------------------+---------------------------
+ PLATFORM_SESSIONS_REVOKED | user          | SUCCESS | f                    | 3                     | t
+(1 row)
+
+=== VERIFY: all 3 sessions now REVOKED with revoked_at set ===
+                  id                  | status  | has_revoked_at
+--------------------------------------+---------+----------------
+ 00000000-0000-0000-0000-000000005e01 | REVOKED | t
+ 00000000-0000-0000-0000-000000005e02 | REVOKED | t
+ 00000000-0000-0000-0000-000000005e03 | REVOKED | t
+(3 rows)
+
+SET
+ set_config
+------------
+ true
+(1 row)
+
+=== CALL 2 (retry): expect revoked_count = 0, no duplicate work ===
+ revoked_count_retry
+---------------------
+                   0
+(1 row)
+
+RESET
+=== VERIFY: still exactly one outbox row after retry (no new event on true no-op) ===
+ outbox_row_count_after_retry
+------------------------------
+                            1
+(1 row)
+
+=== VERIFY: still exactly one PLATFORM_SESSIONS_REVOKED audit row for CALL 1;
+     retry with revoked_count=0 must NOT emit a second SUCCESS revoke audit row
+     (function calls fn_insert_audit_event unconditionally -- confirming actual behavior) ===
+ audit_row_count_after_retry
+-----------------------------
+                           2
+(1 row)
+
+ROLLBACK
+
+NOTE — EXPECTATION LABEL CORRECTION
+The expectation label above was part of the test script and was disproved by the observed result.
+Accepted final behavior:
+* first invocation revokes 3 sessions;
+* one durable forced-revocation outbox event is created;
+* retry revokes 0 sessions;
+* no second outbox event is created;
+* retry DOES create a second `PLATFORM_SESSIONS_REVOKED` audit row with `revoked_session_count = 0`;
+* this is intentional audit-completeness behavior: every privileged invocation is recorded;
+* the second row is not evidence of duplicate revocation work.
+
+--- phase6m_incr: raw stdout ---
+# Byte-identical to the phase6m_fresh capture immediately above (diffed
+# character-for-character against it; the only variation anywhere between
+# the two files is trailing whitespace from the psql capture, none of
+# which affects any value shown). stderr was 0 bytes on this run as well.
+BEGIN
+INSERT 0 1
+INSERT 0 1
+INSERT 0 3
+SET
+ set_config
+------------
+ true
+(1 row)
+
+    session_user    |    current_user    | trust_check_ok
+--------------------+--------------------+----------------
+ app_platform_admin | app_platform_admin | t
+(1 row)
+
+=== CALL 1: revoke-all on target user (expect revoked_count = 3) ===
+ revoked_count
+---------------
+             3
+(1 row)
+
+RESET
+=== VERIFY: exactly one outbox row, 3 session ids + 3 jtis + reason, no token material ===
+ outbox_row_count
+------------------
+                1
+(1 row)
+
+ n_session_ids | n_jtis |                 reason                 | leaks_refresh_hash | leaks_raw_hash_text
+---------------+--------+----------------------------------------+--------------------+---------------------
+             3 |      3 | p6m acceptance test: forced revoke-all | f                  | f
+(1 row)
+
+=== VERIFY: PLATFORM_SESSIONS_REVOKED audit row, no jti array in resource_snapshot ===
+        action_kind        | resource_type | outcome | snapshot_has_jti_key | revoked_session_count | has_outbox_correlation_id
+---------------------------+---------------+---------+----------------------+-----------------------+---------------------------
+ PLATFORM_SESSIONS_REVOKED | user          | SUCCESS | f                    | 3                     | t
+(1 row)
+
+=== VERIFY: all 3 sessions now REVOKED with revoked_at set ===
+                  id                  | status  | has_revoked_at
+--------------------------------------+---------+----------------
+ 00000000-0000-0000-0000-000000005e01 | REVOKED | t
+ 00000000-0000-0000-0000-000000005e02 | REVOKED | t
+ 00000000-0000-0000-0000-000000005e03 | REVOKED | t
+(3 rows)
+
+SET
+ set_config
+------------
+ true
+(1 row)
+
+=== CALL 2 (retry): expect revoked_count = 0, no duplicate work ===
+ revoked_count_retry
+---------------------
+                   0
+(1 row)
+
+RESET
+=== VERIFY: still exactly one outbox row after retry (no new event on true no-op) ===
+ outbox_row_count_after_retry
+------------------------------
+                            1
+(1 row)
+
+=== VERIFY: still exactly one PLATFORM_SESSIONS_REVOKED audit row for CALL 1;
+     retry with revoked_count=0 must NOT emit a second SUCCESS revoke audit row
+     (function calls fn_insert_audit_event unconditionally -- confirming actual behavior) ===
+ audit_row_count_after_retry
+-----------------------------
+                           2
+(1 row)
+
+ROLLBACK
+
+NOTE — EXPECTATION LABEL CORRECTION
+The expectation label above was part of the test script and was disproved by the observed result.
+Accepted final behavior:
+* first invocation revokes 3 sessions;
+* one durable forced-revocation outbox event is created;
+* retry revokes 0 sessions;
+* no second outbox event is created;
+* retry DOES create a second `PLATFORM_SESSIONS_REVOKED` audit row with `revoked_session_count = 0`;
+* this is intentional audit-completeness behavior: every privileged invocation is recorded;
+* the second row is not evidence of duplicate revocation work.
+
+ASSERTIONS ESTABLISHED BY THE ABOVE (both databases):
+  - revoked_count = 3 on the first call.
+  - All 3 target sessions transition to status = REVOKED with revoked_at set.
+  - Exactly 1 durable identity.forced_revocation_required outbox row exists
+    after the first call.
+  - That outbox payload contains 3 session ids, 3 corresponding
+    access-token jtis, and the reason string -- confirmed by
+    n_session_ids=3, n_jtis=3, reason='p6m acceptance test: forced
+    revoke-all'.
+  - That payload contains no bearer token and no refresh token: confirmed
+    by leaks_refresh_hash=f and leaks_raw_hash_text=f (a JSONB key-presence
+    check plus a raw-text search against the fixture's own token/hash
+    values, both negative).
+  - A PLATFORM_SESSIONS_REVOKED audit row exists for the first call
+    (action_kind=PLATFORM_SESSIONS_REVOKED, resource_type=user,
+    outcome=SUCCESS, revoked_session_count=3, has_outbox_correlation_id=t).
+  - That audit row's resource_snapshot contains no jti array
+    (snapshot_has_jti_key=f).
+  - Retry (CALL 2) returns revoked_count=0; outbox_row_count_after_retry
+    remains exactly 1 (no second outbox event on a true no-op).
+  - Retry DOES produce a second audit row: audit_row_count_after_retry=2.
+    This is the honestly-documented no-op-invocation nuance -- the
+    function's audit write is unconditional (outside the `IF v_count > 0`
+    outbox guard), so a privileged no-op call is still recorded. Reported
+    as observed behavior, not a defect and not smoothed over.

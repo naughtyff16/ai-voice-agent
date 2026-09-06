@@ -1,0 +1,56 @@
+CREATE OR REPLACE FUNCTION organization.fn_break_glass_check(p_grant_id uuid, p_admin_user_id uuid, p_organization_id uuid, p_session_id text, p_required_purpose text)
+ RETURNS boolean
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'organization', 'pg_catalog'
+AS $function$
+DECLARE
+  v_grant organization.break_glass_grants%ROWTYPE;
+BEGIN
+  IF NOT organization.is_platform_admin() THEN
+    RETURN FALSE;
+  END IF;
+
+  IF p_grant_id IS NULL THEN
+    RETURN FALSE;
+  END IF;
+
+  SELECT * INTO v_grant
+  FROM organization.break_glass_grants
+  WHERE id = p_grant_id;
+
+  IF NOT FOUND THEN
+    RETURN FALSE;                                    -- check 1: grant exists
+  END IF;
+
+  IF v_grant.status <> 'ACTIVE' THEN
+    RETURN FALSE;                                    -- check 2: not released
+  END IF;
+
+  IF v_grant.expires_at <= NOW() THEN
+    RETURN FALSE;                                    -- check 3: not expired
+  END IF;
+
+  IF v_grant.admin_user_id IS DISTINCT FROM p_admin_user_id THEN
+    RETURN FALSE;                                    -- check 4: admin matches
+  END IF;
+
+  IF v_grant.organization_id IS DISTINCT FROM p_organization_id THEN
+    RETURN FALSE;                                    -- check 5: org matches
+  END IF;
+
+  IF v_grant.session_id IS DISTINCT FROM p_session_id THEN
+    RETURN FALSE;                                    -- check 6: session matches
+  END IF;
+
+  IF p_required_purpose IS NULL OR length(p_required_purpose) < 1 THEN
+    RETURN FALSE;
+  END IF;
+
+  IF NOT (p_required_purpose = ANY(v_grant.purposes)) THEN
+    RETURN FALSE;                                    -- purpose authorization (6M §10-11)
+  END IF;
+
+  RETURN TRUE;
+END;
+$function$

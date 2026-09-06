@@ -1,0 +1,27 @@
+=== billing_account for Org B ===
+INSERT 0 0
+=== invoice for Org B ===
+INSERT 0 1
+=== payment_attempt: Org A, SUCCEEDED, 1000 INR (pa1, pre-existing d1) -- used for reserve/settle/fail battery ===
+(already present as f0000000-0000-4000-8000-0000000000d1)
+=== payment_attempt: Org A, FAILED, 500 INR (pa2) -- for "failed payment cannot be refunded" ===
+INSERT 0 1
+=== payment_attempt: Org B, SUCCEEDED, 800 INR (pa3) -- for cross-org / wrong-org-id tests ===
+INSERT 0 1
+=== payment_attempt: Org A, SUCCEEDED, 2000 INR (pa4) -- dedicated to concurrent-reservation test (fresh, unrefunded) ===
+INSERT 0 1
+=== payment_attempt: Org A, SUCCEEDED, 100 INR (pa5) -- dedicated to duplicate-provider-callback idempotency test ===
+INSERT 0 1
+=== payment_attempt: Org A, SUCCEEDED, 150 INR (pa6) -- dedicated to failed-provider-call retry/failure-state test ===
+INSERT 0 1
+=== fixtures loaded ===
+                  id                  |           organization_id            |  status   | amount_amount | amount_currency 
+--------------------------------------+--------------------------------------+-----------+---------------+-----------------
+ f0000000-0000-4000-8000-0000000000d1 | f0000000-0000-4000-8000-0000000000a1 | SUCCEEDED |     1000.0000 | INR
+ f0000000-0000-4000-8000-0000000000d2 | f0000000-0000-4000-8000-0000000000a1 | FAILED    |      500.0000 | INR
+ f0000000-0000-4000-8000-0000000000d3 | f0000000-0000-4000-8000-0000000000a2 | SUCCEEDED |      800.0000 | INR
+ f0000000-0000-4000-8000-0000000000d4 | f0000000-0000-4000-8000-0000000000a1 | SUCCEEDED |     2000.0000 | INR
+ f0000000-0000-4000-8000-0000000000d5 | f0000000-0000-4000-8000-0000000000a1 | SUCCEEDED |      100.0000 | INR
+ f0000000-0000-4000-8000-0000000000d6 | f0000000-0000-4000-8000-0000000000a1 | SUCCEEDED |      150.0000 | INR
+(6 rows)
+

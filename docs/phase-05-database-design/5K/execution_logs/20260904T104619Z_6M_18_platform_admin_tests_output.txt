@@ -1,0 +1,56 @@
+SET
+--- [1] POSITIVE PATH: g1, recording, org A (expect: ALLOW, storage_ref returned) ---
+                  id                  |               call_id                |                           storage_ref                            | storage_provider | content_type 
+--------------------------------------+--------------------------------------+------------------------------------------------------------------+------------------+--------------
+ f0000000-0000-4000-8000-000000000202 | f0000000-0000-4000-8000-000000000301 | org/f0000000-0000-4000-8000-0000000000a1/recordings/call-301.wav | S3               | audio/wav
+(1 row)
+
+--- [2] POSITIVE PATH: g1, transcript, org A (expect: ALLOW, segment text returned) ---
+ sequence_number | speaker |                                       text                                        
+-----------------+---------+-----------------------------------------------------------------------------------
+               0 | CALLER  | SENSITIVE: my date of birth is 4th of March and my prescription number is 9981.
+               1 | AGENT   | SENSITIVE: confirming refill for prescription 9981, dispatching to your pharmacy.
+(2 rows)
+
+--- [3] item 2: g2 (valid grant, wrong purpose SUPPORT_BILLING) + recording -> expect DENY ---
+--- [4] item 4: g3 (expired) + recording -> expect DENY ---
+psql:/tmp/6M_18_platform_admin_tests.sql:43: ERROR:  fn_platform_access_recording: no valid SENSITIVE_MEDIA_ACCESS break-glass grant for this organization/admin/session.
+CONTEXT:  PL/pgSQL function fn_platform_access_recording(uuid,uuid,uuid,text,uuid) line 12 at RAISE
+psql:/tmp/6M_18_platform_admin_tests.sql:52: ERROR:  fn_platform_access_recording: no valid SENSITIVE_MEDIA_ACCESS break-glass grant for this organization/admin/session.
+CONTEXT:  PL/pgSQL function fn_platform_access_recording(uuid,uuid,uuid,text,uuid) line 12 at RAISE
+--- [5] item 5: g4 (released) + recording -> expect DENY ---
+psql:/tmp/6M_18_platform_admin_tests.sql:61: ERROR:  fn_platform_access_recording: no valid SENSITIVE_MEDIA_ACCESS break-glass grant for this organization/admin/session.
+CONTEXT:  PL/pgSQL function fn_platform_access_recording(uuid,uuid,uuid,text,uuid) line 12 at RAISE
+--- [6] item 6 (grant level): g5 (issued for org B) used with p_organization_id=org A -> expect DENY ---
+psql:/tmp/6M_18_platform_admin_tests.sql:70: ERROR:  fn_platform_access_recording: no valid SENSITIVE_MEDIA_ACCESS break-glass grant for this organization/admin/session.
+CONTEXT:  PL/pgSQL function fn_platform_access_recording(uuid,uuid,uuid,text,uuid) line 12 at RAISE
+--- [6b] item 6 (resource level): g1 (org A, valid) but target recording belongs to org B -> expect DENY (not found for org) ---
+psql:/tmp/6M_18_platform_admin_tests.sql:79: ERROR:  fn_platform_access_recording: recording f0000000-0000-4000-8000-000000000212 not found for organization f0000000-0000-4000-8000-0000000000a1.
+CONTEXT:  PL/pgSQL function fn_platform_access_recording(uuid,uuid,uuid,text,uuid) line 21 at RAISE
+--- [7] item 7: g6 (issued to admin 003) but called with admin_user_id=002 -> expect DENY ---
+psql:/tmp/6M_18_platform_admin_tests.sql:88: ERROR:  fn_platform_access_recording: no valid SENSITIVE_MEDIA_ACCESS break-glass grant for this organization/admin/session.
+CONTEXT:  PL/pgSQL function fn_platform_access_recording(uuid,uuid,uuid,text,uuid) line 12 at RAISE
+--- [8] item 8: g7 (bound to fixture-session-002) but called with fixture-session-001 -> expect DENY ---
+psql:/tmp/6M_18_platform_admin_tests.sql:97: ERROR:  fn_platform_access_recording: no valid SENSITIVE_MEDIA_ACCESS break-glass grant for this organization/admin/session.
+CONTEXT:  PL/pgSQL function fn_platform_access_recording(uuid,uuid,uuid,text,uuid) line 12 at RAISE
+--- [9] item 19: raw SELECT of protected column storage_ref by app_platform_admin -> expect permission denied for column ---
+psql:/tmp/6M_18_platform_admin_tests.sql:100: ERROR:  permission denied for table recordings
+--- [9b] item 19: raw SELECT of protected column text (segments) by app_platform_admin -> expect permission denied for column ---
+psql:/tmp/6M_18_platform_admin_tests.sql:103: ERROR:  permission denied for table transcript_segments
+--- [9c] item 19: raw SELECT of protected column summary_text (conversations) by app_platform_admin -> expect permission denied for column ---
+psql:/tmp/6M_18_platform_admin_tests.sql:106: ERROR:  permission denied for table conversations
+--- [9d] control: raw SELECT of a NON-protected column by app_platform_admin -> expect ALLOW (proves it is column-scoped, not table-wide) ---
+                  id                  | status 
+--------------------------------------+--------
+ f0000000-0000-4000-8000-000000000202 | STORED
+(1 row)
+
+--- [10] items 20-21: audit rows for the positive-path accesses, confirming grant_id present and no storage_ref/transcript text leakage ---
+        action_kind        | resource_type |             resource_id              |   actor_type   | leaked_storage_ref | leaked_transcript_text |                                                                        resource_snapshot                                                                         
+---------------------------+---------------+--------------------------------------+----------------+--------------------+------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ RECORDING_ACCESS_GRANTED  | RECORDING     | f0000000-0000-4000-8000-000000000202 | PLATFORM_ADMIN | f                  | f                      | {"call_id": "f0000000-0000-4000-8000-000000000301", "grant_id": "f0000000-0000-4000-8000-000000000401", "recording_id": "f0000000-0000-4000-8000-000000000202"}
+ TRANSCRIPT_ACCESS_GRANTED | TRANSCRIPT    | f0000000-0000-4000-8000-000000000203 | PLATFORM_ADMIN | f                  | f                      | {"call_id": "f0000000-0000-4000-8000-000000000301", "grant_id": "f0000000-0000-4000-8000-000000000401", "transcript_id": "f0000000-0000-4000-8000-000000000203"}
+ RECORDING_ACCESS_GRANTED  | RECORDING     | f0000000-0000-4000-8000-000000000202 | PLATFORM_ADMIN | f                  | f                      | {"call_id": "f0000000-0000-4000-8000-000000000301", "grant_id": "f0000000-0000-4000-8000-000000000401", "recording_id": "f0000000-0000-4000-8000-000000000202"}
+ TRANSCRIPT_ACCESS_GRANTED | TRANSCRIPT    | f0000000-0000-4000-8000-000000000203 | PLATFORM_ADMIN | f                  | f                      | {"call_id": "f0000000-0000-4000-8000-000000000301", "grant_id": "f0000000-0000-4000-8000-000000000401", "transcript_id": "f0000000-0000-4000-8000-000000000203"}
+(4 rows)
+

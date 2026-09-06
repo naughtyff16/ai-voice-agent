@@ -1,0 +1,27 @@
+                                Table "voice.transcripts"
+     Column      |           Type           | Collation | Nullable |       Default       
+-----------------+--------------------------+-----------+----------+---------------------
+ id              | uuid                     |           | not null | gen_uuid_v7()
+ organization_id | uuid                     |           | not null | 
+ conversation_id | uuid                     |           | not null | 
+ call_id         | uuid                     |           | not null | 
+ status          | text                     |           | not null | 'IN_PROGRESS'::text
+ total_segments  | integer                  |           | not null | 0
+ completed_at    | timestamp with time zone |           |          | 
+ created_at      | timestamp with time zone |           | not null | now()
+ updated_at      | timestamp with time zone |           | not null | now()
+Indexes:
+    "pk_transcripts" PRIMARY KEY, btree (id)
+    "idx_tr_call_id" btree (call_id)
+    "idx_tr_org_status" btree (organization_id, status)
+    "uq_tr_conversation" UNIQUE, btree (conversation_id)
+Check constraints:
+    "chk_tr_segments_nn" CHECK (total_segments >= 0)
+    "chk_tr_status" CHECK (status = ANY (ARRAY['IN_PROGRESS'::text, 'COMPLETED'::text]))
+Policies (forced row security enabled):
+    POLICY "rls_tr_tenant"
+      USING ((organization_id = organization.current_tenant_id()))
+      WITH CHECK ((organization_id = organization.current_tenant_id()))
+Triggers:
+    trg_tr_updated_at BEFORE UPDATE ON voice.transcripts FOR EACH ROW EXECUTE FUNCTION set_updated_at()
+

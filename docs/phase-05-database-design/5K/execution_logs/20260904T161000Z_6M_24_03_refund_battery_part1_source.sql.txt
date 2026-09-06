@@ -1,0 +1,120 @@
+-- SS30 financial test battery, part 1 (single-connection items). Run as
+-- app_platform_admin with app.is_platform_admin=true set for the session,
+-- exactly as the real backend would after resolving an authenticated
+-- Platform Admin caller. ON_ERROR_STOP is deliberately OFF for this file --
+-- most items below are EXPECTED to raise; we read the raised message as the
+-- proof of correct denial rather than treating it as a script failure.
+\set ON_ERROR_STOP off
+SET app.is_platform_admin = 'true';
+
+\echo '=== [F1] valid refund reservation on d1 (Org A, SUCCEEDED 1000 INR, 100 already PENDING via fixture e1 -> 900 remaining) -- reserve 200 -- expect SUCCESS, new PENDING row ==='
+SELECT billing.fn_platform_reserve_refund(
+  'f0000000-0000-4000-8000-0000000000a1'::uuid, -- org A
+  'f0000000-0000-4000-8000-000000000002'::uuid, -- admin user (fixture)
+  'f0000000-0000-4000-8000-0000000000d1'::uuid, -- payment_attempt d1
+  200, 'INR', 'SS30 F1: valid partial refund reservation, well within remaining capacity.'
+) AS f1_refund_id \gset f1_
+SELECT id, status, amount_amount, amount_currency, payment_provider, provider_refund_id, reason
+FROM billing.refunds WHERE id = :'f1_f1_refund_id';
+
+\echo '=== [F1b] audit event for F1 reservation was written atomically -- expect one REFUND_RESERVED row referencing f1 refund id ==='
+SELECT action_kind, actor_type, resource_type, resource_id, outcome
+FROM audit.audit_events
+WHERE resource_type = 'REFUND' AND resource_id = :'f1_f1_refund_id';
+
+\echo '=== [F2] over-refund rejected: d1 remaining after F1 is 1000 - 100(e1) - 200(f1) = 700. Try to reserve 800 -- expect EXCEPTION ==='
+SELECT billing.fn_platform_reserve_refund(
+  'f0000000-0000-4000-8000-0000000000a1'::uuid,
+  'f0000000-0000-4000-8000-000000000002'::uuid,
+  'f0000000-0000-4000-8000-0000000000d1'::uuid,
+  800, 'INR', 'SS30 F2: deliberate over-refund attempt, must be rejected.'
+);
+
+\echo '=== [F3] zero amount rejected -- expect EXCEPTION ==='
+SELECT billing.fn_platform_reserve_refund(
+  'f0000000-0000-4000-8000-0000000000a1'::uuid,
+  'f0000000-0000-4000-8000-000000000002'::uuid,
+  'f0000000-0000-4000-8000-0000000000d6'::uuid,
+  0, 'INR', 'SS30 F3: zero-amount refund attempt, must be rejected.'
+);
+
+\echo '=== [F4] negative amount rejected -- expect EXCEPTION ==='
+SELECT billing.fn_platform_reserve_refund(
+  'f0000000-0000-4000-8000-0000000000a1'::uuid,
+  'f0000000-0000-4000-8000-000000000002'::uuid,
+  'f0000000-0000-4000-8000-0000000000d6'::uuid,
+  -50, 'INR', 'SS30 F4: negative-amount refund attempt, must be rejected.'
+);
+
+\echo '=== [F5] "duplicate reservation" on a fully-covering amount: reserve 100 on fresh d5 (100 INR, unrefunded) -- expect SUCCESS ==='
+SELECT billing.fn_platform_reserve_refund(
+  'f0000000-0000-4000-8000-0000000000a1'::uuid,
+  'f0000000-0000-4000-8000-000000000002'::uuid,
+  'f0000000-0000-4000-8000-0000000000d5'::uuid,
+  100, 'INR', 'SS30 F5: full-amount reservation on d5, first call.'
+) AS f5_refund_id \gset f5_
+SELECT id, status, amount_amount FROM billing.refunds WHERE id = :'f5_f5_refund_id';
+
+\echo '=== [F5b] second reservation attempt on the SAME payment_attempt d5, no idempotency key exists at the DB layer (function has no dedup/idempotency-key parameter) -- expect EXCEPTION via the ordinary over-refund guard, proving double-reservation cannot silently double-spend even without an explicit idempotency key ==='
+SELECT billing.fn_platform_reserve_refund(
+  'f0000000-0000-4000-8000-0000000000a1'::uuid,
+  'f0000000-0000-4000-8000-000000000002'::uuid,
+  'f0000000-0000-4000-8000-0000000000d5'::uuid,
+  100, 'INR', 'SS30 F5b: repeat reservation attempt on already fully-reserved d5.'
+);
+
+\echo '=== [F6] currency mismatch rejected (payment_attempt d1 is INR, request USD) -- expect EXCEPTION, proving currency is validated against the payment_attempt, not trusted from the caller ==='
+SELECT billing.fn_platform_reserve_refund(
+  'f0000000-0000-4000-8000-0000000000a1'::uuid,
+  'f0000000-0000-4000-8000-000000000002'::uuid,
+  'f0000000-0000-4000-8000-0000000000d1'::uuid,
+  50, 'USD', 'SS30 F6: currency mismatch attempt, must be rejected.'
+);
+
+\echo '=== [F7] failed payment cannot be refunded (d2 is FAILED, 500 INR) -- expect EXCEPTION ==='
+SELECT billing.fn_platform_reserve_refund(
+  'f0000000-0000-4000-8000-0000000000a1'::uuid,
+  'f0000000-0000-4000-8000-000000000002'::uuid,
+  'f0000000-0000-4000-8000-0000000000d2'::uuid,
+  100, 'INR', 'SS30 F7: attempt to refund a FAILED payment_attempt, must be rejected.'
+);
+
+\echo '=== [F8] wrong org identifier cannot redirect a refund: d3 belongs to Org B, but caller supplies Org A as p_organization_id -- expect EXCEPTION ("does not belong to organization"), proving org_id is validated against the payment_attempt row, not trusted verbatim from the caller ==='
+SELECT billing.fn_platform_reserve_refund(
+  'f0000000-0000-4000-8000-0000000000a1'::uuid, -- WRONG: d3 actually belongs to org A2 (Org B)
+  'f0000000-0000-4000-8000-000000000002'::uuid,
+  'f0000000-0000-4000-8000-0000000000d3'::uuid,
+  100, 'INR', 'SS30 F8: cross-org redirection attempt, must be rejected.'
+);
+
+\echo '=== [F9] correct org identifier for d3 (Org B) succeeds normally -- expect SUCCESS, confirming F8 failed for the org-mismatch reason specifically, not some unrelated defect ==='
+SELECT billing.fn_platform_reserve_refund(
+  'f0000000-0000-4000-8000-0000000000a2'::uuid, -- correct: Org B
+  'f0000000-0000-4000-8000-000000000002'::uuid,
+  'f0000000-0000-4000-8000-0000000000d3'::uuid,
+  100, 'INR', 'SS30 F9: correctly org-scoped reservation on Org B payment_attempt.'
+) AS f9_refund_id \gset f9_
+SELECT id, organization_id, status, amount_amount, payment_provider FROM billing.refunds WHERE id = :'f9_f9_refund_id';
+
+\echo '=== [F10] provider is server-derived, not caller-supplied: F9 refund row payment_provider must equal d3 payment_attempt.payment_provider even though fn_platform_reserve_refund has no p_provider parameter at all ==='
+SELECT r.payment_provider AS refund_provider, pa.payment_provider AS source_payment_attempt_provider,
+       (r.payment_provider = pa.payment_provider) AS matches
+FROM billing.refunds r JOIN billing.payment_attempts pa ON pa.id = r.payment_attempt_id
+WHERE r.id = :'f9_f9_refund_id';
+
+\echo '=== [F11] reserve remaining capacity on d6 (150 INR) for the later fail-refund test -- expect SUCCESS ==='
+SELECT billing.fn_platform_reserve_refund(
+  'f0000000-0000-4000-8000-0000000000a1'::uuid,
+  'f0000000-0000-4000-8000-000000000002'::uuid,
+  'f0000000-0000-4000-8000-0000000000d6'::uuid,
+  150, 'INR', 'SS30 F11: full-amount reservation on d6, dedicated to the fail-refund/terminal-state test.'
+) AS f11_refund_id \gset f11_
+SELECT id, status, amount_amount FROM billing.refunds WHERE id = :'f11_f11_refund_id';
+
+\echo '=== [F12] app_platform_admin (still connected as such) attempts to settle F1''s refund directly -- expect EXCEPTION (permission architecture forbids a human/admin route from fabricating SUCCEEDED, SS7) ==='
+SELECT billing.fn_platform_settle_refund(:'f1_f1_refund_id'::uuid, 'f0000000-0000-4000-8000-000000000002'::uuid, 'admin_fabricated_provider_ref');
+
+\echo '=== record the reserved refund ids for the second (multi-principal) script ==='
+\echo :f1_f1_refund_id
+\echo :f9_f9_refund_id
+\echo :f11_f11_refund_id

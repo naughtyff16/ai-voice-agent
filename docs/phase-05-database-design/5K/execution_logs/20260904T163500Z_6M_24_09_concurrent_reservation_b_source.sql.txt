@@ -1,0 +1,9 @@
+\set ON_ERROR_STOP off
+SET app.is_platform_admin = 'true';
+SELECT pg_sleep(0.2);
+SELECT billing.fn_platform_reserve_refund(
+  'f0000000-0000-4000-8000-0000000000a1'::uuid,
+  'f0000000-0000-4000-8000-000000000002'::uuid,
+  'f0000000-0000-4000-8000-0000000000d4'::uuid,
+  1200, 'INR', 'SS30 concurrency test B: 1200 of 2000, racing with A.'
+) AS concurrent_b_result;

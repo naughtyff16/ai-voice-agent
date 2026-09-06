@@ -1,0 +1,41 @@
+=== INCR CONTAINER (phase6m-pg18-incr, port 55434): alembic current ===
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+106_5H3 (head)
+
+=== INCR CONTAINER: is_platform_admin() live definition (\sf) ===
+CREATE OR REPLACE FUNCTION organization.is_platform_admin()
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE
+AS $function$
+  SELECT COALESCE(current_setting('app.is_platform_admin', true), 'false') = 'true'
+$function$
+
+=== INCR CONTAINER: fail-open regression sanity check (fresh session, GUC never touched) ===
+ should_be_false_not_null 
+--------------------------
+ f
+(1 row)
+
+
+=== INCR CONTAINER: fixture survival check (all 8 categories) ===
+      category       | count 
+---------------------+-------
+ users               |     2
+ organizations       |     1
+ billing_accounts    |     1
+ invoices            |     1
+ payment_attempts    |     1
+ refunds_fixture_row |     1
+ quota_configs       |     1
+ break_glass_grants  |     1
+(8 rows)
+
+
+=== INCR CONTAINER: break_glass_grants purposes backfill check ===
+                  id                  |     purposes      
+--------------------------------------+-------------------
+ 99999999-9999-9999-9999-999999999999 | {SUPPORT_GENERAL}
+(1 row)
+

@@ -1,0 +1,40 @@
+CREATE OR REPLACE FUNCTION voice.fn_platform_access_recording(p_grant_id uuid, p_admin_user_id uuid, p_organization_id uuid, p_session_id text, p_recording_id uuid)
+ RETURNS TABLE(id uuid, call_id uuid, conversation_id uuid, storage_ref text, storage_provider text, content_type text)
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'voice', 'organization', 'pg_catalog'
+AS $function$
+DECLARE
+  v_rec voice.recordings%ROWTYPE;
+BEGIN
+  IF session_user <> 'app_platform_admin' THEN
+    RAISE EXCEPTION 'fn_platform_access_recording: caller % is not the Platform Admin principal.', session_user;
+  END IF;
+
+  IF NOT organization.fn_break_glass_check(
+      p_grant_id, p_admin_user_id, p_organization_id, p_session_id, 'SENSITIVE_MEDIA_ACCESS'
+    ) THEN
+    RAISE EXCEPTION 'fn_platform_access_recording: no valid SENSITIVE_MEDIA_ACCESS break-glass grant for this organization/admin/session.';
+  END IF;
+
+  SELECT * INTO v_rec
+  FROM voice.recordings r
+  WHERE r.id = p_recording_id
+    AND r.organization_id = p_organization_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'fn_platform_access_recording: recording % not found for organization %.', p_recording_id, p_organization_id;
+  END IF;
+
+  PERFORM set_config('app.tenant_id', p_organization_id::text, true);
+  PERFORM audit.fn_insert_audit_event(
+    p_organization_id, 'PLATFORM_ADMIN', p_admin_user_id, NULL,
+    'RECORDING_ACCESS_GRANTED', 'RECORDING', p_recording_id, 'SUCCESS', NULL,
+    NULL, NULL, p_session_id, NULL, NULL,
+    jsonb_build_object('grant_id', p_grant_id, 'call_id', v_rec.call_id, 'recording_id', p_recording_id),
+    FALSE
+  );
+
+  RETURN QUERY SELECT v_rec.id, v_rec.call_id, v_rec.conversation_id, v_rec.storage_ref, v_rec.storage_provider, v_rec.content_type;
+END;
+$function$

@@ -1,0 +1,52 @@
+§10 item 14 — Postgres unavailable -> FAIL CLOSED. Live command sequence and
+raw output, run against the phase6m-pg18-incr validation container.
+
+$ echo "=== [I10] baseline: container up, query succeeds ==="
+=== [I10] baseline: container up, query succeeds ===
+$ docker exec -i phase6m-pg18-incr psql -U app_platform_admin -d postgres -c "SELECT 1 AS reachable;"
+ reachable
+-----------
+         1
+(1 row)
+
+$ echo "=== stopping container to simulate Postgres unavailability (§10 item 14) ==="
+=== stopping container to simulate Postgres unavailability (§10 item 14) ===
+$ docker stop phase6m-pg18-incr
+phase6m-pg18-incr
+
+$ echo "=== [I11] attempt privileged-path query while Postgres is down -> expect hard connection failure, never a bypass/allow ==="
+=== [I11] attempt privileged-path query while Postgres is down -> expect hard connection failure, never a bypass/allow ===
+$ docker exec -i phase6m-pg18-incr psql -U app_platform_admin -d postgres -c "SELECT voice.fn_platform_access_recording('f0000000-0000-4000-8000-000000000401'::uuid,'f0000000-0000-4000-8000-000000000002'::uuid,'f0000000-0000-4000-8000-0000000000a1'::uuid,'fixture-session-001','f0000000-0000-4000-8000-000000000202'::uuid);" 2>&1
+Error response from daemon: container 21dfbcf75ccc24a709ea34626c2fd3437ce791019d5607bcbf76a5f4a51f8a6c is not running
+$ echo "exit_code=$?"
+exit_code=1
+
+$ echo "=== restarting container ==="
+=== restarting container ===
+$ docker start phase6m-pg18-incr
+phase6m-pg18-incr
+$ sleep 3
+
+$ echo "=== [I12] post-restart: confirm durable state intact (g1 ACTIVE untouched, g4 RELEASED untouched) ==="
+=== [I12] post-restart: confirm durable state intact (g1 ACTIVE untouched, g4 RELEASED untouched) ===
+$ docker exec -i phase6m-pg18-incr psql -U postgres -d postgres -c "SELECT id, status, purposes FROM organization.break_glass_grants WHERE id IN ('f0000000-0000-4000-8000-000000000401','f0000000-0000-4000-8000-000000000404') ORDER BY id;"
+                  id                  |  status  |         purposes
+--------------------------------------+----------+--------------------------
+ f0000000-0000-4000-8000-000000000401 | ACTIVE   | {SENSITIVE_MEDIA_ACCESS}
+ f0000000-0000-4000-8000-000000000404 | RELEASED | {SENSITIVE_MEDIA_ACCESS}
+(2 rows)
+
+RESULT: While the PostgreSQL container was stopped, the privileged access
+path (voice.fn_platform_access_recording, which internally calls
+organization.fn_break_glass_check) was completely unreachable -- the
+attempt failed at the connection/daemon layer (exit_code=1, "container ...
+is not running"), before any SQL could execute. This is a hard fail-closed
+outcome: there is no code path by which the DB-native break-glass check can
+return an ALLOW, a cached ALLOW, or any degraded-but-permissive result when
+Postgres itself is unavailable, because the check *is* a Postgres function --
+there is no external cache or fallback trust path for it to fall back to.
+After restarting the container, all durable break-glass grant state was
+confirmed byte-for-byte unchanged (g1 ACTIVE/SENSITIVE_MEDIA_ACCESS, g4
+RELEASED/SENSITIVE_MEDIA_ACCESS) -- the outage itself caused no data loss or
+corruption, consistent with the same container stop/start behavior already
+observed safely in the 6M_17 fixture-loading incident.

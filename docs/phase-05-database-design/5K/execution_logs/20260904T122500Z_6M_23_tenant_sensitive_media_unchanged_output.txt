@@ -1,0 +1,275 @@
+=== [T1] app_api table + column privilege check on the five hardened tables -- expect FULL (unrestricted) column access, unlike app_platform_admin ===
+     table_name      | privilege_type | is_grantable 
+---------------------+----------------+--------------
+ conversations       | INSERT         | NO
+ conversations       | SELECT         | NO
+ conversations       | UPDATE         | NO
+ recordings          | INSERT         | NO
+ recordings          | SELECT         | NO
+ recordings          | UPDATE         | NO
+ transcript_segments | INSERT         | NO
+ transcript_segments | SELECT         | NO
+ transcripts         | INSERT         | NO
+ transcripts         | SELECT         | NO
+ transcripts         | UPDATE         | NO
+ turns               | INSERT         | NO
+ turns               | SELECT         | NO
+(13 rows)
+
+=== [T2] confirm NO column-level privilege restriction exists for app_api (i.e. no column_privileges rows at all -- table-level GRANT already covers every column) ===
+     table_name      |          column_name          | privilege_type 
+---------------------+-------------------------------+----------------
+ conversations       | agent_version_id              | INSERT
+ conversations       | agent_version_id              | SELECT
+ conversations       | agent_version_id              | UPDATE
+ turns               | barge_in_occurred             | INSERT
+ turns               | barge_in_occurred             | SELECT
+ conversations       | call_id                       | INSERT
+ conversations       | call_id                       | SELECT
+ conversations       | call_id                       | UPDATE
+ recordings          | call_id                       | INSERT
+ recordings          | call_id                       | SELECT
+ recordings          | call_id                       | UPDATE
+ transcript_segments | call_id                       | INSERT
+ transcript_segments | call_id                       | SELECT
+ transcripts         | call_id                       | INSERT
+ transcripts         | call_id                       | SELECT
+ transcripts         | call_id                       | UPDATE
+ recordings          | checksum_sha256               | INSERT
+ recordings          | checksum_sha256               | SELECT
+ recordings          | checksum_sha256               | UPDATE
+ turns               | code_switch_detected          | INSERT
+ turns               | code_switch_detected          | SELECT
+ conversations       | completed_at                  | INSERT
+ conversations       | completed_at                  | SELECT
+ conversations       | completed_at                  | UPDATE
+ transcripts         | completed_at                  | INSERT
+ transcripts         | completed_at                  | SELECT
+ transcripts         | completed_at                  | UPDATE
+ turns               | completed_at                  | INSERT
+ turns               | completed_at                  | SELECT
+ conversations       | completion_tokens_used        | INSERT
+ conversations       | completion_tokens_used        | SELECT
+ conversations       | completion_tokens_used        | UPDATE
+ transcript_segments | confidence                    | INSERT
+ transcript_segments | confidence                    | SELECT
+ recordings          | consent_obtained              | INSERT
+ recordings          | consent_obtained              | SELECT
+ recordings          | consent_obtained              | UPDATE
+ conversations       | contact_ref                   | INSERT
+ conversations       | contact_ref                   | SELECT
+ conversations       | contact_ref                   | UPDATE
+ recordings          | content_type                  | INSERT
+ recordings          | content_type                  | SELECT
+ recordings          | content_type                  | UPDATE
+ recordings          | conversation_id               | INSERT
+ recordings          | conversation_id               | SELECT
+ recordings          | conversation_id               | UPDATE
+ transcript_segments | conversation_id               | INSERT
+ transcript_segments | conversation_id               | SELECT
+ transcripts         | conversation_id               | INSERT
+ transcripts         | conversation_id               | SELECT
+ transcripts         | conversation_id               | UPDATE
+ turns               | conversation_id               | INSERT
+ turns               | conversation_id               | SELECT
+ conversations       | created_at                    | INSERT
+ conversations       | created_at                    | SELECT
+ conversations       | created_at                    | UPDATE
+ recordings          | created_at                    | INSERT
+ recordings          | created_at                    | SELECT
+ recordings          | created_at                    | UPDATE
+ transcript_segments | created_at                    | INSERT
+ transcript_segments | created_at                    | SELECT
+ transcripts         | created_at                    | INSERT
+ transcripts         | created_at                    | SELECT
+ transcripts         | created_at                    | UPDATE
+ turns               | created_at                    | INSERT
+ turns               | created_at                    | SELECT
+ recordings          | delete_after                  | INSERT
+ recordings          | delete_after                  | SELECT
+ recordings          | delete_after                  | UPDATE
+ recordings          | deleted_at                    | INSERT
+ recordings          | deleted_at                    | SELECT
+ recordings          | deleted_at                    | UPDATE
+ recordings          | deleted_by                    | INSERT
+ recordings          | deleted_by                    | SELECT
+ recordings          | deleted_by                    | UPDATE
+ turns               | detected_language             | INSERT
+ turns               | detected_language             | SELECT
+ turns               | detected_languages            | INSERT
+ turns               | detected_languages            | SELECT
+ turns               | directive_kind                | INSERT
+ turns               | directive_kind                | SELECT
+ recordings          | duration_seconds              | INSERT
+ recordings          | duration_seconds              | SELECT
+ recordings          | duration_seconds              | UPDATE
+ transcript_segments | end_ms                        | INSERT
+ transcript_segments | end_ms                        | SELECT
+ recordings          | file_size_bytes               | INSERT
+ recordings          | file_size_bytes               | SELECT
+ recordings          | file_size_bytes               | UPDATE
+ conversations       | id                            | INSERT
+ conversations       | id                            | SELECT
+ conversations       | id                            | UPDATE
+ recordings          | id                            | INSERT
+ recordings          | id                            | SELECT
+ recordings          | id                            | UPDATE
+ transcript_segments | id                            | INSERT
+ transcript_segments | id                            | SELECT
+ transcripts         | id                            | INSERT
+ transcripts         | id                            | SELECT
+ transcripts         | id                            | UPDATE
+ turns               | id                            | INSERT
+ turns               | id                            | SELECT
+ transcript_segments | is_partial                    | INSERT
+ transcript_segments | is_partial                    | SELECT
+ transcript_segments | language                      | INSERT
+ transcript_segments | language                      | SELECT
+ turns               | language_detection_confidence | INSERT
+ turns               | language_detection_confidence | SELECT
+ turns               | llm_first_token_ms            | INSERT
+ turns               | llm_first_token_ms            | SELECT
+ turns               | llm_provider_id               | INSERT
+ turns               | llm_provider_id               | SELECT
+ conversations       | organization_id               | INSERT
+ conversations       | organization_id               | SELECT
+ conversations       | organization_id               | UPDATE
+ recordings          | organization_id               | INSERT
+ recordings          | organization_id               | SELECT
+ recordings          | organization_id               | UPDATE
+ transcript_segments | organization_id               | INSERT
+ transcript_segments | organization_id               | SELECT
+ transcripts         | organization_id               | INSERT
+ transcripts         | organization_id               | SELECT
+ transcripts         | organization_id               | UPDATE
+ turns               | organization_id               | INSERT
+ turns               | organization_id               | SELECT
+ conversations       | prompt_tokens_used            | INSERT
+ conversations       | prompt_tokens_used            | SELECT
+ conversations       | prompt_tokens_used            | UPDATE
+ transcript_segments | provider_segment_id           | INSERT
+ transcript_segments | provider_segment_id           | SELECT
+ conversations       | qualification_outcome         | INSERT
+ conversations       | qualification_outcome         | SELECT
+ conversations       | qualification_outcome         | UPDATE
+ recordings          | recording_policy              | INSERT
+ recordings          | recording_policy              | SELECT
+ recordings          | recording_policy              | UPDATE
+ turns               | response_text                 | INSERT
+ turns               | response_text                 | SELECT
+ recordings          | retention_days                | INSERT
+ recordings          | retention_days                | SELECT
+ recordings          | retention_days                | UPDATE
+ conversations       | sentiment_label               | INSERT
+ conversations       | sentiment_label               | SELECT
+ conversations       | sentiment_label               | UPDATE
+ conversations       | sentiment_score               | INSERT
+ conversations       | sentiment_score               | SELECT
+ conversations       | sentiment_score               | UPDATE
+ transcript_segments | sequence_number               | INSERT
+ transcript_segments | sequence_number               | SELECT
+ turns               | sequence_number               | INSERT
+ turns               | sequence_number               | SELECT
+ transcript_segments | speaker                       | INSERT
+ transcript_segments | speaker                       | SELECT
+ turns               | speaker_role                  | INSERT
+ turns               | speaker_role                  | SELECT
+ transcript_segments | start_ms                      | INSERT
+ transcript_segments | start_ms                      | SELECT
+ conversations       | started_at                    | INSERT
+ conversations       | started_at                    | SELECT
+ conversations       | started_at                    | UPDATE
+ conversations       | status                        | INSERT
+ conversations       | status                        | SELECT
+ conversations       | status                        | UPDATE
+ recordings          | status                        | INSERT
+ recordings          | status                        | SELECT
+ recordings          | status                        | UPDATE
+ transcripts         | status                        | INSERT
+ transcripts         | status                        | SELECT
+ transcripts         | status                        | UPDATE
+ recordings          | storage_provider              | INSERT
+ recordings          | storage_provider              | SELECT
+ recordings          | storage_provider              | UPDATE
+ recordings          | storage_ref                   | INSERT
+ recordings          | storage_ref                   | SELECT
+ recordings          | storage_ref                   | UPDATE
+ turns               | stt_ms                        | INSERT
+ turns               | stt_ms                        | SELECT
+ transcript_segments | stt_provider_id               | INSERT
+ transcript_segments | stt_provider_id               | SELECT
+ turns               | stt_provider_id               | INSERT
+ turns               | stt_provider_id               | SELECT
+ conversations       | summary_text                  | INSERT
+ conversations       | summary_text                  | SELECT
+ conversations       | summary_text                  | UPDATE
+ transcript_segments | text                          | INSERT
+ transcript_segments | text                          | SELECT
+ turns               | tool_execution_ids            | INSERT
+ turns               | tool_execution_ids            | SELECT
+ transcripts         | total_segments                | INSERT
+ transcripts         | total_segments                | SELECT
+ transcripts         | total_segments                | UPDATE
+ conversations       | total_tokens_used             | INSERT
+ conversations       | total_tokens_used             | SELECT
+ conversations       | total_tokens_used             | UPDATE
+ conversations       | total_turns                   | INSERT
+ conversations       | total_turns                   | SELECT
+ conversations       | total_turns                   | UPDATE
+ transcript_segments | transcript_id                 | INSERT
+ transcript_segments | transcript_id                 | SELECT
+ turns               | tts_first_audio_ms            | INSERT
+ turns               | tts_first_audio_ms            | SELECT
+ turns               | turn_e2e_ms                   | INSERT
+ turns               | turn_e2e_ms                   | SELECT
+ conversations       | updated_at                    | INSERT
+ conversations       | updated_at                    | SELECT
+ conversations       | updated_at                    | UPDATE
+ recordings          | updated_at                    | INSERT
+ recordings          | updated_at                    | SELECT
+ recordings          | updated_at                    | UPDATE
+ transcripts         | updated_at                    | INSERT
+ transcripts         | updated_at                    | SELECT
+ transcripts         | updated_at                    | UPDATE
+ turns               | utterance_confidence          | INSERT
+ turns               | utterance_confidence          | SELECT
+ turns               | utterance_end_ms              | INSERT
+ turns               | utterance_end_ms              | SELECT
+ turns               | utterance_start_ms            | INSERT
+ turns               | utterance_start_ms            | SELECT
+ turns               | utterance_text                | INSERT
+ turns               | utterance_text                | SELECT
+ turns               | workflow_node_ref             | INSERT
+ turns               | workflow_node_ref             | SELECT
+(222 rows)
+
+=== [T3] (as app_api, tenant=Org A) full-content recording read, including storage_ref -- expect SUCCESS, same as before 107 ===
+SET
+                  id                  |           organization_id            |                           storage_ref                            | status | consent_obtained 
+--------------------------------------+--------------------------------------+------------------------------------------------------------------+--------+------------------
+ f0000000-0000-4000-8000-000000000202 | f0000000-0000-4000-8000-0000000000a1 | org/f0000000-0000-4000-8000-0000000000a1/recordings/call-301.wav | STORED | t
+(1 row)
+
+=== [T4] (as app_api, tenant=Org A) full-content transcript segment read, including text -- expect SUCCESS, same as before 107 ===
+                  id                  |           organization_id            |                                       text                                        | sequence_number 
+--------------------------------------+--------------------------------------+-----------------------------------------------------------------------------------+-----------------
+ f0000000-0000-4000-8000-000000000204 | f0000000-0000-4000-8000-0000000000a1 | SENSITIVE: my date of birth is 4th of March and my prescription number is 9981.   |               0
+ f0000000-0000-4000-8000-000000000205 | f0000000-0000-4000-8000-0000000000a1 | SENSITIVE: confirming refill for prescription 9981, dispatching to your pharmacy. |               1
+(2 rows)
+
+=== [T5] (as app_api, tenant=Org A) RLS still correctly excludes Org B rows -- expect 0 rows for the Org B recording id ===
+ id | organization_id | storage_ref 
+----+-----------------+-------------
+(0 rows)
+
+=== [T6] (as app_api, tenant=Org B) switching tenant context -- Org B recording now visible, Org A recording now excluded (proves RLS scoping is per-request tenant context, unaffected by any app_platform_admin change) ===
+SET
+                  id                  |           organization_id            |                           storage_ref                            
+--------------------------------------+--------------------------------------+------------------------------------------------------------------
+ f0000000-0000-4000-8000-000000000212 | f0000000-0000-4000-8000-0000000000a2 | org/f0000000-0000-4000-8000-0000000000a2/recordings/call-311.wav
+(1 row)
+
+ id | organization_id | storage_ref 
+----+-----------------+-------------
+(0 rows)
+

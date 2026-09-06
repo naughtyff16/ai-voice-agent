@@ -1,0 +1,64 @@
+SET
+=== [F1] valid refund reservation on d1 (Org A, SUCCEEDED 1000 INR, 100 already PENDING via fixture e1 -> 900 remaining) -- reserve 200 -- expect SUCCESS, new PENDING row ===
+                  id                  | status  | amount_amount | amount_currency | payment_provider | provider_refund_id |                                   reason                                   
+--------------------------------------+---------+---------------+-----------------+------------------+--------------------+----------------------------------------------------------------------------
+ 01a06c2d-5e47-7248-9f03-034cd2ea6b02 | PENDING |      200.0000 | INR             | RAZORPAY         |                    | SS30 F1: valid partial refund reservation, well within remaining capacity.
+(1 row)
+
+=== [F1b] audit event for F1 reservation was written atomically -- expect one REFUND_RESERVED row referencing f1 refund id ===
+   action_kind   |   actor_type   | resource_type |             resource_id              | outcome 
+-----------------+----------------+---------------+--------------------------------------+---------
+ REFUND_RESERVED | PLATFORM_ADMIN | REFUND        | 01a06c2d-5e47-7248-9f03-034cd2ea6b02 | SUCCESS
+(1 row)
+
+=== [F2] over-refund rejected: d1 remaining after F1 is 1000 - 100(e1) - 200(f1) = 700. Try to reserve 800 -- expect EXCEPTION ===
+psql:/tmp/6M_24_refund_battery.sql:31: ERROR:  fn_platform_reserve_refund: requested refund 800 plus already-reserved/settled 300.0000 would exceed original payment amount 1000.0000.
+CONTEXT:  PL/pgSQL function fn_platform_reserve_refund(uuid,uuid,uuid,numeric,character,text) line 44 at RAISE
+=== [F3] zero amount rejected -- expect EXCEPTION ===
+psql:/tmp/6M_24_refund_battery.sql:39: ERROR:  fn_platform_reserve_refund: p_amount must be positive.
+CONTEXT:  PL/pgSQL function fn_platform_reserve_refund(uuid,uuid,uuid,numeric,character,text) line 14 at RAISE
+=== [F4] negative amount rejected -- expect EXCEPTION ===
+psql:/tmp/6M_24_refund_battery.sql:47: ERROR:  fn_platform_reserve_refund: p_amount must be positive.
+CONTEXT:  PL/pgSQL function fn_platform_reserve_refund(uuid,uuid,uuid,numeric,character,text) line 14 at RAISE
+=== [F5] "duplicate reservation" on a fully-covering amount: reserve 100 on fresh d5 (100 INR, unrefunded) -- expect SUCCESS ===
+                  id                  | status  | amount_amount 
+--------------------------------------+---------+---------------
+ 01a06c2d-5e4d-76df-ac5b-5bfe9fdb42d7 | PENDING |      100.0000
+(1 row)
+
+=== [F5b] second reservation attempt on the SAME payment_attempt d5, no idempotency key exists at the DB layer (function has no dedup/idempotency-key parameter) -- expect EXCEPTION via the ordinary over-refund guard, proving double-reservation cannot silently double-spend even without an explicit idempotency key ===
+psql:/tmp/6M_24_refund_battery.sql:64: ERROR:  fn_platform_reserve_refund: requested refund 100 plus already-reserved/settled 100.0000 would exceed original payment amount 100.0000.
+CONTEXT:  PL/pgSQL function fn_platform_reserve_refund(uuid,uuid,uuid,numeric,character,text) line 44 at RAISE
+=== [F6] currency mismatch rejected (payment_attempt d1 is INR, request USD) -- expect EXCEPTION, proving currency is validated against the payment_attempt, not trusted from the caller ===
+psql:/tmp/6M_24_refund_battery.sql:72: ERROR:  fn_platform_reserve_refund: currency USD does not match payment_attempt currency INR.
+CONTEXT:  PL/pgSQL function fn_platform_reserve_refund(uuid,uuid,uuid,numeric,character,text) line 35 at RAISE
+=== [F7] failed payment cannot be refunded (d2 is FAILED, 500 INR) -- expect EXCEPTION ===
+psql:/tmp/6M_24_refund_battery.sql:80: ERROR:  fn_platform_reserve_refund: payment_attempt f0000000-0000-4000-8000-0000000000d2 is not SUCCEEDED (status=FAILED).
+CONTEXT:  PL/pgSQL function fn_platform_reserve_refund(uuid,uuid,uuid,numeric,character,text) line 32 at RAISE
+=== [F8] wrong org identifier cannot redirect a refund: d3 belongs to Org B, but caller supplies Org A as p_organization_id -- expect EXCEPTION ("does not belong to organization"), proving org_id is validated against the payment_attempt row, not trusted verbatim from the caller ===
+psql:/tmp/6M_24_refund_battery.sql:88: ERROR:  fn_platform_reserve_refund: payment_attempt f0000000-0000-4000-8000-0000000000d3 does not belong to organization f0000000-0000-4000-8000-0000000000a1.
+CONTEXT:  PL/pgSQL function fn_platform_reserve_refund(uuid,uuid,uuid,numeric,character,text) line 29 at RAISE
+=== [F9] correct org identifier for d3 (Org B) succeeds normally -- expect SUCCESS, confirming F8 failed for the org-mismatch reason specifically, not some unrelated defect ===
+                  id                  |           organization_id            | status  | amount_amount | payment_provider 
+--------------------------------------+--------------------------------------+---------+---------------+------------------
+ 01a06c2d-5e4f-725b-aaf3-f396d2fe662a | f0000000-0000-4000-8000-0000000000a2 | PENDING |      100.0000 | RAZORPAY
+(1 row)
+
+=== [F10] provider is server-derived, not caller-supplied: F9 refund row payment_provider must equal d3 payment_attempt.payment_provider even though fn_platform_reserve_refund has no p_provider parameter at all ===
+ refund_provider | source_payment_attempt_provider | matches 
+-----------------+---------------------------------+---------
+ RAZORPAY        | RAZORPAY                        | t
+(1 row)
+
+=== [F11] reserve remaining capacity on d6 (150 INR) for the later fail-refund test -- expect SUCCESS ===
+                  id                  | status  | amount_amount 
+--------------------------------------+---------+---------------
+ 01a06c2d-5e51-7e01-9f85-8512d535d16e | PENDING |      150.0000
+(1 row)
+
+=== [F12] app_platform_admin (still connected as such) attempts to settle F1's refund directly -- expect EXCEPTION (permission architecture forbids a human/admin route from fabricating SUCCEEDED, SS7) ===
+psql:/tmp/6M_24_refund_battery.sql:115: ERROR:  permission denied for function fn_platform_settle_refund
+=== record the reserved refund ids for the second (multi-principal) script ===
+01a06c2d-5e47-7248-9f03-034cd2ea6b02
+01a06c2d-5e4f-725b-aaf3-f396d2fe662a
+01a06c2d-5e51-7e01-9f85-8512d535d16e

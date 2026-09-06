@@ -1,0 +1,13 @@
+                                      List of roles
+          Role name          |                         Attributes                         
+-----------------------------+------------------------------------------------------------
+ app_api                     | 
+ app_billing_reconciler      | 
+ app_billing_webhook_ingress | 
+ app_migration               | Bypass RLS
+ app_platform_admin          | Bypass RLS
+ app_readonly                | 
+ app_voice_reconciler        | 
+ app_worker                  | 
+ postgres                    | Superuser, Create role, Create DB, Replication, Bypass RLS
+

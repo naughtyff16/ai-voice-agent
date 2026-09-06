@@ -1,0 +1,20 @@
+SET
+--- 1. parent table, sensitive column (expect permission denied) ---
+ERROR:  permission denied for table transcript_segments
+--- 2. CHILD PARTITION direct, sensitive column (F-26-1: expect permission denied POST-FIX) ---
+--- 3. CHILD PARTITION direct, DELETE capability (expect permission denied POST-FIX) ---
+ERROR:  permission denied for table transcript_segments_2026_09
+ERROR:  permission denied for table transcript_segments_2026_09
+--- 4. CHILD PARTITION direct, INSERT capability (expect permission denied POST-FIX) ---
+--- 5. CHILD PARTITION direct, metadata column (expect SUCCESS) ---
+ERROR:  permission denied for table transcript_segments_2026_09
+ sequence_number | speaker 
+-----------------+---------
+(0 rows)
+
+--- 6. remaining partitions, sensitive column (expect permission denied on each) ---
+ERROR:  permission denied for table transcript_segments_2026_10
+ERROR:  permission denied for table transcript_segments_2026_11
+ERROR:  permission denied for table transcript_segments_2026_12
+ERROR:  permission denied for table transcript_segments_default
+RESET

@@ -1,0 +1,74 @@
+-- SS30 financial test battery, part 2 -- multi-principal settlement tests.
+-- Refund ids carried over from part 1:
+--   f1  = 01a06c2d-5e47-7248-9f03-034cd2ea6b02  (d1, Org A, 200 INR PENDING)
+--   f5  = 01a06c2d-5e4d-76df-ac5b-5bfe9fdb42d7  (d5, Org A, 100 INR PENDING, dedicated to duplicate-callback test)
+--   f9  = 01a06c2d-5e4f-725b-aaf3-f396d2fe662a  (d3, Org B, 100 INR PENDING)
+--   f11 = 01a06c2d-5e51-7e01-9f85-8512d535d16e  (d6, Org A, 150 INR PENDING, dedicated to fail-refund test)
+\set ON_ERROR_STOP off
+\set f1  '01a06c2d-5e47-7248-9f03-034cd2ea6b02'
+\set f5  '01a06c2d-5e4d-76df-ac5b-5bfe9fdb42d7'
+\set f11 '01a06c2d-5e51-7e01-9f85-8512d535d16e'
+\set admin '\'f0000000-0000-4000-8000-000000000002\''
+
+\echo '################ SECTION A: as app_api -- expect DENIED on every privileged refund function ################'
+\connect - app_api
+
+\echo '=== [F13] app_api attempts fn_platform_settle_refund -- expect permission denied (not GRANTed to app_api at all) ==='
+SELECT billing.fn_platform_settle_refund(:'f1'::uuid, :admin::uuid, 'app_api_forged_ref');
+
+\echo '=== [F14] app_api attempts fn_platform_reserve_refund -- expect permission denied (Platform-Admin-only) ==='
+SELECT billing.fn_platform_reserve_refund('f0000000-0000-4000-8000-0000000000a1'::uuid, :admin::uuid, 'f0000000-0000-4000-8000-0000000000d4'::uuid, 100, 'INR', 'SS30 F14: app_api forged reservation attempt.');
+
+\echo '=== [F14b] app_api attempts fn_platform_fail_refund -- expect permission denied ==='
+SELECT billing.fn_platform_fail_refund(:'f11'::uuid, :admin::uuid, 'app_api forged failure');
+
+\echo '################ SECTION B: as app_billing_reconciler -- the ONLY principal that may settle/fail ################'
+\connect - app_billing_reconciler
+
+\echo '=== [F15] trusted reconciler settles f1 with a real-looking provider_refund_id -- expect SUCCESS/SUCCEEDED ==='
+SELECT billing.fn_platform_settle_refund(:'f1'::uuid, :admin::uuid, 'razorpay_rfnd_001') AS f15_result;
+
+\echo '=== [F16] verify f1 refund row is now SUCCEEDED, provider_refund_id and completed_at populated ==='
+SELECT id, status, provider_refund_id, completed_at IS NOT NULL AS has_completed_at FROM billing.refunds WHERE id = :'f1'::uuid;
+
+\echo '=== [F17] verify REFUND_SETTLED audit event, actor_type WORKER (not PLATFORM_ADMIN -- the settlement is attributed to the trusted worker principal, with the requesting admin recorded only inside metadata) ==='
+SELECT action_kind, actor_type, resource_id, outcome, metadata->>'requested_by_admin_user_id' AS requested_by_admin
+FROM audit.audit_events WHERE resource_type = 'REFUND' AND resource_id = :'f1'::uuid AND action_kind = 'REFUND_SETTLED';
+
+\echo '=== [F18] duplicate settle call on f1 (same provider_refund_id) -- expect idempotent no-op, still returns SUCCEEDED, no error, no state change ==='
+SELECT billing.fn_platform_settle_refund(:'f1'::uuid, :admin::uuid, 'razorpay_rfnd_001') AS f18_result;
+
+\echo '=== [F18b] confirm only ONE REFUND_SETTLED audit row exists for f1 after two settle calls -- the idempotent no-op path returns before the audit insert, so it does not double-write ==='
+SELECT count(*) AS refund_settled_audit_rows FROM audit.audit_events WHERE resource_type = 'REFUND' AND resource_id = :'f1'::uuid AND action_kind = 'REFUND_SETTLED';
+
+\echo '=== [F19] duplicate provider callback idempotency on f5: first settle -- expect SUCCEEDED ==='
+SELECT billing.fn_platform_settle_refund(:'f5'::uuid, :admin::uuid, 'razorpay_rfnd_dup_001') AS f19a_result;
+
+\echo '=== [F19b] second callback for f5 with the SAME provider_refund_id -- expect idempotent no-op, SUCCEEDED, no error ==='
+SELECT billing.fn_platform_settle_refund(:'f5'::uuid, :admin::uuid, 'razorpay_rfnd_dup_001') AS f19b_result;
+
+\echo '=== [F19c] a THIRD callback for f5 with a DIFFERENT provider_refund_id -- function has no equality re-check once terminal; still returns SUCCEEDED as a no-op and the ORIGINAL provider_refund_id on the row is left untouched (documented behavior, not a defect: once terminal, the row is immutable via this path) ==='
+SELECT billing.fn_platform_settle_refund(:'f5'::uuid, :admin::uuid, 'a_different_ref_that_must_not_overwrite') AS f19c_result;
+SELECT id, status, provider_refund_id FROM billing.refunds WHERE id = :'f5'::uuid;
+
+\echo '=== [F20] trusted reconciler fails f11 (simulating a provider decline) -- expect FAILED ==='
+SELECT billing.fn_platform_fail_refund(:'f11'::uuid, :admin::uuid, 'Provider declined the refund: insufficient merchant balance.') AS f20_result;
+
+\echo '=== [F21] verify f11 refund row is FAILED, failure_reason and completed_at populated ==='
+SELECT id, status, failure_reason, completed_at IS NOT NULL AS has_completed_at FROM billing.refunds WHERE id = :'f11'::uuid;
+
+\echo '=== [F22] verify REFUND_FAILED audit event, actor_type WORKER ==='
+SELECT action_kind, actor_type, resource_id, outcome FROM audit.audit_events WHERE resource_type = 'REFUND' AND resource_id = :'f11'::uuid AND action_kind = 'REFUND_FAILED';
+
+\echo '=== [F23] attempt to SETTLE f11 after it is already FAILED (terminal) -- expect EXCEPTION, proving no accidental success-after-failure retry path ==='
+SELECT billing.fn_platform_settle_refund(:'f11'::uuid, :admin::uuid, 'late_provider_success_ref');
+
+\echo '=== [F24] attempt to FAIL f1 after it is already SUCCEEDED (terminal) -- expect EXCEPTION ==='
+SELECT billing.fn_platform_fail_refund(:'f1'::uuid, :admin::uuid, 'late spurious failure callback');
+
+\echo '################ SECTION C: back to app_platform_admin -- symmetric fail-refund fabrication check ################'
+\connect - app_platform_admin
+SET app.is_platform_admin = 'true';
+
+\echo '=== [F25] app_platform_admin attempts fn_platform_fail_refund directly on f9 (still PENDING) -- expect permission denied, symmetric to F12 ==='
+SELECT billing.fn_platform_fail_refund(:'f11'::uuid, :admin::uuid, 'admin attempting to fabricate a failure directly');

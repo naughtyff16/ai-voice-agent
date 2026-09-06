@@ -1,0 +1,26 @@
+$ sha256sum docs/phase-05-database-design/5K/migrations/102_5H2.sql docs/phase-05-database-design/5K/migrations/103_5J2.sql docs/phase-05-database-design/5K/migrations/104_5B3.sql docs/phase-05-database-design/5K/migrations/105_5B4.sql docs/phase-05-database-design/5K/migrations/106_5H3.sql
+73b9f7aed921ccc373cc634372ac7ac75c0490872d55af21116c3ff182445b3d  docs/phase-05-database-design/5K/migrations/102_5H2.sql
+fba53d7ecc09b345335ea4aea600ca2ffbb288aed42775ff986dcabf8e8dfb87  docs/phase-05-database-design/5K/migrations/103_5J2.sql
+4b8ab081e9064c96ecdbc59545fa9af3ffd878032a47baff45af6ee6a2ca8183  docs/phase-05-database-design/5K/migrations/104_5B3.sql
+a16262285c3a4f1d290817940a8ed28e6c4ad6348f6ec2cc19f21ce2eb779a57  docs/phase-05-database-design/5K/migrations/105_5B4.sql
+d589017d89d329f123f990faedb823574ce9f109b3600d6104b98447d50f2ac0  docs/phase-05-database-design/5K/migrations/106_5H3.sql
+
+$ wc -c docs/phase-05-database-design/5K/migrations/102_5H2.sql docs/phase-05-database-design/5K/migrations/103_5J2.sql docs/phase-05-database-design/5K/migrations/104_5B3.sql docs/phase-05-database-design/5K/migrations/105_5B4.sql docs/phase-05-database-design/5K/migrations/106_5H3.sql
+127971 docs/phase-05-database-design/5K/migrations/102_5H2.sql
+ 13907 docs/phase-05-database-design/5K/migrations/103_5J2.sql
+  6649 docs/phase-05-database-design/5K/migrations/104_5B3.sql
+ 15898 docs/phase-05-database-design/5K/migrations/105_5B4.sql
+ 21430 docs/phase-05-database-design/5K/migrations/106_5H3.sql
+185855 total
+
+=== Confirmation: 102_5H2.sql / 103_5J2.sql / 104_5B3.sql sha256 are byte-identical
+to the values recorded pre-6M in 20260903T000000Z_6L_13_final_checksums_and_sizes.txt
+(diff of the three hash values: empty, exit 0). Untouched by Phase 6M as required.
+
+=== 105_5B4.sql and 106_5H3.sql checksums are NEW/CHANGED vs any prior record: ===
+105_5B4.sql is unchanged from its original authoring earlier in Phase 6M (not
+touched by the is_platform_admin() security fix, which was added to 106_5H3.sql
+only). 106_5H3.sql's checksum reflects the file AFTER the (0) CRITICAL SECURITY
+FIX section (CREATE OR REPLACE FUNCTION organization.is_platform_admin() with
+COALESCE) was added on top of the original two additive changes -- this is the
+final, validated checksum for 106_5H3.sql as shipped.
