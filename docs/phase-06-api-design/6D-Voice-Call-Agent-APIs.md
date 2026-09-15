@@ -15,6 +15,16 @@
 
 ---
 
+### 1a. Controlled Amendment — PostgreSQL Baseline Clarification (Final API Reconciliation pass, 2026-09-06)
+
+§28.10a's dispatch-idempotency/reconciliation amendment repeatedly describes PostgreSQL 16 / 16.10 as "the declared production baseline," per the governing remediation task's own instruction in force for that specific pass (the same pass, and the same instruction, documented at `6H-Campaign-APIs.md` DEP-6H-26). That phrasing is preserved unedited as the historical record of what was actually validated and why — this document's own disclosed policy is to never rewrite a prior pass's true record.
+
+It is not a current statement of the platform's production database engine. Per `MIGRATION_MANIFEST.md`'s "PostgreSQL 18 Baseline Reconciliation" entry and every later Phase 6 document (6J §63, 6K §8, 6L §19/§57, 6M), **PostgreSQL 18 is the platform's sole authoritative production baseline as of this reconciliation pass**. This is not a new fact for the guarantees in §28.10a specifically: the amendment's own text already records that the two preceding passes validated the identical migration against PostgreSQL 18 before the PG16-targeted passes ran, so every guarantee it makes has independent PostgreSQL 18 evidence behind it as well.
+
+No sentence elsewhere in this document is edited by this amendment. Where "the declared production baseline" appears attached to a PostgreSQL 16/16.10 validation run in §28.10a, it should be read as the baseline declared for that specific remediation pass — historical validation evidence, not a live claim superseding the PostgreSQL 18 baseline stated here.
+
+---
+
 ## 2. Purpose
 
 Phase 6C closed Core Platform (Organizations, Memberships, Teams, Compliance Policy configuration, Data Subject Requests, User Profile) and left an explicit, named gap: *"Voice/AI Agent/Knowledge/CRM/Campaign/Workflow/Integrations/Billing/Analytics/Admin — DEFERRED — 6D–6M"* (6C §6 Resource Ownership Matrix, row 107). This document is the first bounded-context API design to fill that gap, taking the first-listed, foundationally-required context: **Voice & AI** (4B).
@@ -1241,8 +1251,8 @@ Every row below states: endpoint, permission, actor eligibility, API-key eligibi
 | `GET /phone-numbers[/{id}]` | `call:read` *(interim mapping — DEP-6D-03)* | USER, API_KEY | Yes | No |
 | `POST /phone-numbers/{id}/assign-agent` | `agent:publish` *(interim mapping, retargeted this pass — DEP-6D-03, ADR-6D-08; **not** `agent:write`)* | USER | No | No |
 | `GET /language-evaluations` | `agent:read` (adequate reuse — no gap; matches 5C §11.5's "read by all application roles" platform-reference-data posture) | USER, API_KEY | Yes | No |
-| `GET /internal/v1/calls/{id}` | None (internal service JWT only, 6A §23.4/6B §17) | PLATFORM_ADMIN via internal service | No | Yes — central internal token issuer only |
-| `GET /internal/v1/agents/{id}/versions/{id}` | Same as above | PLATFORM_ADMIN via internal service | No | Yes |
+| `GET /api/internal/v1/calls/{call_id}` | None (internal service JWT only, 6A §23.4/6B §17) | PLATFORM_ADMIN via internal service | No | Yes — central internal token issuer only |
+| `GET /api/internal/v1/agents/{agent_id}/versions/{version_id}` | Same as above | PLATFORM_ADMIN via internal service | No | Yes |
 | `/ws/v1/voice/calls/{id}[/stream]` | `call:read`, re-verified on subscribe (§13.4) | USER only (no API-key WS auth, §13.2) | No | No |
 
 **Cross-tenant behavior:** every row above returns `404 RESOURCE_NOT_FOUND` for a resource ID belonging to another tenant — never `403` (6B/6C's established discipline, reused without exception). This includes `recording_id`/`transcript_id`/`conversation_id`/`call_id` path values: a foreign-tenant ID never distinguishes "exists in another org" from "does not exist at all" in the response (no existence-enumeration oracle).

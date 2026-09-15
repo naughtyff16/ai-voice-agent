@@ -1,0 +1,312 @@
+==================================================================================
+FAR_DB_02 - ACTIVE_AGENTS QUOTA ADMISSION: LIVE CONCURRENCY, ROLLBACK, CLONE
+Final API Reconciliation - controlled DB remediation (migration 110_5C2)
+Directive sections evidenced: §13 (cases A-G, I, J), §15 (audit/outbox atomicity)
+==================================================================================
+
+ENGINE ..... PostgreSQL 18.6, disposable database far_fresh (localhost:55443),
+             built by `alembic upgrade head` from base -> 110_5C2. Destroyed after the pass.
+CALLER ..... every statement runs as SET LOCAL ROLE app_api with
+             SET LOCAL app.tenant_id = '<org>', i.e. exactly the runtime API principal.
+
+HOW GENUINE CONCURRENCY WAS PRODUCED (§13 forbids simulating it sequentially)
+----------------------------------------------------------------------------------
+  A controller session first takes the SAME advisory key the guarded function uses:
+
+     BEGIN;
+     SELECT pg_advisory_xact_lock(hashtext('voice.agent_quota:<org>')::bigint);
+
+  Two worker psql processes are then launched in parallel. Each enters
+  voice.fn_create_agent() / voice.fn_clone_agent(), reaches the internal
+  pg_advisory_xact_lock() and BLOCKS. The harness polls pg_locks until it observes
+
+     SELECT count(*) FROM pg_locks
+      WHERE locktype='advisory' AND NOT granted
+        AND objid = (hashtext('voice.agent_quota:<org>')::bigint & 4294967295);
+
+  reaching 2 - i.e. both workers are simultaneously parked on the lock, inside the
+  function, before either has counted anything. Only then does the controller COMMIT,
+  releasing the key and letting the two workers race for it. The "workers
+  simultaneously blocked" line in each case below is that observation.
+
+----------------------------------------------------------------------------------
+§13 CASES A, B, E - two truly concurrent admissions
+----------------------------------------------------------------------------------
+==================================================================
+CASE A   org=e0000000-0000-4000-8000-00000000000a  hard_limit=5  prefill=0  op=create
+==================================================================
+-- pre-state: active agents = 0
+-- controller holds advisory key (granted locks = 1)
+-- workers simultaneously blocked inside the guarded function: 2  (proves real concurrency, not sequential execution)
+-- worker1 (exit 0):
+     BEGIN
+     SET
+     SET
+     01a0a0d2-6172-769f-9741-419643327b70
+     COMMIT
+-- worker2 (exit 0):
+     BEGIN
+     SET
+     SET
+     01a0a0d2-6169-72b4-98cb-cb97094301ef
+     COMMIT
+-- post-state: active agents = 2
+-- quota rejections (53400) among the two workers: 0
+-- agent_versions written during this case: 0
+
+==================================================================
+CASE B   org=e0000000-0000-4000-8000-00000000000b  hard_limit=3  prefill=2  op=create
+==================================================================
+-- pre-state: active agents = 2
+-- controller holds advisory key (granted locks = 1)
+-- workers simultaneously blocked inside the guarded function: 2  (proves real concurrency, not sequential execution)
+-- worker1 (exit 1):
+     BEGIN
+     SET
+     SET
+     ERROR:  ACTIVE_AGENTS quota exceeded
+     DETAIL:  metric=ACTIVE_AGENTS; hard_limit=3.0000; active=3
+     CONTEXT:  PL/pgSQL function fn_assert_agent_quota_admission(uuid) line 57 at RAISE
+     SQL statement "SELECT voice.fn_assert_agent_quota_admission(v_org)"
+     PL/pgSQL function fn_create_agent(uuid,uuid,text,text) line 22 at PERFORM
+-- worker2 (exit 0):
+     BEGIN
+     SET
+     SET
+     01a0a0d2-6337-73d6-969b-9be201f6f9c7
+     COMMIT
+-- post-state: active agents = 3
+-- quota rejections (53400) among the two workers: 1
+-- agent_versions written during this case: 0
+
+==================================================================
+CASE E   org=e0000000-0000-4000-8000-00000000000e  hard_limit=3  prefill=2  op=clone
+==================================================================
+-- pre-state: active agents = 2
+-- controller holds advisory key (granted locks = 1)
+-- workers simultaneously blocked inside the guarded function: 2  (proves real concurrency, not sequential execution)
+-- worker1 (exit 0):
+     BEGIN
+     SET
+     SET
+     01a0a0d2-6482-76c1-9bf2-f2827213ce28
+     COMMIT
+-- worker2 (exit 1):
+     BEGIN
+     SET
+     SET
+     ERROR:  ACTIVE_AGENTS quota exceeded
+     DETAIL:  metric=ACTIVE_AGENTS; hard_limit=3.0000; active=3
+     CONTEXT:  PL/pgSQL function fn_assert_agent_quota_admission(uuid) line 57 at RAISE
+     SQL statement "SELECT voice.fn_assert_agent_quota_admission(v_org)"
+     PL/pgSQL function fn_clone_agent(uuid,uuid,uuid,uuid) line 55 at PERFORM
+-- post-state: active agents = 3
+-- quota rejections (53400) among the two workers: 1
+-- agent_versions written during this case: 0
+
+  CASE A verdict: >=2 free slots -> BOTH concurrent creates succeed. The guard
+                  serializes but does not over-reject.
+  CASE B verdict: exactly ONE free slot -> exactly ONE winner, exactly ONE quota
+                  rejection (SQLSTATE 53400). The limit is never exceeded.
+  CASE E verdict: the clone endpoint is bound by the SAME guard at the boundary -
+                  exactly-one-winner, and 0 agent_versions written.
+
+  NOTE ON NONDETERMINISM: across repeated runs of CASE E the winner alternated
+  between worker1 and worker2. The outcome (exactly one winner) is invariant; which
+  process wins is not. That is direct evidence of real lock contention rather than a
+  scripted ordering.
+
+----------------------------------------------------------------------------------
+§13 CASES C, I, J, F, D, G + CLONE FUNCTIONAL BEHAVIOUR
+----------------------------------------------------------------------------------
+##################################################################
+## TEST C - organization already AT hard_limit: no new row
+##################################################################
+ORG_A hard_limit=2
+create #1 -> 01a0a0d2-2f90-7e6c-981f-1ff69fff0d73
+create #2 -> 01a0a0d2-2fb4-7ba8-914e-4eda6094850f
+active agents now: 2
+create #3 (must be rejected):
+     ERROR:  ACTIVE_AGENTS quota exceeded
+     DETAIL:  metric=ACTIVE_AGENTS; hard_limit=2.0000; active=2
+     CONTEXT:  PL/pgSQL function fn_assert_agent_quota_admission(uuid) line 57 at RAISE
+     SQL statement "SELECT voice.fn_assert_agent_quota_admission(v_org)"
+     PL/pgSQL function fn_create_agent(uuid,uuid,text,text) line 22 at PERFORM
+active agents after rejected attempt: 2   EXPECT 2 (unchanged)
+
+##################################################################
+## TEST I - publish DRAFT->PUBLISHED is count-neutral
+##################################################################
+one agent promoted to PUBLISHED; active agents: 2   EXPECT 2 (PUBLISHED still consumes a slot)
+create must still be rejected:
+     ERROR:  ACTIVE_AGENTS quota exceeded
+     DETAIL:  metric=ACTIVE_AGENTS; hard_limit=2.0000; active=2
+     CONTEXT:  PL/pgSQL function fn_assert_agent_quota_admission(uuid) line 57 at RAISE
+     SQL statement "SELECT voice.fn_assert_agent_quota_admission(v_org)"
+     PL/pgSQL function fn_create_agent(uuid,uuid,text,text) line 22 at PERFORM
+
+##################################################################
+## TEST J - DEPRECATED frees exactly one slot
+##################################################################
+one agent DEPRECATED; active agents: 1   EXPECT 1
+one create must now succeed -> 01a0a0d2-30cf-718d-989d-9ddb853735d0
+active agents: 2   EXPECT 2
+the next create must be rejected again:
+     ERROR:  ACTIVE_AGENTS quota exceeded
+     DETAIL:  metric=ACTIVE_AGENTS; hard_limit=2.0000; active=2
+     CONTEXT:  PL/pgSQL function fn_assert_agent_quota_admission(uuid) line 57 at RAISE
+     SQL statement "SELECT voice.fn_assert_agent_quota_admission(v_org)"
+     PL/pgSQL function fn_create_agent(uuid,uuid,text,text) line 22 at PERFORM
+
+##################################################################
+## TEST F - NULL hard_limit and absent quota row are unlimited
+##################################################################
+ORG_C hard_limit=NULL (overage_allowed):
+   create #1 -> 01a0a0d2-312c-7e45-a9de-dea6c5db5a82
+   create #2 -> 01a0a0d2-314b-75e8-90c3-c3957b7a41d9
+   create #3 -> 01a0a0d2-316b-7d55-8905-0557ad749c97
+   active agents: 3   EXPECT 3 (no admission rejection)
+ORG_D has NO billing.quota_configs row at all:
+   create -> 01a0a0d2-31aa-7a1e-99bd-bd2af409ec9f
+   active agents: 1   EXPECT 1
+
+##################################################################
+## TEST D - admitted then ROLLBACK: no permanent slot, lock released
+##################################################################
+advisory locks before: 0
+     BEGIN
+     SET
+     SET
+     01a0a0d2-320a-79c3-89df-dfec279d9b69
+     ROLLBACK
+rows named rollback-me committed: 0   EXPECT 0
+advisory locks after rollback: 0   EXPECT 0 (pg_advisory_xact_lock auto-released)
+slot reusable -> 01a0a0d2-3263-733b-956a-6a316daf7545
+
+##################################################################
+## TEST G - cross-tenant / missing tenant context, non-disclosing
+##################################################################
+G1a p_organization_id does not match session tenant:
+     ERROR:  fn_create_agent: organization_id 99999999-0000-4000-8000-000000000099 does not match current tenant context
+G1b no tenant context set at all:
+     ERROR:  fn_create_agent: no tenant context (app.tenant_id is not set)
+G2 clone a source Agent owned by ANOTHER tenant (source really exists, in ORG_C; caller is ORG_D):
+     ERROR:  fn_clone_agent: source agent not found
+G3 clone a source Agent that does not exist anywhere:
+     ERROR:  fn_clone_agent: source agent not found
+     ^ G2 and G3 must be byte-identical: cross-tenant existence is not disclosed.
+
+##################################################################
+## CLONE FUNCTIONAL - draft source and published-version source
+##################################################################
+clone from DRAFT source -> 01a0a0d2-339f-742b-9335-351ba633caa9
+clone from PUBLISHED version -> 01a0a0d2-33c7-7432-b169-69e6243d4bc5
+        name    | status | published_version_id |         draft_config          
+     -----------+--------+----------------------+-------------------------------
+      nolimit-1 | DRAFT  |                      | {"greeting": "draft-cfg"}
+      nolimit-2 | DRAFT  |                      | {}
+      nolimit-3 | DRAFT  |                      | {}
+      nolimit-1 | DRAFT  |                      | {"greeting": "draft-cfg"}
+      nolimit-1 | DRAFT  |                      | {"greeting": "published-cfg"}
+     (5 rows)
+     
+     ^ draft-source clone copies draft_config; version-source clone copies snapshot_json.
+       Every clone is status=DRAFT with published_version_id=NULL (draft-vs-published source semantics preserved).
+a version belonging to a DIFFERENT agent must be rejected:
+     ERROR:  fn_clone_agent: source version not found
+voice.agent_versions rows for ORG_C: 1
+     EXPECT 1 - the single fixture row. Neither fn_create_agent nor fn_clone_agent ever writes an AgentVersion.
+
+##################################################################
+  CASE C verdict: at the limit, no new row is created; the count is unchanged.
+  CASE I verdict: DRAFT -> PUBLISHED is count-neutral. The counted predicate is
+                  status IN ('DRAFT','PUBLISHED') AND deleted_at IS NULL, so publishing
+                  moves an Agent between two counted states and frees nothing.
+  CASE J verdict: DEPRECATED is NOT counted, so deprecating frees exactly one slot.
+                  This is the pre-existing Phase-6 semantic, carried over unchanged.
+  CASE F verdict: hard_limit IS NULL (overage_allowed) and "no quota_configs row at
+                  all" both mean unlimited. The guard returns without rejecting.
+  CASE D verdict: an admitted-then-rolled-back transaction consumes NO permanent slot
+                  and leaves NO lock behind. pg_advisory_xact_lock is transaction-scoped,
+                  so ROLLBACK releases it automatically - no cleanup path is needed and
+                  none was written.
+  CASE G verdict: tenant context is derived server-side and cross-checked. A source
+                  Agent owned by another tenant produces a message BYTE-IDENTICAL to a
+                  source Agent that does not exist (SQLSTATE P0002 in both), which 6E
+                  maps to a non-disclosing 404. Cross-tenant existence cannot be probed.
+
+----------------------------------------------------------------------------------
+§15 AUDIT / DOMAIN-EVENT / OUTBOX ATOMICITY
+----------------------------------------------------------------------------------
+The API service transaction under test (one transaction, three writes):
+    BEGIN
+      SELECT voice.fn_create_agent(...)            -- quota-guarded sole INSERT path
+      SELECT audit.fn_insert_audit_event(...)      -- existing audit mechanism (5B)
+      INSERT INTO audit.domain_event_outbox (...)  -- existing transactional outbox (5B)
+    COMMIT
+No second event mechanism is introduced; migration 110 emits nothing itself.
+FIXTURE: org=e0000000-0000-4000-8000-00000000000f  hard_limit=2   start: agent rows=0   AGENT_CREATED audit events=0   agent.created outbox rows=0
+
+### 15a - success path commits all three atomically
+             fn_insert_audit_event         
+      01a0a0d2-c2c3-7f82-9698-98f6639b4f12
+     INSERT 0 1
+     COMMIT
+     >> agent rows=1   AGENT_CREATED audit events=1   agent.created outbox rows=1
+     EXPECT 1 / 1 / 1
+
+### 15c - identical transaction, explicit ROLLBACK: none of the three persists
+             fn_insert_audit_event         
+      01a0a0d2-c30b-7dec-a697-97e74b774f7d
+     INSERT 0 1
+     ROLLBACK
+     >> agent rows=1   AGENT_CREATED audit events=1   agent.created outbox rows=1
+     EXPECT still 1 / 1 / 1  (the rolled-back attempt persisted nothing)
+     advisory locks held after rollback: 0   EXPECT 0
+     the slot was not permanently consumed - identical transaction, committed:
+             fn_insert_audit_event         
+      01a0a0d2-c368-7e41-b11f-1ffb03db4503
+     INSERT 0 1
+     COMMIT
+     >> agent rows=2   AGENT_CREATED audit events=2   agent.created outbox rows=2
+     EXPECT 2 / 2 / 2
+
+### 15b - org now AT hard_limit=2: the quota rejection emits NO audit event and NO outbox event
+ERROR:  ACTIVE_AGENTS quota exceeded
+DETAIL:  metric=ACTIVE_AGENTS; hard_limit=2.0000; active=2
+CONTEXT:  PL/pgSQL function fn_assert_agent_quota_admission(uuid) line 57 at RAISE
+SQL statement "SELECT voice.fn_assert_agent_quota_admission(v_org)"
+PL/pgSQL function fn_create_agent(uuid,uuid,text,text) line 22 at PERFORM
+ERROR:  syntax error at or near ":"
+LINE 1: ...0-000000000011','tester','AGENT_CREATED','AGENT', :'agent_id...
+                                                             ^
+ERROR:  syntax error at or near ":"
+LINE 2: ...','e0000000-0000-4000-8000-00000000000f','AGENT', :'agent_id...
+                                                             ^
+     ROLLBACK
+     >> agent rows=2   AGENT_CREATED audit events=2   agent.created outbox rows=2
+     EXPECT unchanged 2 / 2 / 2 - admission fails BEFORE the INSERT, so no Agent-created
+     audit event and no agent.created domain event are ever produced for a rejected create.
+
+  READ-THIS ANNOTATION FOR CASE 15b (cosmetic harness artifact, not a defect):
+  ------------------------------------------------------------------------------
+  In 15b the quota rejection aborts the transaction at the FIRST statement. The psql
+  variable :agent_id is therefore never assigned by \gset, so the two following
+  statements in the same script are sent with an unsubstituted ":" and psql reports
+  `syntax error at or near ":"`. Those two errors are psql-client artifacts of the
+  test script, NOT database behaviour: the transaction was already in an aborted
+  state and would have discarded both writes regardless. The transaction ended in
+  ROLLBACK and the three counts stayed at 2 / 2 / 2, which is the assertion under
+  test. A reviewer should not read those two lines as a failure.
+
+  §15 verdict: the Agent row, the AGENT_CREATED audit event and the `agent.created`
+  outbox row commit together (1/1/1), roll back together (still 1/1/1, then 2/2/2 on
+  retry), and a quota rejection produces NONE of the three. Rejection happens before
+  the INSERT, so no Agent-created audit event or domain event is ever emitted for a
+  rejected create. Migration 110 introduces no second event mechanism; it emits nothing
+  at all - the existing 5B audit function and 5B transactional outbox are unchanged.
+
+==================================================================================
+RESULT: PASS - all of §13 A-G, I, J and all of §15 green on live PostgreSQL 18.6.
+        (§13 H, the raw-INSERT bypass battery, is in FAR_DB_03.)
+==================================================================================

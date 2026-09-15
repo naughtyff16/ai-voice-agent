@@ -1921,7 +1921,7 @@ Per task §15/§18: metrics are stored as `TEXT` in `usage_events.metric` (5H AD
 | `KNOWLEDGE_RETRIEVALS` | queries | Yes | Yes | Plan-dependent | *(producer not yet built — 6F/6E RAG-query telemetry; forward dependency, non-blocking, §46)* | `KNOWLEDGE_RETRIEVAL` |
 | `STORAGE_GB` | GB-months | Yes | Yes | Plan-dependent | Periodic snapshot (scheduled worker computing document/recording storage, not an event stream) | `STORAGE_OPERATION` |
 | `API_REQUESTS` | requests | Yes | Yes | No (V1: platform-protection quota only, never priced) | Periodic aggregation from `platform_http_requests_total` (6A §25) | `API_REQUEST` |
-| `ACTIVE_AGENTS` | count | Yes | Yes | No (V1: quota/entitlement gate only, not metered) | Periodic snapshot (`COUNT` of `voice.agents` in a billable state) | — |
+| `ACTIVE_AGENTS` | count | Yes | Yes | No (V1: quota/entitlement gate only, not metered) | **Amended — §52.** Periodic snapshot **and** hard synchronous admission control on `POST /api/v1/agents` / `POST /agents/{id}/clone` (6E §43). Counted set now defined exactly: `COUNT(*) FROM voice.agents WHERE organization_id = :org AND status IN ('DRAFT','PUBLISHED') AND deleted_at IS NULL` — the phrase "in a billable state" was not precise enough to implement a hard gate and is superseded by that predicate | — |
 | `ACTIVE_PHONE_NUMBERS` | count | Yes | Yes | Plan-dependent | Periodic snapshot | — |
 
 \* "Plan-dependent" means: billable if and only if the effective pricing (§13.2) resolves a non-null `overage_rate` for that metric on the org's currently pinned plan/agreement — **this table does not itself fix any rate or billability decision**; it records which metrics *can* legitimately carry a price, consistent with task §18's requirement that each metric separately answer tracked/quota-bearing/billable/included/overage/hard-limit/soft-limit, with the actual yes/no for "billable" coming from the pricing contract, not this document.
@@ -2536,7 +2536,7 @@ Reconciled against 6A §24.2's illustrative families and 6B §22's concrete tabl
 | 404 | `PRICING_AGREEMENT_NOT_FOUND` | Internal — a pinned `commercial_pricing_agreement_version_id` no longer resolves (should not occur; immutability guarantees this) | No | Internal only |
 | 409 | `PRICING_AGREEMENT_NOT_ACTIVE` | §13.3's period-open **new-pinning** resolution found no `ACTIVE` version valid as of the period start (falls back to plan pricing — not itself an error condition at that call site). **Never** raised when reading an already-pinned historical FK (§14) — a `SUPERSEDED`/`EXPIRED` version resolves identically to an `ACTIVE` one on read, live-confirmed | No | Internal only |
 | 400 | `PRICING_CURRENCY_MISMATCH` | Agreement currency ≠ billing account currency (should be rejected at creation, §12.5 — defensive) | No | Internal only |
-| 429 | `QUOTA_EXCEEDED` | Hard limit reached, no overage priced/allowed | No | 6D/6H's own initiation endpoints (billing-owned code, foreign surface, §25.2) |
+| 429 | `QUOTA_EXCEEDED` | Hard limit reached, no overage priced/allowed | No | 6D/6H's own initiation endpoints (billing-owned code, foreign surface, §25.2); **and, as of §52, 6E's `POST /api/v1/agents` and `POST /agents/{id}/clone` for the `ACTIVE_AGENTS` metric (6E §43.6)** |
 | 404 | `INVOICE_NOT_FOUND` | Cross-tenant or nonexistent invoice ID | No | `/billing/invoices/{id}`, `payment-intent` |
 | 409 | `INVOICE_NOT_PAYABLE` | Invoice not `OPEN` (still `DRAFT`, or `VOID`) | No | `payment-intent` |
 | 409 | `INVOICE_ALREADY_PAID` | Invoice already `PAID` | No | `payment-intent` |
@@ -3477,3 +3477,59 @@ Additional to the inline examples already shown in §18.1 (`GET /billing/subscri
 ```
 
 
+
+---
+
+## 52. FINAL API RECONCILIATION CONTROLLED AMENDMENT — `ACTIVE_AGENTS` Hard Admission Control (`FAR-OD-01`, Option B)
+
+> **Status of this section.** A **minimal controlled amendment** applied during the Final API Reconciliation pass. It clarifies one metric (`ACTIVE_AGENTS`) and adds no pricing, plan, agreement, invoice, payment, refund, or entitlement behaviour. **No quota authority moves client-side. No other metric's enforcement changes.** 6K's periodic accounting is preserved in full, and the call/campaign hot-path enforcement of §25.2 is untouched.
+
+### 52.1 What changed and why
+
+Before this amendment, §21.1 described `ACTIVE_AGENTS` as enforced by a **periodic snapshot** only. Owner decision **`FAR-OD-01` = Option B** requires that `POST /api/v1/agents` **hard-reject** an Agent creation that would exceed the organization's effective Agent-count quota. A purely periodic/asynchronous accounting cannot do that — it observes the excess after the fact. This section records that `ACTIVE_AGENTS` is now enforced on **both** paths, from **one** authority.
+
+### 52.2 Two paths, one authority — no second quota source
+
+| Path | Owner | Role | Timing |
+|---|---|---|---|
+| **Hard synchronous admission control** | 6E §43 (`POST /api/v1/agents`, `POST /agents/{id}/clone`), executed by the Phase-5 `SECURITY DEFINER` functions `voice.fn_create_agent` / `voice.fn_clone_agent` (migration `110_5C2`) | Prevents the counted set from ever exceeding the effective limit | Inside the create transaction, before the `INSERT`, before commit |
+| **Periodic snapshot / reconciliation** | 6K (§21.1, §22) | Reporting, `GET /billing/quotas` display, commercial usage tracking, drift detection | Scheduled |
+
+Both read **the same effective limit** — `billing.quota_configs.hard_limit` for `(organization_id, 'ACTIVE_AGENTS')` within its effective window (`106_5H3.sql`) — and **the same counted-set predicate** (§52.3). The synchronous path resolves that limit **server-side inside the database**, from `billing.quota_configs` only; no client-supplied limit, count or quota hint is read or trusted on either path. There is exactly one quota source of truth for this metric; the synchronous path is admission control, the periodic path is accounting, and they may not diverge. Per §25.1's binding rule, **`overage_allowed = (hard_limit IS NULL)`**: where no effective `hard_limit` row exists for an organization, there is **no hard stop** and Agent creation proceeds. `included_quantity`/`overage_rate` (§13.2) continue to govern **pricing and inclusion only**, never the hard stop — the two axes remain separate exactly as §25.1 requires.
+
+### 52.3 `ACTIVE_AGENTS` counted-state set — now stated precisely
+
+§21.1's original wording ("`COUNT` of `voice.agents` in a billable state") did not enumerate the counted `status` values, and is additionally in tension with the same row's `Billable: No` marking. A hard gate cannot be implemented against an unenumerated predicate, so the set is fixed here — **derived, not chosen** (full derivation in 6E §43.2; recorded as reconciliation item `FAR-P2-02`):
+
+```sql
+COUNT(*) FROM voice.agents
+WHERE organization_id = :org
+  AND status IN ('DRAFT','PUBLISHED')
+  AND deleted_at IS NULL
+```
+
+`DRAFT` counts (otherwise the owner's gate on `POST /agents` — which only ever creates `DRAFT` rows — could never reject anything). `PUBLISHED` counts (the routable, revenue-bearing state). `DEPRECATED` does **not** count (it is terminal and no delete/archive path exists per 6E `DEP-6E-14`, so counting it would make the quota a permanent, unrecoverable lockout). A slot is released **only** by `POST /agents/{id}/deprecate`. This predicate is what both the synchronous gate and the periodic snapshot compute.
+
+### 52.4 Redis hot path not used for this metric
+
+§25.2's `INCR quota:{org_id}:{metric}` tier is a monotonic per-period counter that explicitly and deliberately accepts **bounded over-consumption** for the latency-sensitive call/campaign initiation path. `ACTIVE_AGENTS` is a **gauge** that must *decrease* when an Agent is deprecated, and Option B forbids over-admission. The Agent-count gate therefore reads PostgreSQL — 6K's own durable source of truth — directly, serialized per organization by an advisory lock taken **inside** the guarded `SECURITY DEFINER` function, not by the API layer (6E §43.4; frozen 6A §17.3). **§25.2 is unchanged for every metric it already covered**; this is an exception recorded for one gauge metric, not a revision of the hot-path design.
+
+### 52.5 Error contract
+
+The Agent-count rejection reuses 6K's **existing canonical** `429 QUOTA_EXCEEDED` (§36) — the status 6K already assigns to "hard limit reached, no overage priced/allowed." **No new error code or status is introduced**, and the commercial-quota / request-rate-limit distinction is preserved (6E §43.6). §36's foreign-surface column is extended to name 6E's two Agent-creating endpoints.
+
+### 52.6 Scope limits of this amendment
+
+- No pricing, plan, agreement, invoice, payment, refund, credit, or entitlement behaviour is changed.
+- No other metric's enforcement model is changed; `CALL_MINUTES`, `CAMPAIGN_*`, and all §25.2 hot-path metrics are untouched.
+- No quota-mutation surface is added — `GET /billing/quotas` remains read-only (§25.1), and `app_api` retains `SELECT`-only on `billing.quota_configs` (`052_5H.sql`) — **unchanged by migration `110_5C2`**, which touches no `billing` object at all.
+- **No billing table, column, index, constraint, RLS policy, grant or function was added, altered or dropped.** Migration `110_5C2` (§52.7) is confined to the `voice` schema; it *reads* `billing.quota_configs` from inside a `SECURITY DEFINER` function owned by the migration role, which is why `app_api` needs no additional billing privilege.
+
+### 52.7 Database support — migration `110_5C2` (correction to an earlier claim)
+
+An earlier revision of this section stated that "no new DB structure, function, grant, or migration is required or was created." That was **incorrect** and is corrected here rather than removed. Two defects at head `109_5B7` made a hard, unbypassable gate impossible in the API layer alone:
+
+1. The only 6A-legal home for per-organization serialization — a Phase-5 `SECURITY DEFINER` function — did not exist for the Agent-creating paths, so the lock would have had to be taken by the API tier, conflicting with frozen 6A §17.3 (`FAR-P1-01`).
+2. `voice.agents` granted raw `INSERT` to `app_api` and `app_worker`, an alternative write path that no admission check could observe — making any limit above it advisory rather than hard.
+
+`DB-BLOCKER-FINAL-API-001` was raised on that basis and is **RESOLVED BY additive migration `110_5C2`** (Phase 5C.2, `down_revision = '109_5B7'`; `001`–`109` untouched and byte-identical; **no `111`**), which adds `voice.fn_assert_agent_quota_admission` (guard; granted to **no** role; `PUBLIC` `EXECUTE` = `f`), `voice.fn_create_agent` and `voice.fn_clone_agent` (both `SECURITY DEFINER`, `EXECUTE` to `app_api` only), and revokes raw `INSERT` on `voice.agents` from `app_api`, `app_worker` and `app_platform_admin`. **From 6K's side nothing changes**: the same authority, the same predicate, the same canonical `429 QUOTA_EXCEEDED`, the same read-only `billing.quota_configs` posture. Full DDL, rationale and live PostgreSQL 18.6 validation: 6E §43.10, `docs/phase-05-database-design/5C-Voice-Schema.md` (Final API Reconciliation controlled DB amendment), `docs/phase-05-database-design/5K/MIGRATION_MANIFEST.md` Row 110.

@@ -1867,13 +1867,13 @@ This is the same defect class already fixed twice before in this package against
 
 **Every function**: `REVOKE ALL ... FROM PUBLIC`, `REVOKE EXECUTE ... FROM app_api`, `GRANT EXECUTE ... TO app_platform_admin` only — no direct table grant is left for any of the tables these functions front. No table 001-108 DDL shape changes; no column added/removed on any existing table; `001`-`108` are unmodified.
 
-**SHA-256:** `a761239d7e63e3d2d982f4dbf7291b81711a24dc051c2577bc44ff46052b0cf3`, **53,473 bytes** (`migrations/109_5B7.sql`). Alembic wrapper `alembic/versions/109_5B7.py` — SHA-256 `d60f497b9c6c494e051b86d2f086211c77aef8e6b46bc390321e179e83fb9602`, **4,949 bytes**. `downgrade()` deliberately raises `NotImplementedError` (forward-only migration policy, same precedent as prior rows in this package) — full manual-reversal steps enumerated in the wrapper's own message. (These checksums reflect the 2026-09-06 in-place amendment described below; 108 and earlier are untouched, and no migration 110 was created.)
+**SHA-256:** `a761239d7e63e3d2d982f4dbf7291b81711a24dc051c2577bc44ff46052b0cf3`, **53,473 bytes** (`migrations/109_5B7.sql`). Alembic wrapper `alembic/versions/109_5B7.py` — SHA-256 `d60f497b9c6c494e051b86d2f086211c77aef8e6b46bc390321e179e83fb9602`, **4,949 bytes**. `downgrade()` deliberately raises `NotImplementedError` (forward-only migration policy, same precedent as prior rows in this package) — full manual-reversal steps enumerated in the wrapper's own message. (These checksums reflect the 2026-09-06 in-place amendment described below; 108 and earlier are untouched, and **the Phase 6M closure pass created no migration 110** — that pass remediated in place at 109 rather than by adding a row. This statement is scoped to Phase 6M and remains true as written; migration `110_5C2` was subsequently authored by the separately-authorised **Final API Reconciliation** pass, which did not reopen Phase 6M and did not alter `109_5B7` — see Row 110 below.)
 
 **Consumer:** `docs/phase-06-api-design/6M-Admin-Platform-APIs.md` §57/58/62-65 (this is the migration those sections specify the DB layer for).
 
 ### Live PostgreSQL 18.6 Validation — Row 109
 
-**Status: RUN, both legs pass.** An independent freeze-gate review of `109_5B7` subsequently found P0=0, P1=6 (currency/server-authority, session-revoke durability, plan-deactivation idempotency/non-cascade, and a TaxRule grain/overlap validation gap — see `6M_FREEZE_02_platform_billing_security.txt`'s 2026-09-06 sections for the full detail); all 6 were remediated by amending `109_5B7.sql`/`109_5B7.py` in place (108 and earlier untouched, no `110` created), and the single required final fresh + incremental re-validation cycle below reconfirms a clean pass with zero remaining defects. Disposable containers `phase6m-pg18-fresh`/`phase6m-pg18-incr` (`pgvector/pgvector:pg18`, ports 55433/55434).
+**Status: RUN, both legs pass.** An independent freeze-gate review of `109_5B7` subsequently found P0=0, P1=6 (currency/server-authority, session-revoke durability, plan-deactivation idempotency/non-cascade, and a TaxRule grain/overlap validation gap — see `6M_FREEZE_02_platform_billing_security.txt`'s 2026-09-06 sections for the full detail); all 6 were remediated by amending `109_5B7.sql`/`109_5B7.py` in place (108 and earlier untouched, and **this pass added no `110`**; the later `110_5C2` of Row 110 belongs to the Final API Reconciliation pass, not to Phase 6M), and the single required final fresh + incremental re-validation cycle below reconfirms a clean pass with zero remaining defects. Disposable containers `phase6m-pg18-fresh`/`phase6m-pg18-incr` (`pgvector/pgvector:pg18`, ports 55433/55434).
 
 - **Fresh chain (`001→109` on `phase6m-pg18-fresh`):** `alembic upgrade head`, EXIT=0. `alembic heads`/`current` both report exactly one head, `109_5B7 (head)`.
 - **Separate incremental chain (`108_5B6→109_5B7` on `phase6m-pg18-incr`):** `alembic upgrade head`, EXIT=0. `alembic heads`/`current` both `109_5B7 (head)`.
@@ -1884,7 +1884,11 @@ This is the same defect class already fixed twice before in this package against
 
 Full evidence: `docs/phase-05-database-design/5K/validation/6M_FREEZE_01_fresh_incremental_upgrade.txt`, `6M_FREEZE_02_platform_billing_security.txt`, `6M_FREEZE_03_identity_webhook_security.txt`, `6M_FREEZE_04_heads_checksums.txt`. Full narrative: `docs/phase-05-database-design/5K/validation/6M_FINAL_VALIDATION_REPORT.md` §5.
 
-### Current Authoritative State (supersedes any earlier count in this file)
+### Phase 6M Closure Authoritative State (as at 2026-09-06 — superseded for project-wide counts by Row 110's table below)
+
+> **Scope note.** This table records the authoritative state **at the close of Phase 6M**, and remains accurate for that
+> pass. It is deliberately left unedited. For the **current project-wide** migration count, Alembic head and validation
+> state, see "Current Authoritative State (project-wide, post-`110_5C2`)" at the end of Row 110.
 
 | | Value |
 |---|---|
@@ -1910,4 +1914,87 @@ Full evidence: `docs/phase-05-database-design/5K/validation/6M_FREEZE_01_fresh_i
 | Adversarial security battery | prior 28-test battery plus the §2/§10/§29 tests, all previously run and archived; §29 raw-denial coverage extended row 108 to test all 5 child partitions of `voice.transcript_segments` directly by name; row 109 adds a compact functional + negative-authorization battery covering every new guarded function, run clean on both fresh and incremental databases |
 | Validation evidence | see "Live PostgreSQL 18.6 Validation — Row 109" above for the complete file list |
 
-**Phase status (updated 2026-09-06, post-P1-remediation):** this manifest does not itself declare a phase frozen — see `docs/phase-06-api-design/6M-Admin-Platform-APIs.md` for the authoritative phase-status statement. **`109_5B7` is confirmed the final migration of the Phase 6M closure pass — no `110` follows it.** An independent freeze-gate review of `109_5B7` found P0=0, P1=6; all 6 were resolved by amending `109_5B7.sql`/`109_5B7.py` in place (108 and earlier untouched), and exactly one final fresh + incremental re-validation cycle was then run against the amended migration: single Alembic head (`109_5B7`) confirmed on both databases, and the full P1 #1-#5 remediation regression battery green with zero defects found, alongside the original row-109 battery which itself found no defects at initial authorship. Full narrative and status conclusion: `docs/phase-05-database-design/5K/validation/6M_FINAL_VALIDATION_REPORT.md` §8. Current tallies: **P0 = 0, P1 = 0** — the determination of READY/APPROVED/FROZEN belongs to the independent freeze-gate reviewer, not to this manifest. FR-FLAG-001 remains an explicitly acknowledged, non-blocking P1 roadmap item — not a DB-layer or design defect; see `6M-Admin-Platform-APIs.md` for the corresponding API-layer statement.
+**Phase status (updated 2026-09-06, post-P1-remediation):** this manifest does not itself declare a phase frozen — see `docs/phase-06-api-design/6M-Admin-Platform-APIs.md` for the authoritative phase-status statement. **`109_5B7` is confirmed the final migration of the Phase 6M closure pass — no `110` follows it *within Phase 6M*.** (This sentence is scoped to Phase 6M and is left standing as written. `109_5B7` remains the frozen historical Phase 6M head. Migration `110_5C2` was authored later, under separate authorisation, by the Final API Reconciliation pass, which did not reopen Phase 6M — see Row 110.) An independent freeze-gate review of `109_5B7` found P0=0, P1=6; all 6 were resolved by amending `109_5B7.sql`/`109_5B7.py` in place (108 and earlier untouched), and exactly one final fresh + incremental re-validation cycle was then run against the amended migration: single Alembic head (`109_5B7`) confirmed on both databases, and the full P1 #1-#5 remediation regression battery green with zero defects found, alongside the original row-109 battery which itself found no defects at initial authorship. Full narrative and status conclusion: `docs/phase-05-database-design/5K/validation/6M_FINAL_VALIDATION_REPORT.md` §8. Current tallies: **P0 = 0, P1 = 0** — the determination of READY/APPROVED/FROZEN belongs to the independent freeze-gate reviewer, not to this manifest. FR-FLAG-001 remains an explicitly acknowledged, non-blocking P1 roadmap item — not a DB-layer or design defect; see `6M-Admin-Platform-APIs.md` for the corresponding API-layer statement.
+
+---
+
+### Row 110 — `110_5C2.sql` (Phase 5C.2, `down_revision = '109_5B7'`)
+
+**Owned by the Final API Reconciliation pass — not by Phase 6M.** Phase 6M closed at `109_5B7` and was **not reopened**; `109_5B7` remains the frozen historical Phase 6M head, byte-identical to its frozen state. `110_5C2` was authored later under separate, explicit authorisation to close two defects raised against the *API* design by an independent freeze-gate review — `FAR-P1-01` (6A §17.3 conflict) and `DB-BLOCKER-FINAL-API-001` (bypassable quota invariant) — and to complete `DEP-6E-20` / owner decision `FAR-OD-01` (Option B: hard synchronous `ACTIVE_AGENTS` quota).
+
+**Why a DB row was required.** Owner decision `FAR-OD-01` mandates a hard, synchronous, server-authoritative Agent-count admission decision on `POST /api/v1/agents` and `POST /api/v1/agents/{agent_id}/clone`. The pre-existing design placed that decision in the API/service layer, where it acquired its own `pg_advisory_xact_lock(hashtext('agent_quota:' || org_id))` and counted Agents in application code. Frozen **6A §17.3** permits the API tier no application-level lock of its own — locking is legitimate only where already encapsulated **inside a Phase-5 `SECURITY DEFINER` function**, or via the existing Campaign Redis `SETNX` mechanism. Separately, `voice.agents` granted raw `INSERT` to `app_api`/`app_worker` (`010_5C.sql`), so *any* check layered above that grant was advisory only: the grant is itself an alternative write path that never consults it. **An enforcement primitive existing is not the same as a compliant enforcement path being the only path.** 6A was **not** weakened to legalise the old design.
+
+**Contents — purely additive; three functions plus one privilege narrowing. No table, column, index, constraint, RLS policy, trigger or domain model was added, altered or dropped.**
+
+| Object | Kind | Role |
+|---|---|---|
+| `voice.fn_assert_agent_quota_admission(p_organization_id UUID)` → `VOID` | `plpgsql`, **SECURITY INVOKER**, owner-only, **no `GRANT EXECUTE` to any role** | The quota guard. Derives the tenant from `organization.current_tenant_id()` (never trusting the argument), takes `pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext('voice.agent_quota:' \|\| org))` **internally**, resolves `billing.quota_configs.hard_limit` for `metric = 'ACTIVE_AGENTS'` within its effective window, counts the canonical set, and raises `SQLSTATE 53400` at the limit — **before** any `INSERT`. |
+| `voice.fn_create_agent(p_organization_id, p_created_by, p_name, p_description)` → `UUID` | **SECURITY DEFINER**, `REVOKE ALL FROM PUBLIC`, `GRANT EXECUTE TO app_api` | Sole `POST /api/v1/agents` write path. Calls the guard, then inserts **exactly one** `DRAFT` Agent. Writes **no** `agent_versions` row. |
+| `voice.fn_clone_agent(p_organization_id, p_created_by, p_source_agent_id, p_source_version_id)` → `UUID` | **SECURITY DEFINER**, `REVOKE ALL FROM PUBLIC`, `GRANT EXECUTE TO app_api` | Sole `POST /api/v1/agents/{agent_id}/clone` write path. Validates source Agent (and optional source version) ownership within the tenant, raising `SQLSTATE P0002` non-disclosingly, calls the **same** guard, then inserts **exactly one** `DRAFT` Agent. Writes **no** `agent_versions` row. |
+
+All three declare an explicit `SET search_path = voice, billing, organization, public, pg_catalog` and schema-qualify every cross-schema reference. All three `REVOKE ALL ... FROM PUBLIC`; `PUBLIC` holds `EXECUTE` on none of them.
+
+**Privilege narrowing — the part that makes the invariant structural:**
+
+```sql
+REVOKE INSERT ON voice.agents FROM app_api, app_worker, app_platform_admin;
+GRANT SELECT, UPDATE ON voice.agents TO app_api, app_worker;
+GRANT SELECT, UPDATE, DELETE ON voice.agents TO app_platform_admin;
+```
+
+This supersedes the `INSERT` component of `010_5C.sql`'s `GRANT SELECT, INSERT, UPDATE ON voice.agents TO app_api, app_worker;`. `SELECT`/`UPDATE` are retained, so every existing 6E read, update, publish and deprecate path continues to function (live-verified). `app_readonly`'s `SELECT`-only grant is untouched. `app_platform_admin` gains **no** new write capability. After `110_5C2`, **no runtime role holds `INSERT` on `voice.agents`** — verified live via `has_table_privilege` for all eight app roles plus `app_migration`. `BYPASSRLS` (held pre-existing by `app_migration` and `app_platform_admin`) skips *row-level policies* but **not** *table-level ACLs*, so the `REVOKE` binds those roles too. This is the idiom already frozen at `041_5G.sql` (`workflow.fn_start_workflow_execution`), not a new pattern.
+
+**Counted predicate (unchanged, restated so it cannot drift):** `organization_id = <current tenant> AND status IN ('DRAFT','PUBLISHED') AND deleted_at IS NULL`. `DEPRECATED` does not consume a slot; publishing a `DRAFT` is count-neutral. `hard_limit IS NULL`, and the absence of a `quota_configs` row, both mean unlimited (`overage_allowed`, 6K §25.1).
+
+**No new error code, no new event mechanism.** `53400` maps to 6K's existing canonical `QUOTA_EXCEEDED`; `P0002` maps to the existing non-disclosing `404`. `110_5C2` emits no audit event, no domain event and no outbox row — the existing 5B audit function and 5B transactional outbox remain the only mechanisms, and the API transaction continues to write the Agent row, the `AGENT_CREATED` audit event and the `agent.created` outbox row atomically. A quota rejection fails before the `INSERT` and produces none of the three.
+
+**SHA-256:** `3b76d83515942f6e2193667e7c376e26cd1102bfb7926d080dda297e693d776c`, **15,044 bytes** (`migrations/110_5C2.sql`). Alembic wrapper `alembic/versions/110_5C2.py` — SHA-256 `735366afb9141c9f31cb3b8ad05da10d63544f278890667a68431456bbf871d5`, **5,810 bytes**. The wrapper executes the frozen SQL verbatim via `run_frozen_sql()` and defines no DDL of its own; `downgrade()` deliberately raises `NotImplementedError` — the same forward-only policy every revision in this package follows. **No migration `111` exists.**
+
+**Consumers:** `docs/phase-06-api-design/6E-AI-Agent-APIs.md` §43 (the Agent create/clone quota admission rules this migration implements) and `docs/phase-06-api-design/6K-Billing-Usage-APIs.md` §52.6 (`QUOTA_EXCEEDED` mapping). Controlled schema amendment: `docs/phase-05-database-design/5C-Voice-Schema.md`, "FINAL API RECONCILIATION CONTROLLED DB AMENDMENT (2026-09-14)".
+
+### Live PostgreSQL 18.6 Validation — Row 110
+
+**Status: RUN, both legs pass.** `pgvector/pgvector:pg18` (PostgreSQL 18.6), disposable validation databases only (`far_fresh` / `far_incr`, containers removed after the run).
+
+- **Fresh chain (`001 → 110`):** `alembic upgrade head`, EXIT=0, 0 errors. `alembic heads`/`current` both report exactly one head, `110_5C2 (head)`; `alembic_version` = `110_5C2`.
+- **Separate incremental chain (`109_5B7 → 110_5C2`):** seeded to `109_5B7` (EXIT=0), where the baseline was confirmed to be the *pre*-remediation state — `fn_create_agent` absent, `has_table_privilege('app_api','voice.agents','INSERT')` = `t`. After `alembic upgrade 110_5C2` (EXIT=0): all three functions present, `app_api` `INSERT` = `f`.
+- **Single head, no branching:** 110 SQL files, 110 Alembic revisions, zero files matching `^111`; `alembic history` shows the linear chain `109_5B7 -> 110_5C2 (head)`.
+- **Real two-process concurrency** (never simulated with sequential statements — both workers were confirmed *simultaneously blocked* inside the guarded function via `pg_locks` before the key was released): ≥2 free slots → both creates succeed; exactly 1 free slot → exactly one winner and exactly one `53400` rejection; at the limit → no new row; clone at the boundary → exactly one winner. The winner alternated across runs, confirming genuine nondeterministic contention.
+- **Rollback:** admission-then-`ROLLBACK` consumes no permanent slot and leaves no advisory lock held (transaction-scoped, auto-released); the slot is immediately reusable.
+- **Tenant isolation:** a cross-tenant clone source and a nonexistent clone source produce **byte-identical** errors (`fn_clone_agent: source agent not found`), disclosing nothing.
+- **Unlimited paths:** `hard_limit IS NULL` and "no `quota_configs` row at all" both admit without limit.
+- **Count semantics:** `DRAFT → PUBLISHED` is count-neutral; `DEPRECATED` frees exactly one slot.
+- **Raw-`INSERT` bypass battery:** denied for all eight runtime roles (`permission denied for table agents`, or `permission denied for schema voice` for the two billing-ingress roles); 0 rows committed; `app_migration` `has_table_privilege` = `f`.
+- **Catalog/privilege inspection:** the guard is `prosecdef = f` with `proacl` = `postgres=X/postgres` only; the two endpoint functions are `prosecdef = t` with `postgres=X/postgres` + `app_api=X/postgres`; `PUBLIC` `EXECUTE` = `f` on all three; all three carry the declared `search_path`. `voice.agents` RLS remains `ENABLE`d + `FORCE`d with `rls_agents_tenant` unchanged; no role gained `BYPASSRLS`; existing 6E `SELECT`/`UPDATE` as `app_api` still work.
+- **Audit/outbox atomicity:** one commit → 1 Agent + 1 `AGENT_CREATED` audit event + 1 `agent.created` outbox row; rollback → none of the three; quota rejection → none of the three.
+- **Frozen-history integrity:** all 218 files under `5K/migrations` + `5K/alembic/versions` tracked at `HEAD` compared byte-for-byte against the working tree — **0 differences, 0 missing**; `git status --porcelain` on `5K/` shows only the new untracked `110_5C2.sql` / `110_5C2.py` and zero modified tracked files.
+
+Full evidence: `docs/phase-05-database-design/5K/validation/FAR_DB_01_migration_and_integrity.txt`, `FAR_DB_02_quota_concurrency_battery.txt`, `FAR_DB_03_privilege_rls_bypass_battery.txt`. Full narrative: `docs/phase-05-database-design/5K/validation/FINAL_API_RECONCILIATION_DB_VALIDATION_REPORT.md`.
+
+### Current Authoritative State (project-wide, post-`110_5C2`)
+
+**This table supersedes every earlier count in this file.** The Phase 6M table above remains accurate *for Phase 6M* and is retained as history.
+
+| | Value |
+|---|---|
+| PostgreSQL version | 18.6 (`pgvector/pgvector:pg18` image — required: `034_5F.sql`'s `CREATE EXTENSION vector` is unavailable on bare `postgres:18`) |
+| SQL migration files | **110** |
+| Alembic revisions | **110** |
+| Current project head | **`110_5C2`** — owned by the Final API Reconciliation pass |
+| Frozen historical Phase 6M head | `109_5B7` — unchanged, byte-identical, Phase 6M **not** reopened |
+| `alembic heads` / `current` | `110_5C2 (head)` — exactly one head, confirmed identical on both fresh and incremental validation databases |
+| Fresh validation | **PASS** — `001 → 110`, EXIT=0, zero errors — see "Live PostgreSQL 18.6 Validation — Row 110" above |
+| Separate incremental validation | **PASS** — `109 → 110`, EXIT=0 — see above |
+| `110_5C2.sql` | SHA-256 `3b76d83515942f6e2193667e7c376e26cd1102bfb7926d080dda297e693d776c`, 15,044 bytes |
+| `110_5C2.py` (alembic wrapper) | SHA-256 `735366afb9141c9f31cb3b8ad05da10d63544f278890667a68431456bbf871d5`, 5,810 bytes |
+| `109_5B7.sql` | SHA-256 `a761239d7e63e3d2d982f4dbf7291b81711a24dc051c2577bc44ff46052b0cf3`, 53,473 bytes — **unchanged by Row 110**, re-verified byte-identical |
+| `109_5B7.py` | SHA-256 `d60f497b9c6c494e051b86d2f086211c77aef8e6b46bc390321e179e83fb9602`, 4,949 bytes — **unchanged by Row 110**, re-verified byte-identical |
+| Migrations `001`–`109` | **byte-identical to their frozen state** — all 218 tracked migration + wrapper files compared against `HEAD`, 0 differences, 0 missing |
+| Migration `111` | **does not exist** — none was created |
+| Agent-count commercial quota (`ACTIVE_AGENTS`) | **structurally enforced** at the DB boundary from Row 110 — sole write paths are two `SECURITY DEFINER` functions that both call the same internal guard; no runtime role holds raw `INSERT` on `voice.agents` |
+| 6A §17.3 (no API-layer application locks) | **satisfied without exception** from Row 110 — advisory serialization now occurs only *inside* a Phase-5 `SECURITY DEFINER` boundary |
+| `FAR-P1-01` (reclassified from `FAR-P3-02`) | **CLOSED BY `110_5C2`** |
+| `DB-BLOCKER-FINAL-API-001` | **RESOLVED BY `110_5C2`** |
+| Validation evidence | see "Live PostgreSQL 18.6 Validation — Row 110" above for the complete file list |
+
+**Head-ownership statement (explicit, per the Final API Reconciliation closure requirements):** `109_5B7` is the frozen historical **Phase 6M** head and remains so; Phase 6M created no migration `110` and was not reopened. `110_5C2` is the current **project** head and is owned by the **Final API Reconciliation** pass (`FAR-P1-01` / `DB-BLOCKER-FINAL-API-001` / `DEP-6E-20` closure). Both statements are true simultaneously and neither supersedes the other. As elsewhere in this file, the manifest does not itself declare any phase READY, APPROVED or FROZEN — that determination belongs to the independent reviewer.

@@ -2666,3 +2666,132 @@ The identical fix was applied to `campaign.campaign_contact_identities` (5E's ow
 **Documented exception, stated plainly rather than claimed away:** the migration-owning database role (`app_migration`, superuser-equivalent for the purposes of this schema) and genuine PostgreSQL superuser access remain able to write to this table directly — this is a property of the database engine's own privilege model, not of this application's runtime authorization design, and is explicitly outside the scope of what "no normal application/runtime role can reopen a CONFIRMED dispatch" claims to guarantee.
 
 **Full DDL and rationale:** `099_5C1.sql`'s `§B` header comment (the `GRANT`/`REVOKE` statements for `voice.call_dispatch_keys`); `docs/phase-05-database-design/5K/MIGRATION_MANIFEST.md`'s "Phase 6H Final Admin-DML Hardening" entry; `docs/phase-06-api-design/6H-Campaign-APIs.md` (Revision 7).
+
+---
+
+## FINAL API RECONCILIATION CONTROLLED DB AMENDMENT (2026-09-14) — migration `110_5C2`: guarded, unbypassable `ACTIVE_AGENTS` quota admission on `voice.agents`
+
+**This is a controlled amendment, not a rewrite of Phase 5C.** No earlier section of this
+document was edited, and no table, column, index, constraint, RLS policy or domain model in
+`voice` was redesigned. Migration `110_5C2` is purely additive: three functions plus one
+privilege narrowing. Migrations `001`–`109` are byte-identical to their frozen state.
+
+### Why this amendment exists
+
+Owner decision `FAR-OD-01` fixed the Agent-count commercial quota as **Option B**: a hard,
+synchronous, server-authoritative `ACTIVE_AGENTS` admission decision on Agent creation. The
+implementation that entered the Final API Reconciliation put that decision in the **API/service
+layer**, where it acquired its own `pg_advisory_xact_lock(hashtext('agent_quota:' || org_id))`
+and then counted Agents in application code.
+
+Two things were wrong with that, and both were properties of the **database** layer, not of the
+prose describing it:
+
+1. **Frozen 6A §17.3** allows the API tier no application-level lock of its own. Locking is
+   legitimate only where it is already encapsulated **inside a Phase-5 `SECURITY DEFINER`
+   function**, or via the existing Campaign Redis `SETNX` mechanism. An API-layer advisory lock
+   is neither. (Tracked as `FAR-P1-01`, reclassified up from `FAR-P3-02`. 6A was **not**
+   weakened to legalise the old design.)
+2. **`voice.agents` granted raw `INSERT` to `app_api` and `app_worker`** (§16 DDL line
+   `GRANT SELECT, INSERT, UPDATE ON voice.agents TO app_api, app_worker;`). Any admission check
+   layered above a raw `INSERT` grant is **advisory**, because the grant itself is an
+   alternative path that never consults it. An enforcement *primitive* existing is not the same
+   as a compliant enforcement path being the *only* path. (Tracked as
+   `DB-BLOCKER-FINAL-API-001`.)
+
+### What `110_5C2` adds
+
+| Object | Kind | Role |
+|---|---|---|
+| `voice.fn_assert_agent_quota_admission(p_organization_id UUID)` | `plpgsql`, **SECURITY INVOKER**, owned by the migration role, **no `GRANT EXECUTE` to any role** | The quota guard. Derives the tenant from `organization.current_tenant_id()`, takes `pg_advisory_xact_lock` **internally**, resolves `billing.quota_configs`, counts, raises `53400` at the limit. |
+| `voice.fn_create_agent(p_organization_id, p_created_by, p_name, p_description)` → `UUID` | **SECURITY DEFINER**, `GRANT EXECUTE TO app_api` | Sole `POST /api/v1/agents` path. Calls the guard, then inserts **exactly one** `DRAFT` Agent. |
+| `voice.fn_clone_agent(p_organization_id, p_created_by, p_source_agent_id, p_source_version_id)` → `UUID` | **SECURITY DEFINER**, `GRANT EXECUTE TO app_api` | Sole `POST /api/v1/agents/{agent_id}/clone` path. Validates source ownership, calls the same guard, then inserts **exactly one** `DRAFT` Agent. |
+
+All three carry an explicit `SET search_path = voice, billing, organization, public, pg_catalog`
+and schema-qualify every cross-schema reference. All three `REVOKE ALL ... FROM PUBLIC`.
+
+### Privilege change — the part that makes the invariant structural
+
+```sql
+REVOKE INSERT ON voice.agents FROM app_api, app_worker, app_platform_admin;
+GRANT SELECT, UPDATE ON voice.agents TO app_api, app_worker;
+GRANT SELECT, UPDATE, DELETE ON voice.agents TO app_platform_admin;
+```
+
+This **supersedes the `INSERT` component** of §16's
+`GRANT SELECT, INSERT, UPDATE ON voice.agents TO app_api, app_worker;`. `SELECT` and `UPDATE`
+are retained unchanged, so every existing 6E read, update, publish and deprecate path continues
+to work. `app_readonly`'s `SELECT`-only grant (§19) is untouched. `app_platform_admin` gains
+**no** new capability — it keeps only the `SELECT`/`UPDATE`/`DELETE` it already had and loses
+`INSERT` like everyone else.
+
+After this migration **no runtime role holds `INSERT` on `voice.agents`**, verified live for all
+eight app roles. `app_migration` and `app_platform_admin` hold `BYPASSRLS`, which skips
+*row-level policies* but **not** *table-level ACLs* — so the `REVOKE` binds them too. The only
+remaining `INSERT` paths are the two `SECURITY DEFINER` functions above, and both call the quota
+guard before inserting. The guard itself is callable by **nobody** directly
+(`has_function_privilege` = `f` for all eight roles and for `PUBLIC`); it runs only as a nested
+call inside the two definer functions, so no principal can invoke it to pre-book a slot, and no
+principal can skip it.
+
+This is the same idiom already frozen in this corpus at `041_5G.sql`
+(`workflow.fn_start_workflow_execution` — invariant check plus internal `pg_advisory_xact_lock`
+plus `REVOKE INSERT` from all app roles). It is the established Phase-5 pattern, not a new one.
+
+### Counted predicate — unchanged, and stated here so it cannot drift
+
+```sql
+organization_id = <current tenant>
+  AND status IN ('DRAFT','PUBLISHED')
+  AND deleted_at IS NULL
+```
+
+`DEPRECATED` does **not** consume a slot; publishing a `DRAFT` is **count-neutral** (it moves an
+Agent between two counted states). This is the pre-existing Phase-6 semantic, carried over
+verbatim — the DB remediation did not silently change it, and no source contradiction was found
+that would have required an owner decision.
+
+The limit is resolved **server-side** from `billing.quota_configs` for
+`metric = 'ACTIVE_AGENTS'` within its effective window, inside the lock. No client-supplied
+`hard_limit`, `current_count` or plan limit is accepted or trusted. `hard_limit IS NULL`, and the
+absence of a `quota_configs` row entirely, both mean unlimited (`overage_allowed`, per 6K §25.1).
+
+### What this amendment deliberately does **not** change
+
+- **No `AgentVersion` is written during Agent creation or cloning.** `AgentVersion` creation
+  remains **publish-only**. Verified live: `voice.agent_versions` did not grow across any create
+  or clone, including the concurrent clone-at-boundary case.
+- **No RLS change.** `voice.agents` remains `ENABLE`d and `FORCE`d with `rls_agents_tenant`
+  unchanged in both `USING` and `WITH CHECK`. No role was granted `BYPASSRLS`.
+- **No event mechanism is added.** `110_5C2` emits no audit event, no domain event and no outbox
+  row. The existing 5B audit function and 5B transactional outbox remain the only mechanisms, and
+  the API transaction continues to write the Agent row, the `AGENT_CREATED` audit event and the
+  `agent.created` outbox row atomically. A quota rejection fails **before** the `INSERT`, so it
+  produces none of the three.
+- **No new error code.** `53400` maps to 6K's existing canonical `QUOTA_EXCEEDED`; `P0002`
+  (absent or cross-tenant clone source) maps to the existing non-disclosing 404.
+
+### Live validation
+
+Real PostgreSQL **18.6**, disposable databases only. Fresh `001 → 110` and incremental
+`109 → 110` both exit 0; single Alembic head `110_5C2`. Genuine two-process concurrency (both
+workers confirmed simultaneously blocked inside the guarded function via `pg_locks` before the
+key was released, never sequential statements): two free slots → both succeed; one free slot →
+exactly one winner and exactly one `53400`; clone at the boundary → exactly one winner. Rollback
+after admission consumes no permanent slot and leaves no lock (transaction-scoped, auto-released).
+Cross-tenant and nonexistent clone sources produce **byte-identical** errors. Raw `INSERT`
+attempted as every one of the eight runtime roles is denied, 0 rows committed.
+
+Full record: `5K/validation/FINAL_API_RECONCILIATION_DB_VALIDATION_REPORT.md` and its three
+evidence files `FAR_DB_01_migration_and_integrity.txt`,
+`FAR_DB_02_quota_concurrency_battery.txt`, `FAR_DB_03_privilege_rls_bypass_battery.txt`.
+
+### Head ownership
+
+`109_5B7` remains the frozen **Phase 6M** head as a matter of project history; Phase 6M is **not
+reopened** by this amendment. `110_5C2` is the new project head and is owned by the **Final API
+Reconciliation** pass (`FAR-P1-01` / `DB-BLOCKER-FINAL-API-001` / `DEP-6E-20` closure).
+
+**Full DDL and rationale:** `110_5C2.sql`'s header comment;
+`docs/phase-05-database-design/5K/MIGRATION_MANIFEST.md`'s Row 110;
+`docs/phase-06-api-design/6E-AI-Agent-APIs.md` §43.

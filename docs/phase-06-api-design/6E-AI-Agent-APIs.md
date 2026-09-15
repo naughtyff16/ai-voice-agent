@@ -1024,7 +1024,7 @@ Every endpoint instantiates 6A's `{data, meta}`/`{error}` envelope and `request_
 - **Errors:** `400`/`422` (name/description length), `401`, `403`.
 - **Idempotency:** `Idempotency-Key` accepted, not required (§8.5).
 - **Rate limit:** standard 300 req/min/org tier (§33).
-- **Latency:** Tier A. **DB:** single-row `INSERT voice.agents`, plus `SELECT audit.fn_insert_audit_event(p_action_kind => 'AGENT_CREATED', ...)`, same transaction. **Cache:** none written. **RLS:** standard tenant policy (5C §11.1). **Audit:** `AGENT_CREATED` (Category A). **Domain event:** `agent.created` (outbox, separate write, §26.2). **Observability:** `agents_created_total` (no `organization_id` label, §34). **Transaction:** single-aggregate, no exception needed. **Side effects:** none. **Concurrency:** none (creating a `DRAFT` row has no contended resource). **PII/security:** no PII in the request or response beyond `name`/`description`, which are not classified `pii:*`.
+- **Latency:** Tier A. **DB:** `SELECT voice.fn_create_agent(...)` (the sole `INSERT` path into `voice.agents` after migration `110_5C2`, §43.4/§43.10), which inserts exactly one row and creates **no** `AgentVersion`, plus `SELECT audit.fn_insert_audit_event(p_action_kind => 'AGENT_CREATED', ...)`, same transaction. **Cache:** none written. **RLS:** standard tenant policy (5C §11.1). **Audit:** `AGENT_CREATED` (Category A). **Domain event:** `agent.created` (outbox, separate write, §26.2). **Observability:** `agents_created_total` (no `organization_id` label, §34). **Transaction:** single-aggregate, no exception needed. **Side effects:** none. **Concurrency:** **amended by §43** — as of the Final API Reconciliation controlled amendment (`FAR-OD-01`, Option B) this endpoint's Agent-count quota gate is serialized per organization, by a transaction-scoped advisory lock taken **inside** the `SECURITY DEFINER` function `voice.fn_create_agent` (migration `110_5C2`), never by the API layer itself (§43.4, §43.10 — 6A §17.3). The original claim ("none — creating a `DRAFT` row has no contended resource") is superseded: the organization's quota *is* a contended resource. **PII/security:** no PII in the request or response beyond `name`/`description`, which are not classified `pii:*`.
 
 ### 30.2 `GET /api/v1/agents`
 
@@ -1199,7 +1199,7 @@ Recommended, not required: `POST /agents/{id}/publish`. Not required: every `GET
 
 1. **Request-rate limiting** (the table above) — abuse prevention, applies today, unconditionally, to every 6E endpoint.
 2. **Commercial/billing quota** (metered usage cost — LLM tokens, TTS characters, call-minutes) — does not apply to any 6E endpoint today, because Agent/Tool management invokes no paid provider (no preview/test capability is designed, §38 `DEP-6E-09`) and is not itself a metered resource.
-3. **A future Agent-*count* plan quota** (FR-TEN-005 — "how many Agents may this org have") — genuinely distinct from both of the above, **not designed by this document**, and **not permanently ruled out** by statement 2. `POST /agents` (§30.1) is the endpoint any such quota would eventually gate; §38 `DEP-6E-20` tracks this explicitly as a non-blocking, deferred-to-6K item rather than allowing FR-TEN-005 to be silently read as satisfied or waived by this document.
+3. **A future Agent-*count* plan quota** (FR-TEN-005 — "how many Agents may this org have") — genuinely distinct from both of the above, **not designed by this document**, and **not permanently ruled out** by statement 2. `POST /agents` (§30.1) is the endpoint any such quota would eventually gate; §38 `DEP-6E-20` tracks this explicitly as a non-blocking, deferred-to-6K item rather than allowing FR-TEN-005 to be silently read as satisfied or waived by this document. **Amended by §43 (Final API Reconciliation, `FAR-OD-01` Option B): this quota is no longer deferred — it is now enforced synchronously by `POST /agents` and `POST /agents/{id}/clone`.**
 
 No 6E endpoint enforces concept 2 or concept 3 today — only concept 1.
 
@@ -1308,7 +1308,7 @@ A published `AgentVersion` can be resolved by 6D's frozen `CallRoutingService.re
 | `FR-LLM-001` (choose LLM provider per agent) | SRS | §5.3.2 ModelConfig | `provider_configs` | §11 Tier A/B | — | §15 (reference-data origin) | §11, §20 |
 | `FR-LLM-002` (Model Router, per-agent override) | SRS | §8.2 ProviderSelectionService | `provider_configs` | §11 | — | §15.4 (hot-path discipline) | §11.3, §22 |
 | `FR-TTS-002` (voice cloning per org/agent, where provider allows) | SRS | §5.3.1 VoiceConfig | `agents.draft_config.voice_config` | — | — | §8.2 | §10 |
-| `FR-TEN-005` (per-tenant configurable agent quota, including *number of agents*) | SRS | — | — | §20 (rate limiting) | — | §31.2 (CheckQuota port, Call-side) | **Not fully closed by this document — see `DEP-6E-20` (§38).** 6E owns `POST /agents` (§30.1), the endpoint any future Agent-count quota must gate; 6E does not itself enforce that quota, invent its value, or invent a billing/plan model — that belongs to 6K (Billing/Usage APIs) per the roadmap. §33's "no commercial-quota limiter applies to any 6E endpoint" statement describes *today's* state, not a permanent exemption — it is explicitly qualified in §33 to distinguish request-rate limiting (6E, today) from commercial/billing quota (6K, future) from a specific future Agent-count plan quota (6K, future, tracked by `DEP-6E-20`) |
+| `FR-TEN-005` (per-tenant configurable agent quota, including *number of agents*) | SRS | — | — | §20 (rate limiting) | — | §31.2 (CheckQuota port, Call-side) | **Not fully closed by this document — see `DEP-6E-20` (§38).** 6E owns `POST /agents` (§30.1), the endpoint any future Agent-count quota must gate; 6E does not itself enforce that quota, invent its value, or invent a billing/plan model — that belongs to 6K (Billing/Usage APIs) per the roadmap. §33's "no commercial-quota limiter applies to any 6E endpoint" statement describes *today's* state, not a permanent exemption — it is explicitly qualified in §33 to distinguish request-rate limiting (6E, today) from commercial/billing quota (6K, future) from a specific future Agent-count plan quota (now **enforced**, §43, `FAR-OD-01` Option B — `DEP-6E-20` RESOLVED). **Amended by §43: FR-TEN-005's Agent-count dimension is closed at the enforcement level by this document, not merely handed off.** |
 | `NFR-USAB-001` (non-technical Agent Builder, no code) | SRS | §5.3 Agent Aggregate | `agents`, `agent_versions` | §7 REST standards | — | — | §8–§19 (the full typed, strongly-validated configuration contract) |
 | `NFR-PERF-001` (<800ms p50, indirect) | SRS | — | — | §11 | — | §21 (≤750ms target) | §22 (explicit non-interference boundary) |
 | Agent Aggregate | 4B §5.3 | — | `agents`, `agent_versions` | §7–8 | — | §8–9 | §8–§19 |
@@ -1347,7 +1347,7 @@ Every row's **Status** is exactly one of `RESOLVED`, `NON-BLOCKING`, `BLOCKING`,
 | **DEP-6E-17** | Runtime cache/prewarm implementation for `agent_version:{version_id}:snapshot` is 6D's/3B's implementation detail | 6D §22, unchanged | §23.1 | **RESOLVED** | Consumed unchanged — no new dependency introduced by 6E | No |
 | **DEP-6E-18** | Tenant-custom `tool_name` could collide with a platform built-in's name — a prior version of this document incorrectly claimed Phase 5 indexes alone prevent this | 5C §16.5's mixed-scope unique indexes protect two independent namespaces, not one merged one (§21.2a) | §30.11, §30.13 | **RESOLVED** | §21.2a's new application-layer visible-namespace-uniqueness invariant closes the gap for 6E's actual tenant ToolDefinition mutation surface: DB-constraint-backed (`uq_td_tenant_name`) for the tenant-vs-own-tenant case; reliable-by-construction (not merely "disclosed as a race") for the tenant-vs-platform-built-in case, since 6E exposes no built-in-mutation endpoint and a built-in's name is therefore always static, already-committed data. **Corrected this pass:** the prior wording implied a genuine concurrency race against built-in creation; that race does not exist on 6E's actual API surface and is no longer described as one. Any future platform-admin/built-in-provisioning API must independently enforce this same invariant before it would introduce a real race | No |
 | **DEP-6E-19** | Deterministic `ProviderConfig` resolution when a `provider_id` could match more than one tenant-visible row | 5C §5.11's `uq_pc_priority`/`uq_pc_platform_cat` constraints do not prevent a tenant-scope and platform-default row from sharing a `provider_id` | §11.1, §15.4 rule #5 | **RESOLVED** | §11.4 grounds the resolution in 5C §15.11's own already-frozen `ORDER BY` pattern, narrowed this pass to the scope it actually guarantees (tenant-scope ordering is fully deterministic via `uq_pc_priority`; platform-scope ordering does not rely on priority uniqueness at all, since `uq_pc_platform_cat` already caps at most one row per `provider_id` there) — no rule is fabricated, and the prior pass's unqualified "strict total order" claim is corrected | No |
-| **DEP-6E-20** | FR-TEN-005's per-tenant Agent-*count* quota is not enforced by any 6E endpoint | SRS FR-TEN-005; §33/§37 (this pass's correction) | `POST /agents` (§30.1) | **DEFERRED TO 6K (Billing/Usage APIs)** | 6E owns the endpoint the quota would eventually gate; 6E does not invent the quota's value, billing/plan model, or enforcement error code. This is an explicit handoff, not a silent waiver of FR-TEN-005 — Final API Reconciliation (the cross-Phase-6 closure step named in the authoritative sequence) must attach 6K's quota enforcement/error behavior to `POST /agents` once 6K is designed | No |
+| **DEP-6E-20** | FR-TEN-005's per-tenant Agent-*count* quota is not enforced by any 6E endpoint | SRS FR-TEN-005; §33/§37; **§43 (Final API Reconciliation controlled amendment)** | `POST /agents` (§30.1) and `POST /agents/{id}/clone` | **RESOLVED BY OWNER DECISION `FAR-OD-01` — OPTION B (hard synchronous Agent-count quota)** | Closed by §43: `POST /agents` and `POST /agents/{id}/clone` synchronously enforce the organization's effective Agent-count quota inside the authoritative transaction, serialized per organization **inside** the `SECURITY DEFINER` functions `voice.fn_create_agent` / `voice.fn_clone_agent` — never by the API layer, satisfying frozen 6A §17.3 (§43.4) — against `billing.quota_configs.hard_limit` for `ACTIVE_AGENTS` (§43.3), counting `status IN ('DRAFT','PUBLISHED') AND deleted_at IS NULL` (§43.2), rejecting with 6K's canonical `429 QUOTA_EXCEEDED` (§43.6). **A DB blocker was raised and resolved:** `DB-BLOCKER-FINAL-API-001` is **RESOLVED BY additive migration `110_5C2`**, which added the three functions and revoked raw `INSERT` on `voice.agents` from every runtime role, making the quota structurally unbypassable (§43.10) | **Yes — additive migration `110_5C2` (Phase 5C.2); `001`–`109` unchanged** |
 | **DEP-6E-21** | Publish-time provider-specific capability/evaluation validation (§15.4 rules #12–#14) must be scoped to only the categories Agent config actually identifies a `provider_id` for | 4B §5.3.1 (`VoiceConfig.voice_id` is explicitly "provider-agnostic"); 4B §5.3.2/3B §11 (`ModelConfig`/`ModelRouter` are the LLM-selection surface); no `stt_provider_id`/`tts_provider_id` field or deterministic `voice_id`→provider mapping exists anywhere in 3B/4B/5C | §10.2, §11.1, §15.4–§15.6, §20 | **RESOLVED** | This pass's scoping correction restricts provider-specific validation to the LLM category (§15.5); `GET /language-evaluations`'s broader `STT`/`TTS`/`LLM` reference-data exposure is unaffected, since it serves human browsing, not automated per-provider validation | No |
 | **DEP-6E-22** | Provider configuration-identity/existence validation (6E) must not be conflated with provider runtime-routability validation (6D) — a prior pass's §11.4 reused 6D's `circuit_state = 'CLOSED'`-filtered query for 6E's existence check, contradicting §15.4 rule #15's `OPEN`-circuit `WARNING` | 5C §15.11 (6D's frozen runtime pre-selection query) vs. the configuration-identity question 6E actually needs answered | §11.1, §11.4, §15.3, §15.4 rules #5/#15 | **RESOLVED** | §11.4 now defines two explicit, separate queries: 6E's existence query (A, no `circuit_state` filter, `LIMIT 1`) and 6D's unmodified runtime query (B, `circuit_state = 'CLOSED'`, cited not re-run) — an `is_active = TRUE`/`circuit_state = OPEN` provider now correctly exists (passes rule #5) while also triggering rule #15's `WARNING` | No |
 | **DEP-6E-23** | The `LanguageEvaluationRecord` publish-validation lookup must be able to observe a `REJECTED` verdict and must filter by the resolved `provider_id` — a prior pass reused 5C §15.12's `verdict IN ('APPROVED','CONDITIONAL')`-filtered, `provider_id`-agnostic reference-list query for this purpose, making `REJECTED` structurally undetectable | 5C §15.12's reference-list query vs. the per-provider validation question §15.4 rules #13/#14 actually need answered | §15.4 rules #13/#14, §15.6, §20 | **RESOLVED** | §15.6 now defines a separate, 6E-owned application query (B) — filtered by `provider_id`, unfiltered by `verdict`, `ORDER BY evaluated_at DESC LIMIT 1` — over the same already-frozen `idx_ler_lookup` index; no schema/index/migration change. 5C §15.12's original reference-list query (A) is unchanged and continues to back `GET /language-evaluations` only | No |
@@ -1504,3 +1504,181 @@ All seven of Pass 1's closure checks (§41.1, re-verified), all eight of Pass 2'
 - **6D untouched.** No edit made to `6D-Voice-Call-Agent-APIs.md` — every adopted contract is reproduced by reference and citation, never by editing the source document. 6D's own text, including its historical framing as owning Agent CRUD, remains exactly as frozen; this document is the forward-looking authoritative pointer, not a retroactive correction.
 - **Phase 5 — untouched, no amendment.** No edit was made to any file under `phase-05-database-design/`, including `5J-Analytics-Audit-Schema.md`. §25.1–25.2 explain precisely why no amendment is required: every `action_kind` and the synchronous-audit exception this document's mutations need were already added by 6D's own prior, already-authorized amendment.
 - **6F+ not started.** No Knowledge/RAG, Workflow, Prompt, Memory, CRM, Campaign, Billing, Integrations, or Analytics API design was performed in this document — §3.2's exclusion list is exhaustive and was checked against every section before writing it.
+
+---
+
+## 43. FINAL API RECONCILIATION CONTROLLED AMENDMENT — `DEP-6E-20` / `FAR-OD-01` (Option B)
+
+> **Status of this section.** This is a **controlled amendment** applied during the Final API Reconciliation pass, not a redesign of this document. It changes exactly one behaviour — `POST /api/v1/agents` (§30.1) now performs a **hard synchronous Agent-count commercial-quota admission check** — and closes `DEP-6E-20` (§38). Every other section of 6E is unchanged. Where this section conflicts with §32's earlier "**Concurrency:** none (creating a `DRAFT` row has no contended resource)" or §33's "no commercial-quota limiter applies to any 6E endpoint," **this section governs for the Agent-count quota only**; §33's request-*rate* limiting statements remain correct and unchanged.
+
+### 43.1 Owner Decision `FAR-OD-01` = OPTION B (binding)
+
+`POST /api/v1/agents` **MUST** synchronously enforce the organization's effective Agent-count commercial quota. If the organization is already at its effective limit, **the Agent MUST NOT be created** — no `DRAFT` row is committed, and the request fails. This supersedes the earlier deferral in `DEP-6E-20` and the earlier (accidental) Option-A reading. The decision is made **server-side, inside the authoritative application/domain transaction**, from the server-resolved effective quota, using 6K as the sole commercial authority.
+
+**No client-authoritative input.** The request body for `POST /agents` is unchanged (§30.1) and **MUST NOT** accept `agent_limit`, `quota_limit`, `plan_limit`, `current_agent_count`, price, or entitlement fields. If a client submits any such field it is rejected by the existing strict-schema rule (§30.1), never honoured. The quota decision reads no client input whatsoever beyond the authenticated `organization_id` already established by the tenant context.
+
+### 43.2 Counted-Agent semantic — which rows consume a quota slot
+
+6K's `ACTIVE_AGENTS` metric row (6K §22) defines the metric only as "*Periodic snapshot (COUNT of `voice.agents` in a billable state)*" and does not enumerate the counted `status` values. That phrase alone is not precise enough to implement a hard gate, so the counted-state set is **derived here explicitly rather than assumed**, and the derivation is recorded as reconciliation item `FAR-P2-02`. It is **forced**, not chosen — no other set is consistent with the frozen lifecycle plus the owner's binding decision:
+
+| Lifecycle state | Counts toward `ACTIVE_AGENTS`? | Why this is forced |
+|---|---|---|
+| `DRAFT` | **Yes** | `POST /agents` creates a row whose `status` is always `'DRAFT'` (§30.1, `010_5C.sql` default). If `DRAFT` did not count, the gate the owner placed on `POST /agents` would add zero to the counted total and could never reject anything — the binding decision in §43.1 would be a no-op. `DRAFT` must therefore count. |
+| `PUBLISHED` | **Yes** | A published Agent is the routable, revenue-bearing state (`CallRoutingService.resolve()` admits only `PUBLISHED`, 4B §9 `AgentMustBePublished`). Any reading of "billable state" that excluded it would be incoherent. |
+| `DEPRECATED` | **No** | `DEPRECATED` is terminal (§19.1) and **no delete or archive path exists** — `DEP-6E-14` records that there is no `DELETE /agents/{id}`, no archive command, and that `voice.agents.deleted_at` is never populated by any command. If `DEPRECATED` counted, an organization that reached its limit could never release a slot by any available API action, making the quota a permanent, irreversible lockout. That is not a commercially coherent quota, so `DEPRECATED` cannot count. This also matches the metric's own name (`ACTIVE_AGENTS`) and the fact that a deprecated Agent cannot be routed to. |
+| `deleted_at IS NOT NULL` | **No** | Excluded defensively for forward-compatibility. No 6E command populates this column today (`DEP-6E-14`), so the predicate is currently a no-op; it is written into the rule so that a future soft-delete path releases a slot automatically rather than silently changing the metric. |
+
+**Canonical counted-set predicate (the one definition used by both paths):**
+
+```sql
+-- The ACTIVE_AGENTS commercial metric, for organization :org
+SELECT COUNT(*) FROM voice.agents
+WHERE organization_id = :org
+  AND status IN ('DRAFT','PUBLISHED')
+  AND deleted_at IS NULL
+```
+
+This is the **same** metric computed by 6K's periodic snapshot accounting — see the corresponding 6K amendment (6K §52). There is exactly one definition of "counted Agent"; the synchronous admission path and the periodic/reporting path describe the same commercial quantity and may not diverge. `idx_agents_org_status` (`010_5C.sql`) already supports this predicate; **no new index, column, constraint, function, or migration is required.**
+
+**Slot release (`§33` of the governing reconciliation task).** A quota slot is released **only** by `POST /agents/{id}/deprecate` (§19.1) — the sole transition that moves a row out of the counted set. `publish` (`DRAFT` → `PUBLISHED`) is **count-neutral** and therefore requires **no** quota gate. Because deprecation is terminal and irreversible, releasing a slot is a one-way action; this is a disclosed product consequence of the frozen lifecycle, not a new rule invented here.
+
+### 43.3 Effective quota resolution — server-authoritative, 6K-owned
+
+The effective Agent-count limit is resolved **entirely server-side** through 6K's frozen commercial authority. It is **`billing.quota_configs.hard_limit`** for `(organization_id, metric = 'ACTIVE_AGENTS')`, restricted to the currently-effective window (`effective_from <= NOW() AND (expires_at IS NULL OR expires_at > NOW())`, `106_5H3.sql`).
+
+- **`hard_limit` is the enforcement axis, not `included_quantity`.** This follows 6K §25.1's own corrected rule — **`overage_allowed = (hard_limit IS NULL)`, full stop** — which deliberately separates *enforcement* (`hard_limit`) from *pricing/inclusion* (`included_quantity` / `overage_rate`, resolved per 6K §13.2's agreement-override → `plan_prices` → default chain). Gating on `included_quantity` would contradict 6K §25.1 and would conflate the two axes 6K explicitly refuses to merge.
+- **Absent, `NULL`, or expired `hard_limit` ⇒ no hard stop.** The organization is unenforced for this metric (`overage_allowed = TRUE`), and `POST /agents` proceeds. This is fail-*open* **by 6K's own canonical definition**, not a permissive default invented here; the alternative (treating a missing row as limit 0) would block Agent creation for every organization that has not been explicitly provisioned, which no frozen document requires.
+- **Provisioning path unchanged.** A plan's or agreement's Agent cap becomes enforceable by writing that organization's `quota_configs` row — `app_worker` holds `INSERT, UPDATE` (`052_5H.sql`) and platform admin uses `billing.fn_platform_set_quota_override()` (`106_5H3.sql`, whose allow-list already contains `'ACTIVE_AGENTS'`). 6E introduces no new write path, and **`app_api` holds `SELECT` only** on `quota_configs` — the API can read the limit but can never alter it.
+- **Redis is not used for this metric.** 6K's `INCR quota:{org}:{metric}` hot path (6K §25.2) is a monotonic period counter that explicitly accepts bounded over-consumption. `ACTIVE_AGENTS` is a **gauge** that must decrease on deprecation, and Option B forbids over-admission. The admission decision therefore reads PostgreSQL — 6K's own durable source of truth — directly.
+
+### 43.4 Concurrency-safe serialization — the binding transaction rule
+
+A naive `COUNT(*)` -> compare -> `INSERT` is **not** acceptable: two concurrent requests could each read `9/10` and each insert, committing 11 Agents against a limit of 10. Serialization is therefore mandatory. **Where that serialization lives is equally mandatory**, and it is not the API layer.
+
+**Binding rule — the API/service/repository layer does not acquire any lock of its own.** `POST /api/v1/agents` and `POST /api/v1/agents/{agent_id}/clone` each call a **Phase-5 `SECURITY DEFINER` function** that performs the entire admission decision — serialization, limit resolution, counting, rejection and `INSERT` — inside the database, within the caller's transaction:
+
+```sql
+BEGIN;
+  SET LOCAL app.tenant_id = :organization_id;
+
+  -- Sole Agent-creating call. The function internally:
+  --   (1) re-derives the tenant from organization.current_tenant_id() and rejects
+  --       any argument that does not match it;
+  --   (2) takes pg_advisory_xact_lock(hashtext('voice.agent_quota:' || org)) ITSELF;
+  --   (3) resolves billing.quota_configs.hard_limit for ACTIVE_AGENTS (§43.3);
+  --   (4) counts the counted set (§43.2);
+  --   (5) RAISEs SQLSTATE 53400 if counted >= hard_limit, BEFORE any INSERT;
+  --   (6) otherwise INSERTs exactly one DRAFT voice.agents row and returns its id.
+  SELECT voice.fn_create_agent(:organization_id, :actor_user_id, :name, :description);
+
+  -- Still written by the API transaction, unchanged (§26-§27, §43.9):
+  --   the AGENT_CREATED audit event and the agent.created outbox row.
+COMMIT;
+```
+
+Clone uses `voice.fn_clone_agent(:organization_id, :actor_user_id, :source_agent_id, :source_version_id)`, which performs source-ownership validation and then calls **the same guard** (§43.8).
+
+**The API layer issues no `SELECT pg_advisory_xact_lock(...)` of its own, on this path or any other.** Advisory serialization for the Agent quota exists at exactly one place: inside `voice.fn_assert_agent_quota_admission()`, a function no application role can call directly.
+
+**Why the enforcement had to move into the database (and why "the primitive already exists" was not sufficient):**
+
+| Candidate | Verdict |
+|---|---|
+| `SELECT ... FOR UPDATE` on `billing.quota_configs` | **Impossible.** PostgreSQL requires `UPDATE` privilege to take a row lock; `052_5H.sql` grants `app_api` **`SELECT` only**. |
+| `SELECT ... FOR UPDATE` on `billing.billing_accounts` | **Privilege-legal but unsound as an anchor.** The row's existence is not guaranteed (6K's own functions guard with `IF NOT EXISTS`), and a missing row locks nothing, so the race returns. Rejected. |
+| `SERIALIZABLE` isolation | Rejected. The platform has no documented global `40001` retry contract, and 6A §17.3 makes retry the client's responsibility; introducing serialization failures on a create path would be a new, undocumented transaction regime. |
+| API-layer `pg_advisory_xact_lock(hashtext(...))` | **Rejected — conflicts with frozen 6A §17.3.** See below. |
+| **`SECURITY DEFINER` function owning the lock, the count and the `INSERT`** — **SELECTED, delivered by migration `110_5C2`** | The **established, already-frozen Phase-5 pattern**: `workflow.fn_start_workflow_execution` (`041_5G.sql`) does precisely this — tenant check, internal `pg_advisory_xact_lock`, invariant check, `INSERT` — behind a `REVOKE INSERT` that removes every alternative write path. Migration `110_5C2` applies that same pattern to `voice.agents`. |
+
+**Why the API-layer lock was not acceptable (`FAR-P1-01`, closed).** An earlier revision of this section had the application transaction issue `SELECT pg_advisory_xact_lock(hashtext('voice.agent_quota:' || organization_id))` directly. That **conflicts with frozen 6A §17.3**, which allows the API tier no application-level lock of its own: locking is legitimate only where it is already encapsulated **inside a Phase-5 `SECURITY DEFINER` function**, or via the existing Campaign Redis `SETNX` mechanism. That deviation was originally logged as a narrow, non-blocking `FAR-P3-02`; independent freeze-gate review **reclassified it to `FAR-P1-01`** — a real conflict with a frozen rule, not a disclosed stylistic deviation. **6A was not weakened to legalise the old design.** The design was changed instead, and `FAR-P1-01` is now **CLOSED BY MIGRATION `110_5C2`**.
+
+**Why a lock alone would still not have been enough (`DB-BLOCKER-FINAL-API-001`, resolved).** Independently of where the lock lived, `voice.agents` granted raw `INSERT` to `app_api` and `app_worker` (`010_5C.sql`). Any admission check layered *above* a raw `INSERT` grant is **advisory only**, because the grant is itself an alternative write path that never consults the check. An enforcement *primitive* existing is not the same as a compliant enforcement path being the *only* path. Migration `110_5C2` therefore also executes:
+
+```sql
+REVOKE INSERT ON voice.agents FROM app_api, app_worker, app_platform_admin;
+GRANT SELECT, UPDATE ON voice.agents TO app_api, app_worker;
+GRANT SELECT, UPDATE, DELETE ON voice.agents TO app_platform_admin;
+```
+
+After `110_5C2`, **no runtime role holds `INSERT` on `voice.agents`** — live-verified for all eight app roles plus `app_migration`. (`BYPASSRLS`, held pre-existing by `app_migration` and `app_platform_admin`, skips *row-level policies* but **not** *table-level ACLs*, so the `REVOKE` binds those roles too.) `SELECT`/`UPDATE` are retained, so every existing 6E read, update, publish and deprecate path in this document continues to function unchanged. The quota guard itself is granted to **nobody** and `PUBLIC` holds `EXECUTE` on none of the three functions; the guard runs only as a nested call inside the two definer functions, so no principal can invoke it to pre-book a slot and no principal can skip it. The hard quota is thus **structurally enforceable**, not merely documented.
+
+**Hash collisions** between `hashtext` values of different organization ids cause only spurious serialization (two unrelated orgs briefly queue behind one another on the create path) — never an incorrect admission decision. Correctness does not depend on collision-freedom.
+
+**No `AgentVersion` is created on this path.** `voice.fn_create_agent` and `voice.fn_clone_agent` each insert **exactly one** `voice.agents` row and write **no** `voice.agent_versions` row. `AgentVersion` creation remains **publish-only** (§30.x). Live-verified: `voice.agent_versions` did not grow across any create or clone, including the concurrent clone-at-boundary case.
+
+### 43.5 Concurrency cases (normative)
+
+| # | Scenario | Required outcome |
+|---|---|---|
+| 1 | Limit `N`, counted `≤ N-2`, two concurrent creates | Both succeed. The lock serializes them; each independently observes room. |
+| 2 | Limit `N`, counted `= N-1` (exactly one slot), two concurrent creates | **Exactly one succeeds.** The loser blocks on the advisory lock *inside the guarded function*, then re-reads the count after the winner commits, observes `N`, and is rejected `429 QUOTA_EXCEEDED`. **Live-verified** on PostgreSQL 18.6 with two genuinely concurrent processes (both confirmed simultaneously blocked via `pg_locks`): exactly one winner, exactly one `53400`. |
+| 3 | Limit `N`, counted `= N`, any number of concurrent creates | All rejected `429 QUOTA_EXCEEDED`. No row is written. |
+| 4 | Idempotent replay of a previously-successful create | The original `201` response is replayed from the idempotency record (§43.7). **No second Agent, no second quota consumption, no re-evaluation of the gate.** |
+| 5 | Create that fails or is rolled back after the gate passed (validation error, downstream failure, crash) | The `INSERT` is rolled back in the same transaction, so no counted row exists, **and** the advisory lock is released automatically by the transaction's end (it is transaction-scoped, taken inside the function but held by the caller's transaction). **No slot is permanently consumed.** **Live-verified:** 0 rows committed, 0 advisory locks held afterwards, slot immediately reusable. |
+
+**Proof that no count-then-insert race remains.** The count and the `INSERT` occur inside one `SECURITY DEFINER` function in the same transaction, which holds an exclusive advisory lock keyed on `organization_id` taken *before* the count. Any other transaction attempting a quota-counted Agent creation for that same organization must acquire the same lock and therefore cannot run between the count and the commit — it blocks until the first transaction commits or rolls back, and only then performs its own count, which already reflects the first transaction's outcome. Admission decisions for a given organization are thus **totally ordered**, and each one observes the committed result of every decision ordered before it. For a limit of `N`, no interleaving can commit an `N+1`-th quota-counted Agent. *(Condition: every quota-counted Agent-creating path takes this lock — which, after `110_5C2`, is guaranteed rather than assumed: the only two paths that can insert into `voice.agents` are the two `SECURITY DEFINER` functions, both of which call the same guard, and no role retains raw `INSERT` to create an untracked third path. See §43.8.)*
+
+### 43.6 Canonical error — reused from 6K, not invented
+
+A commercial-quota rejection returns the **existing canonical 6K error**: **`429` with code `QUOTA_EXCEEDED`** ("Hard limit reached, no overage priced/allowed", 6K §36). `429` is used here **because 6K explicitly assigns that status to this exact commercial-quota condition**, not because the condition superficially resembles throttling. 6E defines **no new error code** for this.
+
+**Commercial quota and rate limit remain distinct** (§33 is preserved, not overridden):
+
+| Dimension | Commercial Agent-count quota (this section) | Request-rate limit (§33) |
+|---|---|---|
+| Authority | 6K `billing.quota_configs` (durable, commercial) | 6A/6E limiter tier (operational) |
+| Meaning | "Your plan entitles you to `N` Agents" | "You are issuing requests too fast" |
+| Retry semantics | Retrying does **not** help; the tenant must deprecate an Agent or change plan | Retrying after the window **does** help |
+| `Retry-After` | **Not** emitted — there is no time after which the request would succeed | Emitted |
+| Code | `QUOTA_EXCEEDED` | the rate-limit code of §33 |
+
+Both surface as HTTP `429`; they are distinguished by `error.code`, and the response body names the metric (`error.details.metric = "ACTIVE_AGENTS"`, plus the effective `limit`). A future global Error Catalog is the correct place to record that `429` carries two distinct semantic conditions — noted, not created here.
+
+### 43.7 Idempotency interaction (6A §16 reused unchanged)
+
+`POST /agents` continues to accept an **optional** `Idempotency-Key` (§30.1) — this amendment does **not** make it mandatory, because 6A §16.1's "dangerous side effect" bar is still the governing test and the quota gate does not change the shape of the created resource.
+
+- **Replay of a stored success:** returns the original `201` from the idempotency record (6A §16.2) **before** the create transaction is entered. The advisory lock is never taken, the count is never recomputed, and the gate is never re-evaluated. A replay therefore **cannot** consume a second slot and **cannot** fail merely because the organization has since reached its limit — matching Case 4 above.
+- **Replay of a stored `429 QUOTA_EXCEEDED`:** the stored error response is replayed per 6A §16's normal semantics; the client must use a new key to genuinely re-attempt.
+- **A new key, or no key at all,** is a genuinely new creation attempt and **undergoes the full hard gate**.
+- **Fingerprint mismatch** on a reused key is handled by 6A §16's existing conflict rule — unchanged here.
+
+### 43.8 `POST /agents/{id}/clone` is gated identically (forced corollary)
+
+`POST /agents/{id}/clone` (§30.x) also commits a new `status = 'DRAFT'` row and therefore also consumes a quota slot under §43.2. Leaving it ungated would let a tenant exceed `N` simply by cloning, defeating the owner's invariant ("*for organization quota `N`, concurrent Agent creations cannot commit more than `N` quota-counted Agents*"). Clone therefore passes through **the same guard**: `voice.fn_clone_agent` validates that the source Agent (and, when supplied, the source version) belongs to the caller's tenant — raising `SQLSTATE P0002`, surfaced as a **non-disclosing `404`**, for a source that is absent *or* owned by another tenant, with **byte-identical** error text in both cases (live-verified) — and then calls `voice.fn_assert_agent_quota_admission()`, giving it **the same advisory lock, the same count, the same limit, and the same `429 QUOTA_EXCEEDED`**. Draft-source and published-version-source clone semantics are preserved unchanged (a draft source copies `draft_config`; a version source copies that version's `snapshot_json`), exactly one new `DRAFT` Agent is inserted, no `AgentVersion` is written, and the public clone request/response contract is unchanged. This is recorded explicitly rather than absorbed silently: it is a **derived corollary of the owner's stated invariant**, not an independent scope expansion. No other 6E endpoint creates a `voice.agents` row, so these two are the complete set of gated paths.
+
+### 43.9 Authorization and audit unchanged
+
+- **Authorization is independent of quota and evaluated first.** **`agent:write`** (user token) / the equivalent API-key scope remains the sole authorization rule for `POST /agents` and `POST /agents/{agent_id}/clone` (§25). `agent:write` is the canonical permission string in the frozen 5B permission catalog (`007_5B.sql`); the strings `agent:create` and `agents:write` **do not exist** in that catalog and are not used anywhere in this document. A caller lacking permission receives `403` and the quota gate is never reached; a caller with permission at an org that is at its limit receives `429`. Neither substitutes for the other.
+- **Audit/event behaviour is unchanged on success** (`AGENT_CREATED` audit row + outbox event, §26–§27). A quota **rejection** commits no `voice.agents` row and emits no `AGENT_CREATED` audit or domain event — it is a rejected request, not a state change. Ordinary API request/error telemetry records it; no new audit `action_kind` is introduced.
+
+### 43.10 Database-support result — `DB-BLOCKER-FINAL-API-001`, raised and resolved
+
+**A DB blocker was raised, and it has been resolved by migration `110_5C2`.**
+
+An earlier revision of this section concluded that Option B needed no DB change, on the grounds that every primitive it required already existed at head `109_5B7`. That conclusion was **wrong**, and it is corrected here rather than quietly dropped. Two things were true at `109_5B7`:
+
+1. The only 6A-legal home for the serialization — a Phase-5 `SECURITY DEFINER` function — **did not exist** for this path, so the design was forced into the API layer, conflicting with frozen 6A §17.3 (`FAR-P1-01`).
+2. `app_api` and `app_worker` held raw `INSERT` on `voice.agents`, leaving an **unrestricted alternative write path** that no admission check could observe. A hard quota above a raw `INSERT` grant is advisory, not hard.
+
+`DB-BLOCKER-FINAL-API-001` was therefore **RAISED**, with the required invariant stated as: *hard, synchronous, server-authoritative `ACTIVE_AGENTS` admission with concurrency safety, structurally enforceable on both `POST /api/v1/agents` and `POST /api/v1/agents/{agent_id}/clone`.*
+
+**Resolution — migration `110_5C2` (additive; `001`–`109` untouched and byte-identical; no `111`):**
+
+| Object | Kind | Role |
+|---|---|---|
+| `voice.fn_assert_agent_quota_admission(UUID)` | `plpgsql`, **SECURITY INVOKER**, owner-only, **no `GRANT EXECUTE` to any role**, `PUBLIC` `EXECUTE` = `f` | Derives the tenant server-side, takes the advisory lock internally, resolves the limit from `billing.quota_configs`, counts, raises `53400` before any `INSERT` |
+| `voice.fn_create_agent(UUID, UUID, TEXT, TEXT)` -> `UUID` | **SECURITY DEFINER**, `GRANT EXECUTE TO app_api` | Sole `POST /agents` write path; guard, then one `DRAFT` Agent |
+| `voice.fn_clone_agent(UUID, UUID, UUID, UUID)` -> `UUID` | **SECURITY DEFINER**, `GRANT EXECUTE TO app_api` | Sole clone write path; ownership validation, same guard, then one `DRAFT` Agent |
+
+All three set `search_path = voice, billing, organization, public, pg_catalog` explicitly, schema-qualify every cross-schema reference, and `REVOKE ALL ... FROM PUBLIC`. Raw `INSERT` on `voice.agents` is revoked from every runtime role. **No table, column, index, constraint, RLS policy or trigger was added, altered or dropped**, no RLS was weakened, no role gained `BYPASSRLS`, and no new error code or event mechanism was introduced.
+
+**Live validation (PostgreSQL 18.6, disposable databases only):** fresh `001 -> 110` and incremental `109 -> 110` both EXIT=0; single Alembic head `110_5C2`; genuine two-process concurrency batteries (never sequential statements) for the ≥2-slot, exactly-one-slot, at-limit and clone-boundary cases; rollback, NULL/absent-limit, cross-tenant isolation, publish-neutrality, deprecate-frees-a-slot, raw-`INSERT`-denial-per-role and audit/outbox atomicity all pass. Full record: `docs/phase-05-database-design/5K/validation/FINAL_API_RECONCILIATION_DB_VALIDATION_REPORT.md` plus `FAR_DB_01_migration_and_integrity.txt`, `FAR_DB_02_quota_concurrency_battery.txt`, `FAR_DB_03_privilege_rls_bypass_battery.txt`. Controlled schema amendment: `docs/phase-05-database-design/5C-Voice-Schema.md`; manifest entry: `docs/phase-05-database-design/5K/MIGRATION_MANIFEST.md` Row 110.
+
+**Status:** `DB-BLOCKER-FINAL-API-001` = **RESOLVED BY MIGRATION `110_5C2`**. `FAR-P1-01` (reclassified from `FAR-P3-02`) = **CLOSED BY MIGRATION `110_5C2`**. 6A §17.3 is satisfied **without an exception**, and no future-deviation ticket is carried for it.
+
+**Head ownership:** `109_5B7` remains the frozen historical **Phase 6M** head; Phase 6M is **not** reopened. `110_5C2` is the current **project** head, owned by the Final API Reconciliation pass.
+
+### 43.11 `DEP-6E-20` — closed
+
+**`DEP-6E-20` = RESOLVED BY OWNER DECISION `FAR-OD-01` (Option B). Blocking: NO.** FR-TEN-005's per-tenant Agent-*count* quota is enforced synchronously by `POST /api/v1/agents` and `POST /agents/{id}/clone` under §43.1–§43.9, using 6K's quota authority, 6K's counted metric, and 6K's canonical error, enforced at the database boundary by migration `110_5C2` (§43.10) so that the limit cannot be bypassed by any runtime role. The §38 register row is updated accordingly; the `FR-TEN-005` traceability row (§37) is now satisfied at the enforcement level, not merely handed off.

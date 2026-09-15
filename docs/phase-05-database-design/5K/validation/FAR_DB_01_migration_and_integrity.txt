@@ -1,0 +1,115 @@
+==================================================================================
+FAR_DB_01 - MIGRATION EXECUTION + HEAD + FROZEN-HISTORY INTEGRITY
+Final API Reconciliation - controlled DB remediation (migration 110_5C2)
+Directive sections evidenced: §12 (real PG18 validation), §29 (head ownership),
+                              §30 (001-109 byte-identity, hashes)
+==================================================================================
+
+ENGINE ..... PostgreSQL 18.6 (Debian 18.6-1.pgdg12+2), image pgvector/pgvector:pg18
+             (the pgvector image is required: 034_5F.sql creates the `vector` extension)
+TOOLING .... alembic 1.19.1 / SQLAlchemy 2.0.52 / psycopg2 2.9.12
+DATABASES .. disposable throwaway containers only, destroyed at end of pass:
+               far-pg18-fresh : localhost:55443 db far_fresh
+               far-pg18-incr  : localhost:55444 db far_incr
+
+----------------------------------------------------------------------------------
+1. REVISION INVENTORY AND SINGLE HEAD
+----------------------------------------------------------------------------------
+  frozen SQL files in 5K/migrations/        : 110
+  alembic revisions in 5K/alembic/versions/ : 110
+  migration 111 present?                    : NO (0 files match ^111)
+
+  $ alembic -c alembic.ini heads
+  110_5C2 (head)          <-- exactly ONE head
+
+  $ alembic -c alembic.ini history | head -1
+  109_5B7 -> 110_5C2 (head), Phase 5C.2 -- wraps the Final API Reconciliation DB
+  remediation migration 110_5C2.sql.
+
+  The linear chain is unbroken: 110_5C2.down_revision = '109_5B7'. No branch,
+  no merge point, no second head.
+
+----------------------------------------------------------------------------------
+2. FRESH LEG - full 001 -> 110 on an empty PostgreSQL 18 database (far_fresh)
+----------------------------------------------------------------------------------
+  $ alembic -c alembic.ini upgrade head
+  exit status ................. 0
+  log lines ................... 114
+  ERROR / FATAL / Traceback ... 0 occurrences
+
+  final line of the run:
+    INFO [alembic.runtime.migration] Running upgrade 109_5B7 -> 110_5C2, Phase 5C.2
+    -- wraps the Final API Reconciliation DB remediation migration 110_5C2.sql.
+
+  $ alembic -c alembic.ini current      ->  110_5C2 (head)
+  $ SELECT version_num FROM alembic_version;  ->  110_5C2
+
+----------------------------------------------------------------------------------
+3. INCREMENTAL LEG - 109 -> 110 as one discrete step (far_incr)
+----------------------------------------------------------------------------------
+  STEP 1  $ alembic -c alembic.ini upgrade 109_5B7     exit 0
+          (seeded to the frozen Phase-6M head, 109 migrations applied)
+
+  STATE AT THE 109 BASELINE, BEFORE 110 IS APPLIED:
+    voice.fn_create_agent exists ................................. f
+    has_table_privilege('app_api','voice.agents','INSERT') ....... t   <-- bypass OPEN
+
+  STEP 2  $ alembic -c alembic.ini upgrade 110_5C2     exit 0
+    INFO [alembic.runtime.migration] Context impl PostgresqlImpl.
+    INFO [alembic.runtime.migration] Will assume transactional DDL.
+    INFO [alembic.runtime.migration] Running upgrade 109_5B7 -> 110_5C2, Phase 5C.2
+    -- wraps the Final API Reconciliation DB remediation migration 110_5C2.sql.
+
+  STATE AFTER 110:
+    voice.fn_create_agent exists ................................. t
+    voice.fn_clone_agent exists .................................. t
+    voice.fn_assert_agent_quota_admission exists ................. t
+    has_table_privilege('app_api','voice.agents','INSERT') ....... f   <-- bypass CLOSED
+
+  $ alembic -c alembic.ini current      ->  110_5C2 (head)
+  $ SELECT version_num FROM alembic_version;  ->  110_5C2
+
+  This single transcript is the direct evidence that migration 110 is what closes
+  the raw Agent INSERT bypass: the privilege flips t -> f across that one step.
+
+----------------------------------------------------------------------------------
+4. FROZEN HISTORY INTEGRITY - migrations 001-109 (§30)
+----------------------------------------------------------------------------------
+  Method: for every frozen file, sha256 of the working-tree copy was compared with
+  sha256 of `git show HEAD:<path>`. No file was excluded except the two new 110 files.
+
+  frozen files compared against HEAD .......... 218  (109 .sql + 109 .py)
+  byte-level differences ...................... 0
+  present in working tree but absent in HEAD .. 0
+
+  $ git status --porcelain docs/phase-05-database-design/5K
+  ?? docs/phase-05-database-design/5K/alembic/versions/110_5C2.py
+  ?? docs/phase-05-database-design/5K/migrations/110_5C2.sql
+  -> exactly two new files, both migration 110; ZERO tracked 5K files modified.
+
+----------------------------------------------------------------------------------
+5. HASHES
+----------------------------------------------------------------------------------
+  HISTORICAL HEAD 109_5B7 - reconfirmed, unchanged by this pass:
+    SQL     a761239d7e63e3d2d982f4dbf7291b81711a24dc051c2577bc44ff46052b0cf3
+    Python  d60f497b9c6c494e051b86d2f086211c77aef8e6b46bc390321e179e83fb9602
+    Both match the values named in the directive byte for byte.
+
+  NEW MIGRATION 110_5C2:
+    SQL     3b76d83515942f6e2193667e7c376e26cd1102bfb7926d080dda297e693d776c
+            15044 bytes   (docs/phase-05-database-design/5K/migrations/110_5C2.sql)
+    Python  735366afb9141c9f31cb3b8ad05da10d63544f278890667a68431456bbf871d5
+            5810 bytes   (docs/phase-05-database-design/5K/alembic/versions/110_5C2.py)
+
+----------------------------------------------------------------------------------
+6. HEAD OWNERSHIP (§29)
+----------------------------------------------------------------------------------
+  109_5B7  remains the frozen Phase-6M head as a matter of project history.
+           Phase 6M is NOT reopened by this pass; nothing in 6M changed.
+  110_5C2  is the new project head, owned by the FINAL API RECONCILIATION pass
+           (FAR-P1-01 / DB-BLOCKER-FINAL-API-001 / DEP-6E-20 closure), not by 6M.
+
+----------------------------------------------------------------------------------
+RESULT: PASS - fresh and incremental legs both green on PostgreSQL 18.6, exactly one
+        Alembic head (110_5C2), 001-109 byte-identical, no migration 111.
+==================================================================================
