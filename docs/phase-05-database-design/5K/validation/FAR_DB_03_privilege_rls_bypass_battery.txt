@@ -1,69 +1,106 @@
 ==================================================================================
-FAR_DB_03 - PRIVILEGE, SECURITY DEFINER, RLS AND RAW-INSERT BYPASS BATTERY
-Final API Reconciliation - controlled DB remediation (migration 110_5C2)
-Directive sections evidenced: §5 (actual final grants), §6 (function hardening),
-                              §13 H + §14 (bypass closure, RLS intact)
+FAR_DB_03 - PRIVILEGE, SECURITY DEFINER, TRIGGER, RLS AND RAW-MUTATION BYPASS BATTERY
+Final API Reconciliation - 110_5C2 MICRO-REMEDIATION (amended migration 110_5C2)
+Directive sections evidenced: §3/§4 (raw UPDATE cannot re-enter the counted set),
+                              §5 (organization_id mutation), §6 (resurrection),
+                              §11 (privilege/RLS battery re-run), §14 (final gate)
 ==================================================================================
 
-ENGINE ..... PostgreSQL 18.6, disposable database far_fresh (localhost:55443),
-             built by `alembic upgrade head` from base -> 110_5C2.
-METHOD ..... ACTUAL catalog state was inspected (pg_proc, pg_policy, pg_class,
-             pg_roles, information_schema.role_table_grants, has_*_privilege).
-             Nothing here is inferred from the migration text.
+ENGINE ..... PostgreSQL 18.6, disposable database far_fresh (localhost:55441),
+             built by `alembic upgrade head` from base -> amended 110_5C2.
+METHOD ..... ACTUAL catalog state was inspected (pg_proc, pg_trigger, pg_policy,
+             pg_class, pg_roles, information_schema.role_table_grants,
+             has_*_privilege). Nothing here is inferred from the migration text.
+             Every bypass attempt was actually EXECUTED as the named principal.
 
 ==================================================================================
 PART 1 - CATALOG INSPECTION
 ==================================================================================
 ==================================================================
-1. ACTUAL pg_proc state of the three functions created by 110_5C2
+1. ACTUAL pg_proc state of the FIVE functions created by 110_5C2
 ==================================================================
-               proname             | security_definer |  owner   |                           set_clauses                            
+               proname             | security_definer |  owner   |                           set_clauses
   ---------------------------------+------------------+----------+------------------------------------------------------------------
+   fn_agents_mutation_guard        | f                | postgres |
+   fn_assert_agent_actor           | f                | postgres | {"search_path=voice, organization, public, pg_catalog"}
    fn_assert_agent_quota_admission | f                | postgres | {"search_path=voice, billing, organization, public, pg_catalog"}
    fn_clone_agent                  | t                | postgres | {"search_path=voice, billing, organization, public, pg_catalog"}
    fn_create_agent                 | t                | postgres | {"search_path=voice, billing, organization, public, pg_catalog"}
-  (3 rows)
-  
-  Every function carries an explicit SET search_path; cross-schema references
-  (billing.quota_configs, organization.current_tenant_id, pg_catalog.*) are schema-qualified.
+  (5 rows)
+
+  Four of the five carry an explicit SET search_path; cross-schema references
+  (billing.quota_configs, organization.current_tenant_id, pg_catalog.*) are
+  schema-qualified throughout.
+
+  fn_agents_mutation_guard deliberately carries NO proconfig. That matches the
+  established project trigger-guard precedent exactly - voice.prevent_agent_version_mutation
+  (009_5C) and workflow.prevent_execution_mutation (039_5G) are likewise
+  `RETURNS TRIGGER LANGUAGE plpgsql` with no SET search_path. The function body
+  touches only OLD/NEW tuple fields and pg_catalog-resolvable operators; it
+  performs no schema-qualified lookup that a search_path could redirect.
+
+==================================================================
+1b. The BEFORE UPDATE guard trigger on voice.agents (FAR-P1-03)
+==================================================================
+            tgname           |        enabled         | level | timing | event  |         handler
+  ---------------------------+------------------------+-------+--------+--------+--------------------------
+   trg_agents_mutation_guard | enabled (origin+local) | ROW   | BEFORE | UPDATE | fn_agents_mutation_guard
+   trg_agents_updated_at     | enabled (origin+local) | ROW   | BEFORE | UPDATE | set_updated_at
+  (2 rows)
+
+  The guard is a BEFORE UPDATE FOR EACH ROW trigger, enabled for both origin and
+  local sessions. It is unconditional: it has no WHEN clause and no role test, so
+  it fires for every principal that can issue an UPDATE on voice.agents -
+  including the two BYPASSRLS roles and, as PART 2b proves live, the superuser
+  table owner. Triggers and table ACLs, unlike row-level security policies, are
+  NOT bypassed by BYPASSRLS.
 
 ==================================================================
 2. ACL on each function - PUBLIC must hold no EXECUTE
 ==================================================================
-               proname             |         acl         
+               proname             |         acl
   ---------------------------------+---------------------
+   fn_agents_mutation_guard        | postgres=X/postgres
+   fn_assert_agent_actor           | postgres=X/postgres
    fn_assert_agent_quota_admission | postgres=X/postgres
    fn_clone_agent                  | postgres=X/postgres+
                                    | app_api=X/postgres
    fn_create_agent                 | postgres=X/postgres+
                                    | app_api=X/postgres
-  (3 rows)
-  
-  PUBLIC EXECUTE (must be f on all three):
-    voice.fn_create_agent(uuid,uuid,text,text)              f
-    voice.fn_clone_agent(uuid,uuid,uuid,uuid)               f
-    voice.fn_assert_agent_quota_admission(uuid)             f
+  (5 rows)
+
+  PUBLIC EXECUTE (must be f on all five):
+    voice.fn_create_agent(uuid,uuid,text,text)                 f
+    voice.fn_clone_agent(uuid,uuid,uuid,uuid)                  f
+    voice.fn_assert_agent_quota_admission(uuid)                f
+    voice.fn_assert_agent_actor(uuid,uuid)                     f
+    voice.fn_agents_mutation_guard()                           f
 
 ==================================================================
 3. EXECUTE privilege per runtime role (only app_api may call the two
-   endpoint functions; NO role may call the internal quota assertion)
+   endpoint functions; NO role may call the internal helpers)
 ==================================================================
-  ROLE                           fn_create  fn_clone   fn_assert_quota
-  app_api                        t          t          f         
-  app_billing_reconciler         f          f          f         
-  app_billing_webhook_ingress    f          f          f         
-  app_migration                  f          f          f         
-  app_platform_admin             f          f          f         
-  app_readonly                   f          f          f         
-  app_voice_reconciler           f          f          f         
-  app_worker                     f          f          f         
-  fn_assert_agent_quota_admission is unreachable by every principal: it runs only as a
-  nested call inside the two SECURITY DEFINER functions, so no caller can pre-acquire a slot.
+  ROLE                           fn_create  fn_clone   fn_assert_quota  fn_assert_actor  fn_guard
+   app_api                        t          t          f                f                f
+   app_billing_reconciler         f          f          f                f                f
+   app_billing_webhook_ingress    f          f          f                f                f
+   app_migration                  f          f          f                f                f
+   app_platform_admin             f          f          f                f                f
+   app_readonly                   f          f          f                f                f
+   app_voice_reconciler           f          f          f                f                f
+   app_worker                     f          f          f                f                f
+  (8 rows)
+
+  fn_assert_agent_quota_admission and fn_assert_agent_actor are unreachable by every
+  principal: they run only as nested calls inside the two SECURITY DEFINER functions,
+  so no caller can pre-acquire a slot or pre-satisfy the actor check.
+  fn_agents_mutation_guard is likewise callable by nobody directly; it is invoked
+  only by the trigger manager, which does not consult EXECUTE privilege.
 
 ==================================================================
-4. ACTUAL table privileges on voice.agents after 110
+4. ACTUAL table privileges on voice.agents after the amended 110
 ==================================================================
-        grantee       |                          privileges                           
+        grantee       |                          privileges
   --------------------+---------------------------------------------------------------
    app_api            | SELECT, UPDATE
    app_platform_admin | DELETE, SELECT, UPDATE
@@ -71,23 +108,30 @@ PART 1 - CATALOG INSPECTION
    app_worker         | SELECT, UPDATE
    postgres           | DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE
   (5 rows)
-  
-  ROLE                           INSERT   SELECT   UPDATE   DELETE  
-  app_api                        f        t        t        f       
-  app_billing_reconciler         f        f        f        f       
-  app_billing_webhook_ingress    f        f        f        f       
-  app_migration                  f        f        f        f       
-  app_platform_admin             f        t        t        t       
-  app_readonly                   f        t        f        f       
-  app_voice_reconciler           f        f        f        f       
-  app_worker                     f        t        t        f       
+
+  ROLE                           INSERT   SELECT   UPDATE   DELETE
+   app_api                        f        t        t        f
+   app_billing_reconciler         f        f        f        f
+   app_billing_webhook_ingress    f        f        f        f
+   app_migration                  f        f        f        f
+   app_platform_admin             f        t        t        t
+   app_readonly                   f        t        f        f
+   app_voice_reconciler           f        f        f        f
+   app_worker                     f        t        t        f
+  (8 rows)
+
   INSERT = f for ALL runtime roles, including app_migration and app_platform_admin.
-  app_platform_admin retains only the SELECT/UPDATE/DELETE it already had - no new write bypass.
+  UPDATE is deliberately RETAINED for app_api, app_worker and app_platform_admin
+  (directive §4: "Do NOT revoke UPDATE from app_api globally because existing 6E
+  PATCH/publish/deprecate paths require it"). The counted-set invariant is instead
+  enforced by the BEFORE UPDATE trigger, which binds those retained privileges.
+  app_platform_admin gains no new write capability; it keeps only the
+  SELECT/UPDATE/DELETE it already had, and LOST INSERT like everyone else.
 
 ==================================================================
-5. BYPASSRLS - unchanged by 110, and does not defeat a table ACL
+5. BYPASSRLS - unchanged by 110, and defeats neither a table ACL nor a trigger
 ==================================================================
-             rolname           | rolbypassrls | rolsuper 
+             rolname           | rolbypassrls | rolsuper
   -----------------------------+--------------+----------
    app_api                     | f            | f
    app_billing_reconciler      | f            | f
@@ -98,48 +142,56 @@ PART 1 - CATALOG INSPECTION
    app_voice_reconciler        | f            | f
    app_worker                  | f            | f
   (8 rows)
-  
-  The two pre-existing BYPASSRLS roles (app_migration, app_platform_admin) are unchanged;
-  110 grants BYPASSRLS to nobody. BYPASSRLS skips row-level policies but NOT table-level
-  ACLs, which is why the REVOKE INSERT above still binds app_platform_admin (proven in TEST H).
+
+  The two pre-existing BYPASSRLS roles (app_migration, app_platform_admin) are
+  unchanged; 110 grants BYPASSRLS to nobody. BYPASSRLS skips row-level policies but
+  NOT table-level ACLs and NOT triggers - which is why the REVOKE INSERT binds
+  app_platform_admin (PART 2) and the mutation guard binds it too (FAR_DB_02 §7).
 
 ==================================================================
-6. RLS on voice.agents is intact (not weakened by 110)
+6. RLS on voice.agents is intact (not weakened by the amended 110)
 ==================================================================
-   rls_enabled | rls_forced 
+   rls_enabled | rls_forced
   -------------+------------
    t           | t
   (1 row)
-  
-        polname      | polcmd |                      using_expr                      |                   with_check_expr                    
+
+        polname      | polcmd |                      using_expr                      |                   with_check_expr
   -------------------+--------+------------------------------------------------------+------------------------------------------------------
    rls_agents_tenant | *      | (organization_id = organization.current_tenant_id()) | (organization_id = organization.current_tenant_id())
   (1 row)
-  
 
 ==================================================================
 7. Existing 6E read/update paths still functional for app_api
 ==================================================================
   BEGIN
+                  tenant
+  --------------------------------------
+   01a0a3ad-dee3-7614-be51-511c1c7524b5
+  (1 row)
+
   SET
-  SET
-   visible_agents_for_this_tenant 
+   visible_agents_for_this_tenant
   --------------------------------
                                 5
   (1 row)
-  
+
   UPDATE 1
-     name    |     description     
+     name    |     description
   -----------+---------------------
    nolimit-2 | updated via 6E path
   (1 row)
-  
+
+  RESET
   COMMIT
-  RLS still scopes reads to the session tenant, and UPDATE (6E agent-update / publish /
-  deprecate paths) is unaffected. Only INSERT was revoked.
+
+  RLS still scopes reads to the session tenant, and UPDATE (6E agent-update /
+  publish / deprecate paths) still works. Only INSERT was revoked; only ILLEGAL
+  UPDATEs are now blocked. The full legitimate-vs-illegal UPDATE matrix, run as
+  each of the three roles that retain UPDATE, is in FAR_DB_02 §7.
 
 ==================================================================================
-PART 2 - §13 H / §14: RAW INSERT ATTEMPTED AS EVERY RUNTIME ROLE
+PART 2 - RAW INSERT ATTEMPTED AS EVERY RUNTIME ROLE
 ==================================================================================
   Each role was made to attempt a direct `INSERT INTO voice.agents ...` naming its
   row 'bypass-<role>', with tenant context correctly set - i.e. the most favourable
@@ -152,25 +204,52 @@ PART 2 - §13 H / §14: RAW INSERT ATTEMPTED AS EVERY RUNTIME ROLE
    app_voice_reconciler           ERROR:  permission denied for table agents
    app_billing_webhook_ingress    ERROR:  permission denied for schema voice
    app_billing_reconciler         ERROR:  permission denied for schema voice
-rows named bypass-% actually committed: 0   EXPECT 0
+   app_migration                  ERROR:  permission denied for schema voice
+  rows named bypass-% actually committed: 0   EXPECT 0
 
-  Not one runtime role can insert an Agent row by any path other than the two
-  guarded functions. Note the two distinct denial modes, both fatal to a bypass:
+  All EIGHT runtime roles were attempted live - app_migration included, so the
+  claim no longer rests on has_table_privilege alone. Not one runtime role can
+  insert an Agent row by any path other than the two guarded functions. Note the
+  two distinct denial modes, both fatal to a bypass:
     - permission denied for table agents ..... the role can reach schema voice but
       110 revoked its INSERT (app_api, app_worker, app_platform_admin, app_readonly,
       app_voice_reconciler)
-    - permission denied for schema voice .... the billing roles never had access to
-      the voice schema at all (app_billing_webhook_ingress, app_billing_reconciler)
+    - permission denied for schema voice .... the role never had access to the
+      voice schema at all (app_billing_webhook_ingress, app_billing_reconciler,
+      app_migration)
 
-  app_migration is the eighth role. It holds BYPASSRLS but has_table_privilege(
-  'app_migration','voice.agents','INSERT') = f, shown in Part 1 §4. BYPASSRLS skips
-  row-level policies; it does NOT skip table-level ACLs. This is exactly why the
-  REVOKE binds even the two privileged roles.
+  NO ROLE RETAINS RAW INSERT.
 
-  NO ROLE RETAINS RAW INSERT. There is therefore no role for which the directive's
-  fallback ("if any role must retain raw INSERT, document exactly why and prove it
-  cannot bypass the quota invariant") applies - the stronger outcome was achievable
-  and was taken.
+==================================================================================
+PART 2b - THE MUTATION GUARD BINDS EVEN THE SUPERUSER / TABLE OWNER
+==================================================================================
+  Run with no SET ROLE at all, as the cluster superuser who also owns voice.agents -
+  the strongest possible principal, which no ACL can restrain:
+
+   current_user=postgres  is_superuser=on  table owner=postgres
+
+   P2b-1 DEPRECATED->DRAFT as superuser:
+     REJECTED sqlstate=P0001 voice.agents: illegal lifecycle transition
+     DEPRECATED -> DRAFT (6E §31.3 permits only DRAFT->PUBLISHED and
+     PUBLISHED->DEPRECATED; DEPRECATED is terminal). agent id=01a0a3ae-506d-...
+
+   P2b-2 organization_id move as superuser:
+     REJECTED sqlstate=P0001 voice.agents.organization_id is immutable after
+     creation. No frozen contract defines an Agent ownership transfer.
+     agent id=01a0a3ae-506f-...
+
+   P2b-3 resurrect soft-deleted as superuser:
+     REJECTED sqlstate=P0001 voice.agents: a soft-deleted agent cannot be restored;
+     restoring it would re-enter the ACTIVE_AGENTS counted set without quota
+     admission. agent id=01a0a3ae-506f-...
+
+   P2b-4 legitimate DRAFT->PUBLISHED as superuser: APPLIED rows=1   EXPECT 1
+   P2b   terminal row still DEPRECATED: 1                           EXPECT 1
+
+  This is the structural point: the counted-set invariant does not depend on role
+  configuration. A trigger is enforced by the executor for every UPDATE from every
+  principal, so there is no privileged escape hatch - while legitimate transitions
+  still pass through untouched.
 
 ==================================================================================
 PART 3 - WHY THE QUOTA INVARIANT IS STRUCTURALLY ENFORCEABLE, NOT MERELY ADVISORY
@@ -179,19 +258,29 @@ PART 3 - WHY THE QUOTA INVARIANT IS STRUCTURALLY ENFORCEABLE, NOT MERELY ADVISOR
   2. The only remaining INSERT paths are voice.fn_create_agent() and
      voice.fn_clone_agent(), both SECURITY DEFINER owned by postgres (Part 1 §1).
   3. Both call voice.fn_assert_agent_quota_admission() BEFORE their INSERT
-     (CONTEXT traces in FAR_DB_02 show fn_create_agent line 22 / fn_clone_agent
-     line 55 -> fn_assert_agent_quota_admission line 57 at RAISE).
-  4. The assertion function is reachable by NOBODY directly: has_function_privilege
-     = f for all eight app roles and for PUBLIC (Part 1 §2, §3). It executes only as a
-     nested call inside the two definer functions, so no principal can call it to
-     "pre-book" a slot, and no principal can skip it.
+     (CONTEXT traces in FAR_DB_02 show fn_create_agent line 23 / fn_clone_agent
+     line 54 -> fn_assert_agent_quota_admission line 68 at RAISE).
+  4. The two helper functions are reachable by NOBODY directly: has_function_privilege
+     = f for all eight app roles and for PUBLIC (Part 1 §2, §3). They execute only as
+     nested calls inside the two definer functions, so no principal can call them to
+     "pre-book" a slot, and no principal can skip them.
   5. The advisory lock is taken INSIDE the assertion function, inside the caller's
      transaction. The API layer issues no lock statement of its own, which is what
      restores compliance with frozen 6A §17.3.
+  6. The admission test is the post-insert invariant (v_active + 1) > v_hard_limit,
+     not the pre-insert comparison v_active >= v_hard_limit, so it is correct for
+     every value the NUMERIC(18,4) column can hold, fractional limits included
+     (FAR-P1-02; proven in FAR_DB_02 §2).
+  7. Entry into the counted set is therefore controlled on BOTH edges: INSERT is
+     reachable only through the guarded functions, and no UPDATE can move a row
+     from the uncounted set (DEPRECATED, or deleted_at IS NOT NULL) back into the
+     counted set, nor move a row to another tenant (FAR-P1-03; Part 2b and
+     FAR_DB_02 §7).
 
-  Therefore: to create an Agent, a caller MUST pass the quota guard. That is the
-  difference between "an enforcement primitive exists" and "a compliant enforcement
-  path is the only path" - the distinction DB-BLOCKER-FINAL-API-001 was raised over.
+  Therefore: to occupy an ACTIVE_AGENTS slot, a row MUST have passed the quota
+  guard, and it cannot be smuggled in afterwards. That is the difference between
+  "an enforcement primitive exists" and "a compliant enforcement path is the only
+  path" - the distinction DB-BLOCKER-FINAL-API-001 was raised over.
 
 ==================================================================================
 PART 4 - WHAT 110 DID NOT WEAKEN
@@ -201,16 +290,29 @@ PART 4 - WHAT 110 DID NOT WEAKEN
                                 WITH CHECK (Part 1 §6).
   BYPASSRLS ................... granted to nobody by 110; the two pre-existing
                                 holders are unchanged (Part 1 §5).
-  PUBLIC ...................... holds EXECUTE on none of the three functions (Part 1 §2).
+  PUBLIC ...................... holds EXECUTE on none of the five functions (Part 1 §2).
+  UPDATE ...................... NOT revoked from any role. app_api, app_worker and
+                                app_platform_admin keep it, as directive §4 requires
+                                for the 6E PATCH / publish / deprecate paths
+                                (Part 1 §4; legitimate cases C, D, E, H in FAR_DB_02 §7).
   app_platform_admin .......... gains NO new write capability; it keeps only the
                                 SELECT/UPDATE/DELETE it already had, and LOST INSERT
                                 like everyone else (Part 1 §4).
   Existing 6E paths ........... SELECT and UPDATE as app_api still work under RLS
                                 (Part 1 §7), so agent read, update, publish and
-                                deprecate are unaffected. Only INSERT was revoked.
+                                deprecate are unaffected.
+  Lifecycle ................... no new lifecycle was invented. The trigger enforces
+                                exactly the frozen 6E §31.1/§31.3 transitions
+                                (DRAFT->PUBLISHED, PUBLISHED->DEPRECATED, DEPRECATED
+                                terminal) and lets same-state field updates pass.
+  Delete semantics ............ no public delete API is introduced. Only the
+                                resurrection direction (deleted_at NOT NULL -> NULL)
+                                is blocked; soft-deleting remains permitted.
 
 ==================================================================================
 RESULT: PASS - PUBLIC has no EXECUTE, only app_api may invoke the two endpoint
-        functions, the internal quota assertion is unreachable by every principal,
-        raw Agent INSERT is closed for all 8 runtime roles, and RLS is intact.
+        functions, the internal helpers are unreachable by every principal, raw
+        Agent INSERT is closed for all 8 runtime roles, no UPDATE by any principal
+        (superuser included) can re-enter a row into the ACTIVE_AGENTS counted set
+        or move it across tenants, and RLS is intact.
 ==================================================================================

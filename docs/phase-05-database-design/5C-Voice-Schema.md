@@ -2673,8 +2673,19 @@ The identical fix was applied to `campaign.campaign_contact_identities` (5E's ow
 
 **This is a controlled amendment, not a rewrite of Phase 5C.** No earlier section of this
 document was edited, and no table, column, index, constraint, RLS policy or domain model in
-`voice` was redesigned. Migration `110_5C2` is purely additive: three functions plus one
-privilege narrowing. Migrations `001`–`109` are byte-identical to their frozen state.
+`voice` was redesigned. Migration `110_5C2` is purely additive: five functions, one
+`BEFORE UPDATE` guard trigger, and one privilege narrowing. Migrations `001`–`109` are
+byte-identical to their frozen state.
+
+> **Amended in place (2026-09-15).** A second independent freeze-gate review of `110_5C2`
+> returned P0 = 0, P1 = 2, P2 = 1 against the *original* `110_5C2`. The migration was therefore
+> amended **in place** — no `111` was created, and `001`–`109` were not touched. The three
+> findings are `FAR-P1-02` (the admission condition compared `v_active >= v_hard_limit`, which is
+> wrong for the fractional values `billing.quota_configs.hard_limit NUMERIC(18,4)` structurally
+> permits), `FAR-P1-03` (a raw `UPDATE` could move a row from the uncounted set back into the
+> counted set without ever consulting the admission guard), and `FAR-P2-03` (`p_created_by` was
+> only checked for non-null). Everything below describes the **amended** migration; all earlier
+> `110_5C2` hashes and validation transcripts are superseded.
 
 ### Why this amendment exists
 
@@ -2703,12 +2714,78 @@ prose describing it:
 
 | Object | Kind | Role |
 |---|---|---|
-| `voice.fn_assert_agent_quota_admission(p_organization_id UUID)` | `plpgsql`, **SECURITY INVOKER**, owned by the migration role, **no `GRANT EXECUTE` to any role** | The quota guard. Derives the tenant from `organization.current_tenant_id()`, takes `pg_advisory_xact_lock` **internally**, resolves `billing.quota_configs`, counts, raises `53400` at the limit. |
+| `voice.fn_assert_agent_quota_admission(p_organization_id UUID)` | `plpgsql`, **SECURITY INVOKER**, owned by the migration role, **no `GRANT EXECUTE` to any role** | The quota guard. Derives the tenant from `organization.current_tenant_id()`, takes `pg_advisory_xact_lock` **internally**, resolves `billing.quota_configs`, counts, and raises `53400` when the count that **would**
+result from the pending `INSERT` exceeds the configured limit. |
 | `voice.fn_create_agent(p_organization_id, p_created_by, p_name, p_description)` → `UUID` | **SECURITY DEFINER**, `GRANT EXECUTE TO app_api` | Sole `POST /api/v1/agents` path. Calls the guard, then inserts **exactly one** `DRAFT` Agent. |
 | `voice.fn_clone_agent(p_organization_id, p_created_by, p_source_agent_id, p_source_version_id)` → `UUID` | **SECURITY DEFINER**, `GRANT EXECUTE TO app_api` | Sole `POST /api/v1/agents/{agent_id}/clone` path. Validates source ownership, calls the same guard, then inserts **exactly one** `DRAFT` Agent. |
+| `voice.fn_assert_agent_actor(p_organization_id UUID, p_created_by UUID)` | `plpgsql`, **SECURITY INVOKER**, owned by the migration role, **no `GRANT EXECUTE` to any role** | The actor cross-check (`FAR-P2-03`). Verifies that the application-supplied `p_created_by` is a member of the tenant that owns the Agent being created — in **any** membership status, so API-key semantics are not broken — instead of merely asserting non-null. |
+| `voice.fn_agents_mutation_guard()` → `TRIGGER` | `plpgsql`, **SECURITY INVOKER**, owned by the migration role, no `proconfig` | The counted-set re-entry guard (`FAR-P1-03`). Backs `trg_agents_mutation_guard`. |
+| `trg_agents_mutation_guard` on `voice.agents` | `BEFORE UPDATE ... FOR EACH ROW` | The only object in this migration that is not a function. Rejects any `UPDATE` that changes `organization_id`, that clears a non-null `deleted_at`, or that performs a `status` transition outside the frozen 6E lifecycle. |
 
-All three carry an explicit `SET search_path = voice, billing, organization, public, pg_catalog`
-and schema-qualify every cross-schema reference. All three `REVOKE ALL ... FROM PUBLIC`.
+The four non-trigger functions carry an explicit `SET search_path` and schema-qualify every
+cross-schema reference (`voice, billing, organization, public, pg_catalog` for the quota guard
+and the two endpoints; `voice, organization, public, pg_catalog` for the actor check).
+`fn_agents_mutation_guard()` deliberately declares **no** `search_path`, matching the two frozen
+guard-trigger precedents in this corpus — `voice.prevent_agent_version_mutation` (`009_5C`) and
+`workflow.prevent_execution_mutation` (`039_5G`) — and it dereferences nothing outside `NEW` and
+`OLD`. All five `REVOKE ALL ... FROM PUBLIC`.
+
+### Admission is a post-insert invariant, not a pre-insert comparison (`FAR-P1-02`)
+
+`billing.quota_configs.hard_limit` is `NUMERIC(18,4)` and the column structurally permits
+fractional commercial limits, so `v_active >= v_hard_limit` was mathematically wrong: with
+`hard_limit = 1.5000` and `v_active = 1`, `1 >= 1.5` is false, the `INSERT` succeeded, and the
+committed `ACTIVE_AGENTS` count became `2`, which is `> 1.5`. Each guarded operation consumes
+exactly one slot, so the condition that must hold **after** the `INSERT` is
+`(v_active + 1) <= v_hard_limit`; the guard rejects exactly its negation:
+
+```sql
+IF (v_active + 1) > v_hard_limit THEN
+  RAISE EXCEPTION 'ACTIVE_AGENTS quota exceeded' USING ERRCODE = '53400', ...;
+END IF;
+```
+
+The configured commercial limit is compared **as stored**. It is never rounded, `CEIL`-ed or
+`FLOOR`-ed, and no integer-only assumption is made about it.
+
+### Both edges of the counted set are controlled (`FAR-P1-03`)
+
+Revoking `INSERT` closes entry by creation, but `UPDATE` is deliberately **retained** for
+`app_api`, `app_worker` and `app_platform_admin`, because the frozen 6E `PATCH` / publish /
+deprecate paths require it — so `UPDATE` was *not* revoked from anybody. Instead
+`trg_agents_mutation_guard` enforces three invariants on every row update:
+
+1. **`organization_id` is immutable after creation.** No frozen contract anywhere in Phases 5 or
+   6 defines an Agent ownership transfer between tenants, so a tenant-owned Agent aggregate
+   cannot be moved across organizations by a raw `UPDATE`. This enforces the existing tenant
+   ownership of the aggregate; it is not a new product capability.
+2. **A soft-deleted Agent cannot be restored.** `deleted_at NOT NULL → NULL` is refused, because
+   it would re-enter the counted set without quota admission. The opposite direction
+   (soft-deleting) remains permitted. 6E defines no delete/archive/restore command
+   (`DEP-6E-14`) and nothing populates `deleted_at` today, so this rule is forward compatibility
+   and introduces **no** public delete API.
+3. **`status` may change only along the frozen 6E §31.1/§31.3 lifecycle** — `DRAFT → PUBLISHED`
+   and `PUBLISHED → DEPRECATED` — with `DEPRECATED` terminal. Same-state updates (the ordinary
+   6E `PATCH`) pass through untouched. No lifecycle was invented and no further transition was
+   guessed.
+
+Rejections raise the default `P0001`, so **no new error code is introduced**. The trigger has no
+role test and no `WHEN` clause: it binds every principal that can issue an `UPDATE`, including
+`app_platform_admin` (whose `BYPASSRLS` skips row-level policies but not triggers) and, verified
+live, the cluster superuser who also owns the table.
+
+### Actor trust boundary (`FAR-P2-03`, narrow P2)
+
+Frozen 6E treats `created_by` as implicit from the authenticated actor, and the public DTO does
+not carry it (`extra="forbid"`, 6E §30.1). A survey of `001`–`109` established that the only
+trusted DB/session context that exists in this schema is `organization.current_tenant_id()` and
+`organization.is_platform_admin()` — there is **no** current-actor helper. No actor model was
+invented and authentication was not redesigned. The `p_created_by` parameter is retained, both
+endpoint functions now cross-check it against the owning tenant's own membership roster via
+`fn_assert_agent_actor`, and `110_5C2.sql` documents explicitly that `p_created_by` is supplied
+only by the authenticated application layer, is never a client request field, that `app_api` is
+the trusted DB principal boundary, and that the functions do not claim to independently
+authenticate the actor.
 
 ### Privilege change — the part that makes the invariant structural
 
@@ -2732,7 +2809,9 @@ remaining `INSERT` paths are the two `SECURITY DEFINER` functions above, and bot
 guard before inserting. The guard itself is callable by **nobody** directly
 (`has_function_privilege` = `f` for all eight roles and for `PUBLIC`); it runs only as a nested
 call inside the two definer functions, so no principal can invoke it to pre-book a slot, and no
-principal can skip it.
+principal can skip it. The same is true of `fn_assert_agent_actor` and
+`fn_agents_mutation_guard`: neither is granted to any role, and the trigger function is reachable
+only through the trigger itself.
 
 This is the same idiom already frozen in this corpus at `041_5G.sql`
 (`workflow.fn_start_workflow_execution` — invariant check plus internal `pg_advisory_xact_lock`
@@ -2773,14 +2852,32 @@ absence of a `quota_configs` row entirely, both mean unlimited (`overage_allowed
 
 ### Live validation
 
-Real PostgreSQL **18.6**, disposable databases only. Fresh `001 → 110` and incremental
-`109 → 110` both exit 0; single Alembic head `110_5C2`. Genuine two-process concurrency (both
-workers confirmed simultaneously blocked inside the guarded function via `pg_locks` before the
-key was released, never sequential statements): two free slots → both succeed; one free slot →
-exactly one winner and exactly one `53400`; clone at the boundary → exactly one winner. Rollback
-after admission consumes no permanent slot and leaves no lock (transaction-scoped, auto-released).
-Cross-tenant and nonexistent clone sources produce **byte-identical** errors. Raw `INSERT`
-attempted as every one of the eight runtime roles is denied, 0 rows committed.
+Real PostgreSQL **18.6**, disposable databases only; one single final cycle run against the
+**amended** migration, with nothing carried over from the superseded pre-amendment run. Fresh
+`001 → 110` and incremental `109 → 110` both exit 0; single Alembic head `110_5C2`; no `111`.
+
+- **Fractional hard-limit battery (`FAR-P1-02`) — 9/9 pass.** `1.5000` with 0 active → accepted,
+  committed count 1; `1.5000` with 1 active → rejected `53400`, count stays 1 (this case was
+  wrongly *accepted* before the amendment); `0.5000` with 0 active → rejected, count 0; `2.0000`
+  with 1 → accepted; `2.0000` with 2 → rejected; the same boundary applied to clone; no quota row
+  and `hard_limit IS NULL` both still admit. Global check across the database: **no organization
+  has a committed `ACTIVE_AGENTS` count greater than its `hard_limit`.**
+- **`UPDATE`/reactivation bypass battery (`FAR-P1-03`) — 30/30 pass**, run as each of the three
+  roles that retain `UPDATE`: `DEPRECATED → DRAFT`, `DEPRECATED → PUBLISHED` and
+  `DRAFT → DEPRECATED` rejected; `organization_id` move rejected; resurrection of a soft-deleted
+  row rejected; raw `INSERT` rejected. The legitimate 6E paths all still work: `DRAFT →
+  PUBLISHED`, `PUBLISHED → DEPRECATED`, name/description/`draft_config` `PATCH`, and
+  soft-deleting. After every rejected case the committed count was re-read and was **unchanged**.
+  The identical battery run as the cluster superuser (who also owns `voice.agents`) is rejected
+  identically.
+- **Genuine two-process concurrency** (both workers confirmed simultaneously blocked inside the
+  guarded function via `pg_locks` before the key was released, never sequential statements): two
+  free slots → both succeed; one free slot → exactly one winner and exactly one `53400`; clone at
+  the boundary → exactly one winner; and at fractional limits, `1.5000` with 0 active → exactly
+  one winner, `2.5000` with 1 active → exactly one winner. Rollback after admission consumes no
+  permanent slot and leaves no lock (transaction-scoped, auto-released).
+- Cross-tenant and nonexistent clone sources produce **byte-identical** errors. Raw `INSERT`
+  attempted as every one of the eight runtime roles is denied, 0 rows committed.
 
 Full record: `5K/validation/FINAL_API_RECONCILIATION_DB_VALIDATION_REPORT.md` and its three
 evidence files `FAR_DB_01_migration_and_integrity.txt`,

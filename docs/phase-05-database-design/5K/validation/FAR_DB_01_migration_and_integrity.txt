@@ -1,23 +1,36 @@
 ==================================================================================
 FAR_DB_01 - MIGRATION EXECUTION + HEAD + FROZEN-HISTORY INTEGRITY
-Final API Reconciliation - controlled DB remediation (migration 110_5C2)
-Directive sections evidenced: §12 (real PG18 validation), §29 (head ownership),
-                              §30 (001-109 byte-identity, hashes)
+Final API Reconciliation - 110_5C2 MICRO-REMEDIATION (amended migration 110_5C2)
+Directive sections evidenced: §9 (migration 110 only, no 111), §11 (ONE final
+                              validation cycle after 110 changed), §12 (frozen
+                              history integrity + NEW 110 hashes)
 ==================================================================================
 
-ENGINE ..... PostgreSQL 18.6 (Debian 18.6-1.pgdg12+2), image pgvector/pgvector:pg18
+SUPERSESSION NOTICE
+  Migration 110_5C2.sql was AMENDED IN PLACE by the micro-remediation (FAR-P1-02
+  fractional hard-limit admission, FAR-P1-03 counted-set re-entry guard,
+  FAR-P2-03 created_by trust boundary). Every hash, transcript and battery result
+  recorded before that amendment is SUPERSEDED. Everything in this file and in
+  FAR_DB_02 / FAR_DB_03 comes from ONE single final validation cycle run against
+  freshly built disposable databases after the amendment.
+
+ENGINE ..... PostgreSQL 18.6 (Debian 18.6-1.pgdg12+2) on x86_64-pc-linux-gnu,
+             compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit
+             image pgvector/pgvector:pg18
              (the pgvector image is required: 034_5F.sql creates the `vector` extension)
 TOOLING .... alembic 1.19.1 / SQLAlchemy 2.0.52 / psycopg2 2.9.12
+             DATABASE_URL env var is the single connection source; alembic.ini
+             carries no sqlalchemy.url.
 DATABASES .. disposable throwaway containers only, destroyed at end of pass:
-               far-pg18-fresh : localhost:55443 db far_fresh
-               far-pg18-incr  : localhost:55444 db far_incr
+               far-pg18-fresh : localhost:55441 db far_fresh   (fresh leg + batteries)
+               far-pg18-incr  : localhost:55442 db far_incr    (incremental leg + concurrency)
 
 ----------------------------------------------------------------------------------
 1. REVISION INVENTORY AND SINGLE HEAD
 ----------------------------------------------------------------------------------
-  frozen SQL files in 5K/migrations/        : 110
+  frozen SQL files in 5K/migrations/        : 110   (001 .. 110)
   alembic revisions in 5K/alembic/versions/ : 110
-  migration 111 present?                    : NO (0 files match ^111)
+  migration 111 present?                    : NO (0 files match ^111 in either dir)
 
   $ alembic -c alembic.ini heads
   110_5C2 (head)          <-- exactly ONE head
@@ -27,7 +40,8 @@ DATABASES .. disposable throwaway containers only, destroyed at end of pass:
   remediation migration 110_5C2.sql.
 
   The linear chain is unbroken: 110_5C2.down_revision = '109_5B7'. No branch,
-  no merge point, no second head.
+  no merge point, no second head. The amendment did not change the revision
+  identifiers, only the body of the migration.
 
 ----------------------------------------------------------------------------------
 2. FRESH LEG - full 001 -> 110 on an empty PostgreSQL 18 database (far_fresh)
@@ -37,21 +51,37 @@ DATABASES .. disposable throwaway containers only, destroyed at end of pass:
   log lines ................... 114
   ERROR / FATAL / Traceback ... 0 occurrences
 
+  first lines of the run:
+    INFO [alembic.runtime.migration] Context impl PostgresqlImpl.
+    INFO [alembic.runtime.migration] Will assume transactional DDL.
+    INFO [alembic.runtime.migration] Running upgrade  -> 001_5B, Phase 5K - wraps
+    frozen migration 001_5B.sql.
+
   final line of the run:
     INFO [alembic.runtime.migration] Running upgrade 109_5B7 -> 110_5C2, Phase 5C.2
     -- wraps the Final API Reconciliation DB remediation migration 110_5C2.sql.
 
   $ alembic -c alembic.ini current      ->  110_5C2 (head)
+  $ alembic -c alembic.ini heads        ->  110_5C2 (head)
   $ SELECT version_num FROM alembic_version;  ->  110_5C2
+  $ SELECT version();
+    PostgreSQL 18.6 (Debian 18.6-1.pgdg12+2) on x86_64-pc-linux-gnu, compiled by
+    gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit
 
 ----------------------------------------------------------------------------------
-3. INCREMENTAL LEG - 109 -> 110 as one discrete step (far_incr)
+3. INCREMENTAL LEG - 109 -> amended 110 as one discrete step (far_incr)
 ----------------------------------------------------------------------------------
-  STEP 1  $ alembic -c alembic.ini upgrade 109_5B7     exit 0
+  STEP 1  $ alembic -c alembic.ini upgrade 109_5B7     exit 0, 0 ERROR/FATAL/Traceback
           (seeded to the frozen Phase-6M head, 109 migrations applied)
+          $ alembic -c alembic.ini current  ->  109_5B7
 
-  STATE AT THE 109 BASELINE, BEFORE 110 IS APPLIED:
+  STATE AT THE 109 BASELINE, BEFORE THE AMENDED 110 IS APPLIED:
     voice.fn_create_agent exists ................................. f
+    voice.fn_clone_agent exists .................................. f
+    voice.fn_assert_agent_quota_admission exists ................. f
+    voice.fn_assert_agent_actor exists ........................... f
+    voice.fn_agents_mutation_guard exists ........................ f
+    trigger trg_agents_mutation_guard on voice.agents ............ f
     has_table_privilege('app_api','voice.agents','INSERT') ....... t   <-- bypass OPEN
 
   STEP 2  $ alembic -c alembic.ini upgrade 110_5C2     exit 0
@@ -60,32 +90,45 @@ DATABASES .. disposable throwaway containers only, destroyed at end of pass:
     INFO [alembic.runtime.migration] Running upgrade 109_5B7 -> 110_5C2, Phase 5C.2
     -- wraps the Final API Reconciliation DB remediation migration 110_5C2.sql.
 
-  STATE AFTER 110:
+  STATE AFTER THE AMENDED 110:
     voice.fn_create_agent exists ................................. t
     voice.fn_clone_agent exists .................................. t
     voice.fn_assert_agent_quota_admission exists ................. t
+    voice.fn_assert_agent_actor exists ........................... t   <-- new (FAR-P2-03)
+    voice.fn_agents_mutation_guard exists ........................ t   <-- new (FAR-P1-03)
+    trigger trg_agents_mutation_guard on voice.agents ............ t   <-- new (FAR-P1-03)
     has_table_privilege('app_api','voice.agents','INSERT') ....... f   <-- bypass CLOSED
 
   $ alembic -c alembic.ini current      ->  110_5C2 (head)
+  $ alembic -c alembic.ini heads        ->  110_5C2 (head)
   $ SELECT version_num FROM alembic_version;  ->  110_5C2
 
   This single transcript is the direct evidence that migration 110 is what closes
-  the raw Agent INSERT bypass: the privilege flips t -> f across that one step.
+  the raw Agent INSERT bypass AND what installs the counted-set re-entry guard:
+  the privilege flips t -> f and the trigger appears f -> t across that one step.
 
 ----------------------------------------------------------------------------------
-4. FROZEN HISTORY INTEGRITY - migrations 001-109 (§30)
+4. FROZEN HISTORY INTEGRITY - migrations 001-109 (§12)
 ----------------------------------------------------------------------------------
-  Method: for every frozen file, sha256 of the working-tree copy was compared with
-  sha256 of `git show HEAD:<path>`. No file was excluded except the two new 110 files.
+  Method: for every tracked file under 5K/migrations and 5K/alembic/versions, the
+  sha256 of the working-tree copy was compared with the sha256 of
+  `git show HEAD:<path>`. Only the two 110_5C2 files were excluded.
 
   frozen files compared against HEAD .......... 218  (109 .sql + 109 .py)
   byte-level differences ...................... 0
   present in working tree but absent in HEAD .. 0
 
-  $ git status --porcelain docs/phase-05-database-design/5K
-  ?? docs/phase-05-database-design/5K/alembic/versions/110_5C2.py
-  ?? docs/phase-05-database-design/5K/migrations/110_5C2.sql
-  -> exactly two new files, both migration 110; ZERO tracked 5K files modified.
+  $ git status --porcelain -- 5K/migrations 5K/alembic
+   M docs/phase-05-database-design/5K/alembic/versions/110_5C2.py
+   M docs/phase-05-database-design/5K/migrations/110_5C2.sql
+
+  $ git ls-files --others --exclude-standard docs/phase-05-database-design/5K
+  (no output)
+
+  -> exactly two MODIFIED files, both migration 110 (they were committed before
+     this micro-remediation and were amended in place, which is why they now show
+     as ` M` rather than `??`). ZERO other 5K files changed; no 111 was created;
+     no untracked file was added anywhere under 5K.
 
 ----------------------------------------------------------------------------------
 5. HASHES
@@ -95,21 +138,30 @@ DATABASES .. disposable throwaway containers only, destroyed at end of pass:
     Python  d60f497b9c6c494e051b86d2f086211c77aef8e6b46bc390321e179e83fb9602
     Both match the values named in the directive byte for byte.
 
-  NEW MIGRATION 110_5C2:
-    SQL     3b76d83515942f6e2193667e7c376e26cd1102bfb7926d080dda297e693d776c
-            15044 bytes   (docs/phase-05-database-design/5K/migrations/110_5C2.sql)
-    Python  735366afb9141c9f31cb3b8ad05da10d63544f278890667a68431456bbf871d5
-            5810 bytes   (docs/phase-05-database-design/5K/alembic/versions/110_5C2.py)
+  MIGRATION 110_5C2 - NEW hashes of the AMENDED files (§12: the pre-amendment
+  hashes are superseded and must not be reused):
+    SQL     3d5b22737d1d8f58e7976037510b6a9aa42ea2087d6cdf3d7d6908a9208e9a26
+            27979 bytes / 544 lines
+            (docs/phase-05-database-design/5K/migrations/110_5C2.sql)
+    Python  8885326ee0b085dbd1f6d7e5a1726ef8956c6027266bcc2281e588002a376104
+            10659 bytes / 194 lines
+            (docs/phase-05-database-design/5K/alembic/versions/110_5C2.py)
+
+  SUPERSEDED (pre-micro-remediation, recorded here only so the change is auditable):
+    SQL     3b76d83515942f6e2193667e7c376e26cd1102bfb7926d080dda297e693d776c  15044 bytes
+    Python  735366afb9141c9f31cb3b8ad05da10d63544f278890667a68431456bbf871d5   5810 bytes
 
 ----------------------------------------------------------------------------------
-6. HEAD OWNERSHIP (§29)
+6. HEAD OWNERSHIP
 ----------------------------------------------------------------------------------
   109_5B7  remains the frozen Phase-6M head as a matter of project history.
            Phase 6M is NOT reopened by this pass; nothing in 6M changed.
   110_5C2  is the new project head, owned by the FINAL API RECONCILIATION pass
-           (FAR-P1-01 / DB-BLOCKER-FINAL-API-001 / DEP-6E-20 closure), not by 6M.
+           (FAR-P1-01 / FAR-P1-02 / FAR-P1-03 / FAR-P2-03 /
+           DB-BLOCKER-FINAL-API-001 / DEP-6E-20 closure), not by 6M.
 
 ----------------------------------------------------------------------------------
 RESULT: PASS - fresh and incremental legs both green on PostgreSQL 18.6, exactly one
-        Alembic head (110_5C2), 001-109 byte-identical, no migration 111.
+        Alembic head (110_5C2), 001-109 byte-identical to HEAD, no migration 111,
+        and the recorded 110 hashes are those of the amended files.
 ==================================================================================
