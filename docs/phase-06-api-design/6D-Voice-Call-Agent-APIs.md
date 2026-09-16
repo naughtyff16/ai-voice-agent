@@ -412,6 +412,8 @@ The Anti-Corruption Layer boundary (4B §21) is restated as binding for 6D: ever
 
 `POST /calls` runs three policies inline (4B §9, cheap, in-process, no external call): `AgentMustBePublished`, `ConcurrentCallQuotaNotExceeded` (reads `call_sessions` partial index `idx_cs_org_status WHERE status='ACTIVE'`, 5C §9.1 — an indexed count, not a live provider probe), `CallingWindowEnforced` (compares against `AgentVersion.calling_hours`, already in the Redis-cached snapshot). It does **not** run consent/suppression/DNC eligibility checks — per 4I §16.3, those are "checked at campaign dispatch (before the call), never during a turn" and belong to the Campaign Engine's `OutboundEligibilityService` (4I §6.2), a 6E+ concern. A tenant calling `POST /calls` directly (not via a campaign) is responsible for its own consent basis exactly as 4I §7.1's platform/organization responsibility boundary states — 6D does not fabricate a compliance gate this endpoint was never designed to own beyond what §20 requires.
 
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-03`, 2026-09-16) — see §42.** `ConcurrentCallQuotaNotExceeded` no longer decides admission with the `idx_cs_org_status WHERE status='ACTIVE'` count described above. Admission is an atomic `AcquireCapacity(organization_id, CONCURRENT_CALLS, reservation_id = call_id)` against 6K §54's single capacity authority. The reservation is held from admission until the call reaches any frozen §11.1 terminal state, and is released on setup failure. The ACTIVE indexed count is retained, unchanged, as a reporting read only. The sentence above is kept as the historical text.
+
 ---
 
 ## 11. Call Control / State Transitions
@@ -1311,6 +1313,8 @@ Every row below states: endpoint, permission, actor eligibility, API-key eligibi
 
 **Explicitly not introduced (per the governing task's caution against inventing when an adequate code exists):** `CALL_STATE_CONFLICT` (covered by generic `STATE_CONFLICT`), `AGENT_VERSION_CONFLICT` (no scenario in this design produces one — publish always creates a new version, never collides), `TRANSFER_NOT_ALLOWED` (covered by generic `STATE_CONFLICT`, since `TransferOnlyOncePerCall` is a state-conflict on the Call's own status), `PROVIDER_UNAVAILABLE` (covered by the existing `DEPENDENCY_UNAVAILABLE`).
 
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-03`, 2026-09-16) — see §42.** `QUOTA_EXCEEDED` (429) is unchanged and, for `CONCURRENT_CALLS`, now means `AcquireCapacity` returned `REFUSED_AT_LIMIT`. A missing capacity configuration or an unreachable capacity authority is **not** a 429. It reuses §27.1's existing `503 DEPENDENCY_UNAVAILABLE` with `details.reason` `CAPACITY_QUOTA_NOT_CONFIGURED` or `CAPACITY_AUTHORITY_UNAVAILABLE`. No new code is introduced.
+
 ---
 
 ## 28. Endpoint Contract Inventory
@@ -1399,6 +1403,8 @@ Every endpoint instantiates 6A's `{data, meta}`/`{error}` envelope, error shape,
 - **Side Effects:** `TelephonyPort.place_call()` dispatched post-commit; subsequent state changes arrive via provider webhook (§10.4) and the WS observation channel (§13).
 - **Concurrency:** two concurrent `POST /calls` under the same `Idempotency-Key` → second returns the cached first response (6A §16.2); under different keys, both proceed independently and are separately subject to the quota check (no race between them beyond the quota check's own indexed-count read, which is not a hard serialization point — a documented, low-severity race where two near-simultaneous requests could both pass a quota check that a strictly serialized check would have rejected the second of; **DEP-6D-09**, §36, non-blocking, identical in nature to 6C's own disclosed, non-blocking concurrency residuals).
 - **Security:** `from_number` is never client-suppliable — the client selects only an opaque `phone_number_id` (§10.2a), and the server resolves/returns the actual E.164 value; this is the specific structural control preventing caller-ID spoofing of a number the tenant does not own.
+
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-03`, 2026-09-16) — see §42.** In this contract, **Validation** (`ConcurrentCallQuotaNotExceeded`), **Rate Limit** (`CheckQuota`), **Errors** (`429`/`503`) and **Concurrency** are read through §42.2–§42.4. The "documented, low-severity race" in **Concurrency** is **closed**: final-slot admission is atomic (6K §54.5 rule 2), and DEP-6D-09 is CLOSED — SUPERSEDED (§36, §42.6).
 
 ### 28.10a Controlled Amendment — Phase 6H Campaign Dispatch Idempotency (added 2026-08-28; extended same day with provider-dispatch durability; extended again same day with the provider-submission boundary, privilege hardening, and idempotency tenant/payload validation; extended again same day with the reconciliation authorization boundary; extended again same day with non-forgeable reconciliation provenance; extended once more on 2026-08-29 with removal of the platform-admin direct DML bypass)
 
@@ -1490,6 +1496,8 @@ ReconcileDispatchByOperator(
 **Verification status:** live-executed and race-tested against **four genuinely separate PostgreSQL 16.10 instances, each independently built and torn down** (the declared production baseline; the first two passes had validated only against PostgreSQL 18) — the EDB full installer failed in this environment every time ("requires elevation," disclosed rather than worked around silently); a binaries-only distribution was used instead, with `pgvector` built from source via the locally available MSVC toolchain. Fresh-database and incremental `alembic upgrade` both passed (exit code 0) on every instance; every concurrency/crash-recovery/reconciliation/authorization/forgery/direct-DML-denial scenario named above was exercised as a genuine multi-connection transaction, a real elapsed-time lease expiry, or a genuine role-boundary privilege/`CHECK` test, not simulated or narrated. Full transcripts: `docs/phase-05-database-design/5K/execution_logs/README.md`'s "Sixth", "Seventh", "Eighth", and "Ninth" batches and `docs/phase-05-database-design/5K/validation/VOICE_DISPATCH_VALIDATION_REPORT.md` (including all three of its addenda).
 
 **Full DDL and rationale:** `099_5C1.sql`; `docs/phase-05-database-design/5C-Voice-Schema.md`'s matching amendment sections; `docs/phase-06-api-design/6H-Campaign-APIs.md` (Revision 7) §18, §49.
+
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-03`, 2026-09-16) — see §42.** The campaign caller of `InitiateOutboundCallUseCase` consumes the **same** 6K capacity authority. It acquires after Step 1 returns `call_session_id` and before Step 3 (`BeginProviderSubmission`); on refusal it does not call Step 3 or the provider. The steps, functions and dispatch states above are unchanged (§42.3).
 
 ### 28.11 `GET /api/v1/calls`
 
@@ -1710,6 +1718,8 @@ No 5C `SECURITY DEFINER` guard function exists for Call/Agent/Conversation statu
 | Repeated telephony status callback (e.g., "answered" delivered twice) | Same `UNIQUE (org, provider_slug, provider_event_id)` guard as above; additionally, the resulting CAS `UPDATE` targeting `call_sessions.status` is itself idempotent-safe (a second `RINGING→ANSWERED` attempt against an already-`ANSWERED` row simply matches zero rows and no-ops, rather than erroring loudly) |
 | Two near-simultaneous `POST /calls` both passing the concurrent-call quota check | Disclosed, non-blocking residual — **DEP-6D-09** (§36), identical in severity class to 6C's own disclosed DEP-6C-13 |
 
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-03`, 2026-09-16) — see §42.** The last row's race (DEP-6D-09) is **CLOSED — SUPERSEDED**. Two near-simultaneous `POST /calls` competing for the last slot can no longer both be admitted, because final-slot admission is a single atomic acquire (6K §54.5 rule 2, §42.6). The row is retained as history.
+
 ### 30.3 Idempotency Summary (6A §16, applied)
 
 Required: `POST /agents/{id}/publish` (recommended), `POST /calls` (required). Not required: every `GET`, every action endpoint already protected by a CAS guard whose own 409-on-retry behavior is sufficient (terminate/transfer/hold/resume, deprecate, deactivate) — a second identical retry either lands on the same terminal state (safe no-op observable via `GET`) or cleanly 409s; neither outcome is "dangerous" in 6A §16.1's sense once the CAS guard exists.
@@ -1731,6 +1741,8 @@ Required: `POST /agents/{id}/publish` (recommended), `POST /calls` (required). N
 ### 31.2 Concurrent-Call Quota — Consumed, Not Redesigned
 
 `ConcurrentCallQuotaNotExceeded` (4B §9) reads the existing `QuotaConfig` aggregate (4A §5.7/4F §5.4, 5H `quota_configs` table) via the platform's real-time Usage & Quota bounded context's `CheckQuota` port — 6D does not design or duplicate this mechanism; it consumes the port exactly as 4B §9/§14.1 already specify, and as 6A §20 already directs for this exact scenario.
+
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-03`, 2026-09-16) — see §42.** 6D still does not design the mechanism; it consumes it. The authority it consumes is now 6K §54's capacity admission port, not a `CheckQuota` read of `quota_configs`. The effective limit is resolved by `billing.fn_resolve_effective_capacity_quota` (base `billing.quota_configs` row plus any `billing.capacity_quota_overrides` override, migration `112_5H5`). `CONCURRENT_CALLS` is a capacity quota, not one of the 15 usage metrics.
 
 ### 31.3 429 Response Shape
 
@@ -1789,6 +1801,8 @@ Extends the already-provisioned "Voice Pipeline" and "Provider Health" Grafana d
 | Denial of service via oversized WS message | 32KB max message size (§13.7) |
 | Quota-exhaustion abuse (many outbound calls) | `CheckQuota` port (§31.2) + standard L1/L2 rate limiting (§31.1) |
 | Barge-in false-positive griefing (a bot triggering repeated barge-ins) | `BargeInSensitivity` is a per-agent tunable (4B §8.3), not attacker-controlled from outside the call itself; a malicious caller can only barge in on *their own* call, with no cross-call or cross-tenant blast radius |
+
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-03`, 2026-09-16) — see §42.** The quota-exhaustion mitigation is now the atomic 6K capacity reservation (§42). It fails closed when the capacity configuration is absent or the authority is unreachable, so an outage or misconfiguration never grants unlimited concurrent calls.
 
 ---
 
@@ -1861,6 +1875,8 @@ STT/LLM/TTS/telephony provider failure and failover (§21.8, 4B §18.5's sequenc
 | **DEP-6D-10** | No fallback TTS vendor is approved | 3B §23, Review Note 4 (inherited) | §15 (ProviderSelectionService candidate list for TTS) | Disclosed — the Model Router's TTS candidate list may legitimately be length-1 today | Blocked on Product/Architecture sign-off (3B's own stated need) | None | If the sole TTS provider is unavailable, `AllProvidersUnavailableError` fires (§21.9) — a wider blast radius than STT/LLM's multi-provider fallback, but not a new gap 6D introduces | No | No | No |
 | **DEP-6D-11** | The §21.3 per-stage latency budget has never been validated against real provider benchmarks | 3B §23 (inherited) | §21 entire | Benchmark plan specified (§21.10) | Deferred to Phase 23/24 by design — this document does not claim it is done | None | Central to whether ≤750ms is achievable in production — explicitly labeled TARGET, not MEASURED, throughout §21 | No | No | No |
 | **DEP-6D-12** | Agent archival/hard-delete (`voice.agents.deleted_at`) has no corresponding 4B command and no 6D endpoint | 5C §5.4 column exists; 4B §12.3's command catalogue has no `ArchiveAgent`/`DeleteAgent` | §9.4 | Disclosed scope boundary — `deprecate` is the only lifecycle-terminal action 6D exposes | N/A — no feature exists to be blocked | None | None | No | No | No |
+
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-03`, 2026-09-16) — see §42.** **DEP-6D-09 — CLOSED / SUPERSEDED.** The row above is retained unedited as history. Its race cannot occur under 6K §54.5 rule 2 (atomic final-slot admission) with idempotent acquire and release keyed by `call_id`. It is no longer a disclosed residual (§42.6).
 
 **Reading the table, updated this pass:** **DEP-6D-04 — the sole architecture-approval blocker from the prior pass — is now RESOLVED**, via the same class of controlled, documentation-only 5J §14.3 governance amendment that resolved 6C's structurally identical DEP-6C-07/10/11/14/15 cluster, explicitly authorized for this pass. DEP-6D-01/02 were re-verified against 5B's actual grant table and remain non-blocking, unchanged. DEP-6D-03 was re-verified and **partially corrected** — its phone-number-assignment half was over-granting MEMBER and is now tightened to `agent:publish` (ADR-6D-08); its phone-number-viewing half was already appropriate and is unchanged. The remaining eight dependencies (DEP-6D-05/06/07/08/09/10/11/12) are genuinely non-blocking and out of this document's authority to resolve — each requires a Product decision, a DDD-level command addition, or a live provider validation spike this document cannot perform, and none was newly introduced or newly resolved by this correction pass. **With DEP-6D-04 resolved and DEP-6D-01/02/03 confirmed or corrected to non-blocking, no dependency in this register blocks final approval** — see §40.
 
@@ -1950,6 +1966,8 @@ A subsequent, purely editorial pass corrected one remaining document-control inc
 
 With the document-control inconsistency corrected and no other open item remaining, Phase 6D is **APPROVED / FROZEN**, per the user's explicit direction in this closure pass. This does not retroactively resolve any of the remaining, already-documented non-blocking dependencies (DEP-6D-01/02/03/05–12) — they remain exactly as classified in §36, carried forward as disclosed, non-blocking residuals rather than closed items.
 
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-03`, 2026-09-16) — see §42.** The status above is historical and is not re-approved by this note. Of the residuals it lists, DEP-6D-09 is now CLOSED — SUPERSEDED (§42.6).
+
 ---
 
 ## 41. Confirmations
@@ -1959,3 +1977,95 @@ With the document-control inconsistency corrected and no other open item remaini
 - **6C untouched.** No edit made to `6C-Core-Platform-APIs.md` this pass.
 - **Phase 5 — two explicitly authorized, controlled, documentation-only amendments; otherwise untouched.** `5J-Analytics-Audit-Schema.md` §14.3 received the (unchanged, prior-pass) 12 new `‡`-marked `action_kind` values. `5J-Analytics-Audit-Schema.md` §14.5 received this pass's own amendment: a named, bounded synchronous exception for 6D's 15 Voice control-plane operations, citing `audit.fn_insert_audit_event(...)` — no SQL migration, no schema/constraint/function change, and no change to the general Configuration/Campaign/Plugin/Billing rows for either amendment. No other edit was made to `5J` or to any other `phase-05-database-design/**` file — `5C-Voice-Schema.md`, every migration under `5K/migrations/`, and the Alembic history are all unmodified.
 - **6E+ not started.** No Knowledge/RAG, Workflow, Prompt, Memory, CRM, Campaign, Billing, Integrations, or Analytics API design was performed in this document — §3.2's exclusion list is exhaustive and was checked against every section before writing it.
+
+
+---
+
+## 42. FINAL API RECONCILIATION CONTROLLED AMENDMENT — Concurrent-Call Capacity Admission (`FAR-OD-03`, Option B)
+
+> **Status of this section.** A controlled amendment applied during the Final API Reconciliation pass under owner decision **`FAR-OD-03` = Option B** (database layer: migration **`112_5H5`**; contract of record: **6K §54**). §40's historical APPROVED / FROZEN status is not re-issued or altered by this section. No frozen text is deleted. The earlier statements are kept and scoped by controlled notes at §10.5, §27.2, §28.10, the end of §28.10a, §30.2, §31.2, §33, §36 and §40. This section adds **no** endpoint, request or response field, permission, top-level error code, call state or state transition.
+
+### 42.1 What changed and why
+
+Frozen 6D enforced `ConcurrentCallQuotaNotExceeded` on `POST /calls` with an indexed `COUNT` of `status = 'ACTIVE'` sessions compared against `billing.quota_configs` through `CheckQuota`. That had three defects:
+- the count and the insert were not serialized (DEP-6D-09);
+- the limit had no override or resolver representation (`FAR-P1-06`);
+- the historical 4F §13.4 hot-path model was a monotonic `INCR` with no release.
+
+Under `FAR-OD-03`, `CONCURRENT_CALLS` is a **capacity / entitlement** quota, separate from the 15 usage metrics. 6D now consumes 6K §54's **single** runtime capacity authority and does not own a count of its own.
+
+### 42.2 `POST /api/v1/calls` — acquisition and release
+
+The steps below are ordered relative to §28.10's existing flow. No request or response shape changes.
+
+1. The existing validations run as today: E.164, `phone_number_id` resolution, `AgentMustBePublished`, `CallingWindowEnforced` and the compliance gate. The HTTP `Idempotency-Key` check also runs as today: a replay returns the cached first response and **does not** acquire again (6K §54.5 rule 4).
+2. The use case assigns the call-session identifier (`call_id`) that the `INSERT` will use, then calls `AcquireCapacity(organization_id, CONCURRENT_CALLS, reservation_id = call_id)`:
+   - `ADMITTED` or `ALREADY_HELD` → continue;
+   - `REFUSED_AT_LIMIT` → `429 QUOTA_EXCEEDED`, `details.metric = "CONCURRENT_CALLS"`; nothing is inserted and the provider is not contacted;
+   - `REFUSED_NOT_CONFIGURED` → `503 DEPENDENCY_UNAVAILABLE`, `details.reason = "CAPACITY_QUOTA_NOT_CONFIGURED"`;
+   - `UNAVAILABLE` → `503 DEPENDENCY_UNAVAILABLE`, `details.reason = "CAPACITY_AUTHORITY_UNAVAILABLE"`. Fail closed.
+3. The single transaction commits as today: `voice.call_sessions` `INSERT` (`INITIATED`), `audit.fn_insert_audit_event('CALL_INITIATED')` and the outbox row. **If the transaction does not commit**, `ReleaseCapacity(call_id)` runs exactly once before the error is returned. If the process dies first, the reconciler releases the orphan after the setup grace period (6K §54.5 rule 8).
+4. `TelephonyPort.place_call()` runs post-commit, as today. If the provider definitively rejects the call, the call reaches `FAILED` and the reservation is released exactly once (§42.4).
+
+Admission happens **before** the provider is contacted, so a refusal never dials anyone.
+
+### 42.3 Campaign in-process caller (§28.10a) — same authority
+
+`InitiateOutboundCallUseCase` is the shared Voice initiation path used by the 6H Campaign Executor. It draws from the **same** per-organization gauge as `POST /calls`, and no campaign algorithm is defined here. On that path:
+- **Acquire** after Step 1 returns `call_session_id`, and before Step 3 (`BeginProviderSubmission`), keyed by `reservation_id = call_session_id`. A replayed dispatch (Step 1 `outcome = 'REPLAYED'`) returns the same `call_session_id`, so acquisition is `ALREADY_HELD` and consumes no second slot.
+- **Refused or unavailable:** the worker does **not** call Step 3 and does **not** call the provider. If it holds a Step 2 claim, it records the existing local pre-submission abort (`RecordDispatchFailed`, `CLAIMED → FAILED`, which remains safe to retry). Campaign handles the contact under its own existing deferral semantics (6H §54). 6D returns no HTTP error on this path.
+- **Release:**
+  - on `RecordDispatchFailed` (a definite pre-acceptance failure);
+  - on reconciliation of the dispatch to `FAILED`;
+  - and otherwise when the call session reaches a terminal state.
+
+  While a dispatch is `SUBMITTING` or `AMBIGUOUS`, the slot stays held, because the provider may have placed the call. A later retry of the same dispatch key re-acquires under the same `call_session_id`.
+
+The Step 1–4 functions, dispatch states, grants and invariants of §28.10a and `099_5C1.sql` are unchanged.
+
+### 42.4 Counted lifetime
+
+Owner-confirmed for this pass (6K §54.6), a reservation is held from **admission** until the call reaches **any** frozen §11.1 terminal state: `NO_ANSWER`, `CANCELLED`, `VOICEMAIL`, `TRANSFERRED`, `COMPLETED`, `FAILED`, `ABANDONED`. It is also released on setup failure (§42.2 step 3, §42.3). Every non-terminal state holds the slot. `ON_HOLD → ACTIVE` and `TRANSFERRING → ACTIVE` neither release nor re-acquire, so resuming a call or recovering from a failed transfer is never refused for capacity. No state is added, removed or renamed. Release is idempotent, and a duplicate provider callback or a repeated terminal CAS no-op (§30.2) cannot release twice.
+
+> **Decision identifier.** The owner-confirmed lifetime above is registered as **`FAR-OD-04` — `CONCURRENT_CALLS` reservation lifecycle = Admission → terminal** (6K §54.6). It is referenced here by identifier only; the rule is unchanged.
+
+This is a **controlled reconciliation** of §10.5's ACTIVE-only predicate. That predicate could not both admit before dialing and keep a held or transferring call's slot. The `idx_cs_org_status WHERE status='ACTIVE'` indexed count is retained unchanged as a reporting / observability read and a reconciliation cross-check. It no longer decides admission.
+
+**Direction scope.** Only the two outbound admission points above take a slot. Inbound calls are neither admitted nor refused by `CONCURRENT_CALLS` in V1, which matches frozen 6D's enforcement surface (the policy ran only on `POST /calls`). Unlike the frozen ACTIVE count, however, in-progress inbound calls no longer reduce outbound headroom. Bringing inbound calls under capacity governance, including a provider-facing refusal behaviour, is registered as a future, non-blocking item (6K §54.6).
+
+### 42.5 Lowering the limit
+
+When the effective `CONCURRENT_CALLS` limit falls below the occupied count, whether through a lower base, a lower or superseding override, or expiry of a higher override:
+- no in-progress call is terminated;
+- no provider call is acted on;
+- no `voice.call_sessions` row is mutated;
+- no reservation is revoked.
+
+Only new `POST /calls` and new campaign acquisitions are refused until occupancy falls below the new limit (6K §54.8).
+
+### 42.6 Dependency ledger effect
+
+| ID | Previous classification | Now |
+|---|---|---|
+| **DEP-6D-09** | Disclosed, non-blocking race (two near-simultaneous `POST /calls` both pass the count) | **CLOSED — SUPERSEDED** by 6K §54.5 rule 2 (atomic final-slot admission), rules 4–5 (idempotent acquire and release keyed by `call_id`) and §42.2 |
+
+No other §36 row changes. The following requirements belong to the capacity runtime, not to a 6D endpoint, and are implementation-readiness items of 6K §54's contract rather than new 6D dependencies:
+- the reservation-store implementation;
+- the reconciler's grace period and cadence.
+
+### 42.7 Error mapping (no new code)
+
+| Outcome | HTTP | Code | `details` |
+|---|---|---|---|
+| At limit | 429 | `QUOTA_EXCEEDED` (§27.2, unchanged) | `metric: "CONCURRENT_CALLS"` |
+| Capacity configuration absent (zero resolver rows) | 503 | `DEPENDENCY_UNAVAILABLE` (§27.1, Category B reuse) | `reason: "CAPACITY_QUOTA_NOT_CONFIGURED"`, `metric: "CONCURRENT_CALLS"` |
+| Capacity authority unreachable | 503 | `DEPENDENCY_UNAVAILABLE` | `reason: "CAPACITY_AUTHORITY_UNAVAILABLE"` |
+| `hard_limit IS NULL` | — | admitted | — |
+
+§31.3's `QUOTA_EXCEEDED` `Retry-After` guidance applies unchanged.
+
+### 42.8 Scope and evidence
+
+No application code, reservation-store script or state-machine change is part of this amendment. The capacity reservation runtime is a contract and is not live-tested in this pass.
+
+Database evidence (PostgreSQL 18.6): `docs/phase-05-database-design/5K/validation/FINAL_API_RECONCILIATION_112_VALIDATION_REPORT.md`, which records fresh `001 → 112` PASS, incremental `111 → 112` PASS and `001`–`111` byte-unchanged (222 OK / 0 FAILED). `voice.call_sessions`, its indexes and `099_5C1`'s dispatch functions are unchanged by `112_5H5`. Migrations `001`–`111` are unchanged, **`112_5H5` is the single project head**, and there is no `113`.

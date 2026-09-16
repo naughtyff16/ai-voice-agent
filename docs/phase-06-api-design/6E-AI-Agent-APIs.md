@@ -1727,6 +1727,8 @@ No public contract changes: the request body, response DTO, permission string (`
 
 **Head ownership:** `109_5B7` remains the frozen historical **Phase 6M** head; Phase 6M is **not** reopened. `110_5C2` is the current **project** head, owned by the Final API Reconciliation pass.
 
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-P3-05`, 2026-09-16).** "`110_5C2` is the current project head" is **historical** at the `110_5C2` pass. The migration progression is `109_5B7` → `110_5C2` → `111_5H4` → **`112_5H5` (current single project head)**, and there is no `113`.
+
 ### 43.11 `DEP-6E-20` — closed
 
 **`DEP-6E-20` = RESOLVED BY OWNER DECISION `FAR-OD-01` (Option B). Blocking: NO.** FR-TEN-005's per-tenant Agent-*count* quota is enforced synchronously by `POST /api/v1/agents` and `POST /agents/{id}/clone` under §43.1–§43.9, using 6K's quota authority, 6K's counted metric, and 6K's canonical error, enforced at the database boundary by migration `110_5C2` (§43.10) so that the limit cannot be bypassed by any runtime role. The §38 register row is updated accordingly; the `FR-TEN-005` traceability row (§37) is now satisfied at the enforcement level, not merely handed off.
@@ -1779,3 +1781,5 @@ Re-verified live on **PostgreSQL 18.6** against the `111_5H4` head, disposable d
 Record: `docs/phase-05-database-design/5K/validation/FINAL_API_RECONCILIATION_111_VALIDATION_REPORT.md`, with transcripts `FAR_111_01_migration_integrity.txt`, `FAR_111_02_override_resolver_battery.txt`, `FAR_111_03_security_integration_battery.txt`. Schema contract: `docs/phase-05-database-design/5H-Billing-Usage-Schema.md` ("Controlled Amendment — Final API Reconciliation"). Manifest: `5K/MIGRATION_MANIFEST.md` Row 111.
 
 **Head ownership (restated):** `109_5B7` remains the frozen historical **Phase 6M** head; `110_5C2` is `111_5H4`'s immediate parent and was not amended by this pass; **`111_5H4` is the current project head**, owned by the Final API Reconciliation pass. Migrations `001`–`110` are unchanged; there is no `112`.
+
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-P3-05`, 2026-09-16).** "`111_5H4` is the current project head … there is no `112`" is **historical** at the `111_5H4` pass. The migration progression is `109_5B7` → `110_5C2` → `111_5H4` → **`112_5H5` (current single project head)**, and there is no `113`. `112_5H5` changes no `voice` object and does not alter the Agent-count admission contract of §43. The `110_5C2`/`111_5H4` Agent invariants were re-run as a targeted regression at `112_5H5` with a PASS result (`FINAL_API_RECONCILIATION_112_VALIDATION_REPORT.md`, check 8).

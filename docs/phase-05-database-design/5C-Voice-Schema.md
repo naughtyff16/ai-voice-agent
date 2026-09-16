@@ -664,7 +664,11 @@ CHECK (credential_ref IS NULL OR credential_ref LIKE 'secret_manager://%')
 | `idx_cs_from_number` | `(organization_id, from_number)` | B-tree | — | Contact matching by caller number |
 | `idx_cs_started_brin` | `(organization_id, started_at)` | BRIN | — | Partition-level time-range scans |
 
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-03`, 2026-09-16).** The `idx_cs_org_status` row above is retained unchanged, and so is the index. Its "concurrent quota check" use is **historical**. Under owner decision `FAR-OD-03` (Option B) and the owner-confirmed admission→terminal rule, `CONCURRENT_CALLS` admission is decided by 6K §54's single capacity reservation authority. A slot is taken at `POST /calls` or campaign dispatch and released exactly once, either on setup failure or at one of the seven frozen terminal states (6K §54.6, 6D §42, 6H §54). The `status = 'ACTIVE'` indexed count remains a reporting and observability read and a reconciliation cross-check; it no longer decides admission. The ceiling itself is resolved by `billing.fn_resolve_effective_capacity_quota(UUID, TEXT)` (5H controlled amendment `112_5H5`). No `voice` object was changed by `112_5H5`.
+
 **Active call index critical note:** the partial index `WHERE status = 'ACTIVE'` is small (only current calls) and extremely fast for the concurrent-call quota check that fires on every `InitiateCall`.
+
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-03`, 2026-09-16).** The statement that this index serves "the concurrent-call quota check that fires on every `InitiateCall`" is **historical**. Its speed claim still holds. Admission is no longer an ACTIVE-row count. A `CONCURRENT_CALLS` slot is reserved through 6K §54's capacity authority at the two outbound admission points only: 6D `POST /calls` and campaign dispatch. Inbound calls are neither admitted nor refused by `CONCURRENT_CALLS` in V1, which is registered as a future, non-blocking item (6K §54.6). See the `FAR-OD-03` note above this paragraph.
 
 ### 9.2 `voice.conversations`
 
@@ -2677,6 +2681,8 @@ document was edited, and no table, column, index, constraint, RLS policy or doma
 `BEFORE UPDATE` guard trigger, and one privilege narrowing. Migrations `001`–`109` are
 byte-identical to their frozen state.
 
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-P3-04`, 2026-09-16).** The word "unbypassable" in this heading is retained as historical wording and is **scoped**, not absolute. The guarantee is the application-runtime trust boundary: sessions connecting as the non-superuser application roles and writing through the guarded `SECURITY DEFINER` functions, under normal SQL execution with the defined triggers, functions and ACLs enabled. It is **not** a claim that PostgreSQL superuser privilege cannot be bypassed, that `FORCE ROW LEVEL SECURITY` binds a superuser, or that triggers cannot be disabled. Deliberate superuser or table-owner DDL, `ALTER TABLE … DISABLE TRIGGER`, `SET session_replication_role` and direct catalog writes are outside the guarantee and belong to credential custody and infrastructure controls.
+
 > **Amended in place (2026-09-15).** A second independent freeze-gate review of `110_5C2`
 > returned P0 = 0, P1 = 2, P2 = 1 against the *original* `110_5C2`. The migration was therefore
 > amended **in place** — no `111` was created, and `001`–`109` were not touched. The three
@@ -2774,6 +2780,8 @@ role test and no `WHEN` clause: it binds every principal that can issue an `UPDA
 `app_platform_admin` (whose `BYPASSRLS` skips row-level policies but not triggers) and, verified
 live, the cluster superuser who also owns the table.
 
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-P3-04`, 2026-09-16).** The superuser result above is an observed outcome under normal SQL execution: the trigger fired and rejected the tested `UPDATE`s for that session. It does not show that a superuser or table owner cannot disable the trigger or change `session_replication_role`, and no such claim is made. See the scoping note under this amendment's opening paragraph.
+
 ### Actor trust boundary (`FAR-P2-03`, narrow P2)
 
 Frozen 6E treats `created_by` as implicit from the authenticated actor, and the public DTO does
@@ -2856,6 +2864,8 @@ Real PostgreSQL **18.6**, disposable databases only; one single final cycle run 
 **amended** migration, with nothing carried over from the superseded pre-amendment run. Fresh
 `001 → 110` and incremental `109 → 110` both exit 0; single Alembic head `110_5C2`; no `111`.
 
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-P3-05`, 2026-09-16).** "Single Alembic head `110_5C2`; no `111`" was measured at the `110_5C2` pass and is **historical**. It is superseded. The migration progression is `109_5B7` → `110_5C2` → `111_5H4` → **`112_5H5` (current single project head)**, and there is no `113`. `110_5C2.sql` itself has not been edited since its in-place amendment. `111_5H4` re-created `voice.fn_assert_agent_quota_admission(UUID)` with `CREATE OR REPLACE` so that it reads the effective quota through `billing.fn_resolve_effective_quota`, keeping an identical signature, security class and ACL (5H controlled amendment, 6M §66.6). `112_5H5` changes no `voice` object, and the `110_5C2` Agent invariants were re-run as a targeted regression at `112_5H5` with a PASS result (`FINAL_API_RECONCILIATION_112_VALIDATION_REPORT.md`, check 8).
+
 - **Fractional hard-limit battery (`FAR-P1-02`) — 9/9 pass.** `1.5000` with 0 active → accepted,
   committed count 1; `1.5000` with 1 active → rejected `53400`, count stays 1 (this case was
   wrongly *accepted* before the amendment); `0.5000` with 0 active → rejected, count 0; `2.0000`
@@ -2888,6 +2898,8 @@ evidence files `FAR_DB_01_migration_and_integrity.txt`,
 `109_5B7` remains the frozen **Phase 6M** head as a matter of project history; Phase 6M is **not
 reopened** by this amendment. `110_5C2` is the new project head and is owned by the **Final API
 Reconciliation** pass (`FAR-P1-01` / `DB-BLOCKER-FINAL-API-001` / `DEP-6E-20` closure).
+
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-P3-05`, 2026-09-16).** "`110_5C2` is the new project head" is **historical** at the `110_5C2` pass and is superseded. `110_5C2` is now the immediate parent of `111_5H4`. The migration progression is `109_5B7` → `110_5C2` → `111_5H4` → **`112_5H5` (current single project head)**, and there is no `113`. Head ownership of `111_5H4` and `112_5H5` is recorded in `5K/MIGRATION_MANIFEST.md` Rows 111 and 112 and in `FINAL-API-RECONCILIATION.md`.
 
 **Full DDL and rationale:** `110_5C2.sql`'s header comment;
 `docs/phase-05-database-design/5K/MIGRATION_MANIFEST.md`'s Row 110;

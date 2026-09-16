@@ -59,6 +59,8 @@ Campaigns (configuration, lifecycle, scheduling); Contact Lists; CSV Import Jobs
 | Analytics platform projections | 6L (not started) | Campaign publishes events; CQRS projection is 6L's |
 | Admin/platform control plane | 6M (not started) | No platform-wide override surface is designed here |
 
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-03`, 2026-09-16) — see §54.** 6K now exists. The tenant `CONCURRENT_CALLS` ceiling is consumed through 6K §54's single capacity authority (`AcquireCapacity` / `ReleaseCapacity` / `ReadCapacity`), not through a direct `CheckQuota` read of `billing.quota_configs`, and `CONCURRENT_CALLS` is a capacity quota, not a usage metric. The row above is historical text (§54.1, §54.7).
+
 No endpoint in this document reaches into any of the above. Where a genuine boundary exists (e.g., what 6H needs from CRM before dialing, or what 6H hands to 6K for billing), it is specified as a **contract 6H consumes or produces**, never as an endpoint owned by another phase.
 
 ---
@@ -116,6 +118,8 @@ No endpoint in this document reaches into any of the above. Where a genuine boun
 26. **(Revision 5, "Final Micro-Remediation" — the reconciliation authorization boundary.) `voice.fn_reconcile_dispatch_outcome()` (introduced by Revision 4's own fix for finding 22) granted `EXECUTE` to `app_api`/`app_worker` — the same two broad roles as everything else.** Because this function can convert `AMBIGUOUS`/`SUBMITTING` into `FAILED`, and a `FAILED` row is immediately re-claimable for a fresh physical provider attempt, this grant meant any ordinary application or worker code path could unilaterally re-authorize a second physical telephony attempt for an ambiguous call — the exact class of defect Blocker A (finding 22) closed, relocated into the reconciliation function itself rather than eliminated. **Resolved**: a new, narrowly-scoped role, `app_voice_reconciler` (`LOGIN`, not `BYPASSRLS`, no table DML, `EXECUTE` on exactly this one function), now holds the automated provider-callback/provider-lookup path; the existing break-glass/operator role, `app_platform_admin`, holds the human path; `EXECUTE` is revoked from `app_api`/`app_worker`. A new required provenance field, `reconciliation_source`, and a mandatory non-empty evidence requirement for `FAILED` outcomes were also added, plus a synchronous `VOICE_DISPATCH_RECONCILED` audit event for every successful reconciliation — none of which existed before this pass. **Live-proven on a fresh PostgreSQL 16.10 instance**: direct calls as `app_api`/`app_worker` denied, including a forged `reconciled_by='admin'` attempt from `app_api`; the authorized role successfully resolves both `CONFIRMED` and evidence-backed `FAILED` outcomes, with the `FAILED` row then genuinely re-claimable; blank-evidence `FAILED` attempts rejected even under the authorized role; an already-`CONFIRMED` row's reconciliation attempt refused (`CONFIRMED → FAILED` remains structurally impossible); a cross-tenant attempt refused non-disclosingly with no mutation. Full detail: §18.4, §49.9a.
 27. **(Revision 6, "Final Micro-Fix" — non-forgeable reconciliation provenance.) The single `voice.fn_reconcile_dispatch_outcome()` (introduced by Revision 5's own fix for finding 26) correctly restricted WHO could reconcile, but still let EITHER authorized caller freely choose WHICH provenance category to record via a plain `p_reconciliation_source` parameter.** `app_voice_reconciler` (the automated path) could pass `'OPERATOR'`, or `app_platform_admin` (the operator path) could pass `'PROVIDER_CALLBACK'`, producing an audit trail that misrepresents which trusted path actually made the physical-redial authorization decision — an audit-integrity defect, not merely a cosmetic one, given the safety criticality of this decision. **Resolved**: the single function is dropped and replaced by `voice.fn_reconcile_dispatch_outcome_internal()` (the mechanism, granted `EXECUTE` to no role at all — reachable only via the two wrappers below, mirroring the `fn_new_uuid_v7()` bridge-function pattern), `voice.fn_reconcile_dispatch_from_provider()` (`EXECUTE`: `app_voice_reconciler` only; an internal `CHECK` restricts its source parameter to `PROVIDER_CALLBACK`/`PROVIDER_LOOKUP` — `'OPERATOR'` is rejected even from a caller who genuinely holds `EXECUTE`), and `voice.fn_reconcile_dispatch_by_operator()` (`EXECUTE`: `app_platform_admin` only; takes no source parameter at all — `'OPERATOR'` is hardcoded). **Live-proven on a third, independently built PostgreSQL 16.10 instance**: `app_voice_reconciler` passing `provider_source='OPERATOR'` to the function it legitimately has `EXECUTE` on was rejected by the function's own internal `CHECK`, not by a missing grant — the direct empirical closure of this defect; `app_voice_reconciler` calling the operator function at all, and `app_platform_admin` calling the provider function at all, were both denied at the privilege layer; genuine reconciliation through each path recorded the correct, function-determined provenance/`actor_type`, confirmed by direct query against both the table and `audit.audit_events`. Full detail: §18.4, §49.9b.
 28. **(Revision 7, "Final Admin-DML Hardening" — removing the platform-admin direct DML bypass.) `app_platform_admin`'s own original `GRANT SELECT, INSERT, UPDATE, DELETE` on `voice.call_dispatch_keys` and `campaign.campaign_contact_identities` — present since each table was first created — was never touched by any of the five prior passes, each of which restricted a *different* role (`app_worker`, then `app_api`/`app_worker`, then the reconciliation functions' `EXECUTE`, then the provenance split itself).** That grant could bypass every invariant built on top of it: a direct `UPDATE ... SET dispatch_state = 'FAILED' WHERE dispatch_state = 'CONFIRMED'` would reopen a known-accepted call for a second physical telephony attempt, and a direct `UPDATE ... SET reconciliation_source = 'PROVIDER_CALLBACK'` would forge the provenance boundary finding 27 just established — both completely invisible to, and unenforced by, any guarded function, since neither statement ever calls one. The identical grant on the Campaign identity table had no legitimate use case either — that table's entire purpose is a `PRIMARY KEY`-backed uniqueness claim for `fn_enqueue_contact()`'s own atomic operation. **Resolved**: `app_platform_admin`'s `INSERT`/`UPDATE`/`DELETE` is removed from both tables; `SELECT` is retained on both. Neither guarded function (`fn_reconcile_dispatch_by_operator()`, `fn_enqueue_contact()`) needs a direct table grant to keep writing — both are `SECURITY DEFINER`, owned by the migration-running role. **Live-proven on a fourth, independently built PostgreSQL 16.10 instance**: catalog inspection confirms `SELECT`-only for `app_platform_admin` on both tables before any test runs; direct `INSERT`/`UPDATE`/`DELETE` (including the specific provenance-forgery and `CONFIRMED → FAILED` reopen attempts) all denied with `permission denied`; a `SELECT` against a live `CONFIRMED` row still succeeds; both guarded functions remain fully functional, including correctly refusing to reopen a `CONFIRMED` row. Full detail: §18.4, §49.9c.
+
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-03`, 2026-09-16) — see §54.** Finding 9 is historical. The tenant ceiling's effective limit now comes from `billing.fn_resolve_effective_capacity_quota` (base plus capacity override, `112_5H5`), and admission comes from 6K §54's atomic reservation, shared with 6D `POST /calls` (6D §42). `concurrency_policy.max_concurrent_calls` remains a campaign sub-ceiling only (§54.1, §54.6).
 
 ### 5a. Phase 6H Remediation — Amendment Summary (Revision 3, live-validated)
 
@@ -225,6 +229,8 @@ Campaign Executor (Celery/APScheduler, in-process application-service calls — 
 Campaign ── domain events (campaign.*, campaign.contact.*, import.*, campaign.outcome_computed) ──▶
   audit.domain_event_outbox ──▶ CRM(6G, Activity/qualify) / Analytics(6L) / Billing(6K) / Webhook Engine(6J)
 ```
+
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-03`, 2026-09-16) — see §54.** In the diagram above, `Billing (6K, future) — CheckQuota(CONCURRENT_CALLS)` now reads as 6K §54's `ReadCapacity` pre-check. The authoritative `AcquireCapacity` runs inside Voice's `InitiateOutboundCallUseCase` (§54.2, 6D §42.3).
 
 Everything below "Client" through "Redis" is synchronous REST per 6A §6. The Campaign Executor row is entirely background/in-process — never a network hop on the API request path, and never a REST call into another bounded context's own public endpoints for a per-dispatch check (6A §6, 4H §9.1 invariant, restated identically by 6G §21.7/§23.1 for the CRM boundary and by 6D §21.11 for the Voice boundary).
 
@@ -893,6 +899,8 @@ Before any `CallJob` is created for a `CampaignContact`, in two distinct phases 
 11. **If `reserved = FALSE`** (`CAMPAIGN_NOT_RUNNING`, `CONTACT_NOT_DISPATCHABLE`, `RETRY_NOT_YET_DUE`, or `DUPLICATE_ATTEMPT`) — no `CallJob` was created; the contact is left in its current durable status for the next tick or retry cycle to re-evaluate; this is a normal, expected, internal-only outcome, never surfaced to a tenant as an error (§37).
 12. **Only if `reserved = TRUE`, and only after `fn_reserve_dispatch()`'s own transaction has committed**, does the executor invoke Voice's in-process, idempotent `InitiateOutboundCallUseCase(..., dispatch_idempotency_key=$idempotency_key)` (§18.3–§18.4) — never inside the same database transaction as the reservation (6A §35).
 
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-03`, 2026-09-16) — see §54.** Step 5's tenant half is now an advisory `ReadCapacity` pre-check that never admits. Authoritative tenant admission is `AcquireCapacity(reservation_id = call_session_id)` inside step 12's Voice use case, after Voice Step 1 and before Step 3. On refusal the provider is not contacted, the `call_jobs` row is not marked `DISPATCHED`, and the attempt counts as `TENANT_CALL_QUOTA_REACHED` (§54.2).
+
 ### 17.3 `EligibilityReason` Enumeration (verbatim, 4I §6.2)
 
 ```
@@ -1178,15 +1186,21 @@ returns None if attempt_count >= max_attempts (caller transitions to EXHAUSTED i
 
 `ConcurrencyEnforcementService.check(current_campaign_live_calls, campaign.concurrency_policy, tenant_quota_result)` (4D §6.3) requires **both** to allow one more slot — a campaign configured for 50 concurrent calls is still capped at whatever the tenant's plan currently allows, and vice versa. 6H never duplicates the tenant number in a Campaign table — `concurrency_policy.max_concurrent_calls` is validated at `CreateCampaign`/`PATCH` time to be `≥ 1`, and *additionally*, at `StartCampaign` pre-flight (§13 of the endpoint group, i.e. `POST /campaigns/{id}/start`), checked against the tenant's current `CONCURRENT_CALLS` hard_limit — a campaign whose own ceiling already exceeds the tenant's plan is not rejected at creation (plans can change), but a pre-flight warning/soft-cap is applied: dispatch never exceeds `MIN(campaign ceiling, current tenant ceiling)` regardless of which was configured first.
 
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-03`, 2026-09-16) — see §54.** The "Tenant-wide ceiling" row's physical source and port are superseded for admission. The effective limit is resolved by `billing.fn_resolve_effective_capacity_quota` (`112_5H5`), and admission is 6K §54's single capacity authority, not `QuotaEnforcementService.check()` over `billing.quota_configs`. Both ceilings must still allow one more slot (§54.1–§54.2).
+
 ### 21.2 Quota Changing Mid-Campaign
 
 If the tenant's `CONCURRENT_CALLS` hard_limit is lowered by 6K while a Campaign is `RUNNING` (e.g., a plan downgrade), the **next** executor tick's `CheckQuota` call immediately reflects the new, lower ceiling — no special campaign-side event handling is needed, because the check is re-run fresh on every tick (§17.2 step 5), never cached campaign-side beyond the tick's own working set.
+
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-03`, 2026-09-16) — see §54.** A lowered effective limit, including a superseding or expired override, is non-destructive: no running call, session, `call_jobs` row or `CampaignContact` is touched, and only new acquisitions are refused (§54.5, 6K §54.8).
 
 If `campaigns.concurrency_policy` itself is edited (only possible while `DRAFT`/`SCHEDULED`, §9.5), the new value takes effect the next time the campaign reaches `RUNNING` — it cannot be edited while already running.
 
 ### 21.3 6H → 6K Boundary Restated
 
 6H **never** computes CONCURRENT_CALLS quota numbers, never writes to `billing.quota_configs`, and never exposes a campaign-side quota-override endpoint. If `billing.quota_configs` is unreachable when a pre-flight or dispatch check needs it, the platform fails closed (treat as quota-exhausted, `DEFERRED`, never `ELIGIBLE` by default) — matching §17.5's fail-closed principle applied to quota instead of eligibility.
+
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-03`, 2026-09-16) — see §54.** "Unreachable" now covers the 6K capacity authority and resolver, and "configuration absent" (zero resolver rows) is treated identically: `DEFERRED` at dispatch, never `ELIGIBLE` by default. At start pre-flight both block with `503 DEPENDENCY_UNAVAILABLE` + `details.reason` (§54.3). No campaign-side override endpoint exists; capacity overrides are Platform Admin (6M §67).
 
 ---
 
@@ -1533,6 +1547,8 @@ Consistent with the governing task's explicit instruction, this document does **
 
 No wallet-reservation endpoint, no balance-threshold check inline in `StartCampaign`, no budget-stop mechanism. `POST /campaigns/{id}/start`'s pre-flight (§30) checks tenant `CONCURRENT_CALLS` quota (§21) — a **capacity** limit already owned by 6K's `billing.quota_configs` — but does **not** check wallet affordability, since no such port/contract is specified anywhere in the frozen phases. **DEP-6H-16, DEFERRED TO 6K** — recorded, not blocking pure API design, per the governing task's explicit instruction ("Do not invent synchronous 6K billing behavior if 6K isn't designed yet... record as DEFERRED without blocking execution unless genuinely necessary"). Campaign execution can be safely specified today without this — the worst case absent 6K is that a campaign runs and Billing bills for it after the fact via metered usage events, which is exactly the async, eventually-consistent pattern 4D's own event catalogue already assumes.
 
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-03`, 2026-09-16) — see §54.** The capacity check referred to here is 6K §54's `ReadCapacity` (§54.3), and 6K now exists. DEP-6H-16's affordability scope is unchanged. Its dependency classification is recorded in the Final API Reconciliation handoff ledger (`FAR-P2-06`), not re-decided here (§54.7).
+
 ### 29.3 No Campaign Budget / Spend Limit Field
 
 4D/5E define no `campaign_budget`/`spend_limit` aggregate or column. None is added here. **DEP-6H-17, DEFERRED TO 6K / a future phase** — commercial importance does not justify inventing a field the frozen domain model doesn't have; a future `ConcurrencyPolicy`-sibling `BudgetPolicy` value object would be the correct home if this becomes a requirement, added by a future, explicitly-authorized DDD/schema revision, not retrofitted here.
@@ -1559,6 +1575,8 @@ Executed synchronously, in-process, before the `DRAFT/SCHEDULED → PREPARING` t
 | 12 | Billing/usage affordability | **Not checked — DEFERRED TO 6K (§29.2)** |
 
 Failing any of 1–8 or 11 blocks the transition entirely (`422`/`409`/`403`/`503`); 9–10 are advisory and do not block (they reflect conditions that can legitimately change moment-to-moment during a long-running campaign, and the real enforcement happens continuously at dispatch time, §17.2/§21).
+
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-03`, 2026-09-16) — see §54.** Items 9–10 read the effective limit and occupied reservations through `ReadCapacity` and remain advisory when the tenant is merely full. A **missing capacity configuration** or an **unreachable capacity authority** at pre-flight is not advisory: it blocks with `503 DEPENDENCY_UNAVAILABLE`, `details.reason = "CAPACITY_QUOTA_NOT_CONFIGURED"` or `"CAPACITY_AUTHORITY_UNAVAILABLE"`. These are 6K §54.7 reason values, not new codes (§54.3).
 
 ---
 
@@ -1639,6 +1657,8 @@ No campaign-specific mutation appears in 6A §35's named same-transaction-except
 | 31 | Celery redelivery of a dispatch-reservation task after the Campaign has been paused | `campaign.fn_reserve_dispatch()` re-checks `Campaign.status` on every invocation (§22.5) — a redelivered reservation task for an already-paused campaign returns `reserved = FALSE, reason = 'CAMPAIGN_NOT_RUNNING'` exactly as a fresh attempt would; redelivery adds no new risk beyond what #5/#6/#8 already cover. |
 | 32 | Celery redelivery of a dispatch-reservation task after the Campaign has been stopped | Same mechanism and outcome as #31, substituting `Stop` for `Pause`. |
 | 33 | A provider callback (e.g., an early `RINGING`/`ANSWERED` webhook) arrives before Campaign has finished recording the dispatch as `DISPATCHED` | Provider webhooks are Voice's own inbound surface (`webhooks.inbound_webhook_events`, 5I §10, idempotent on `UNIQUE (organization_id, provider_slug, provider_event_id)`) — they update `voice.call_sessions` directly and are entirely independent of when Campaign's own `call_jobs.status` transitions from `PENDING` to `DISPATCHED`. Campaign's own state machine never assumes a particular arrival order relative to its own bookkeeping update; the authoritative `call.ended` event (§24.1) is what Campaign's own outcome processing keys on, and that is never emitted before the call has actually concluded. |
+
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-03`, 2026-09-16) — see §54.** Scenario 21 now re-evaluates through the capacity authority on every dispatch (step 5 pre-check, step 12 acquisition). A lowered limit is non-destructive (§54.5).
 
 **Locking mechanisms actually used, and why each is justified, stated plainly (per 6A §17.3's instruction that a second, API-layer locking scheme is never introduced casually):** every scenario above is resolved via one of exactly three PostgreSQL-native mechanisms — (a) CAS-on-status (`WHERE`-clause compare-and-swap) for simple single-row state transitions; (b) a `PRIMARY KEY`/partial-`UNIQUE`-index-backed atomic claim (`campaign.campaign_contact_identities`, `campaign.call_jobs.idempotency_key`, `voice.call_dispatch_keys`) for durable, redelivery-safe uniqueness; (c) `SELECT ... FOR UPDATE` row locking, used in exactly one place (`campaign.fn_reserve_dispatch()`, §18.2, §22.5) for the one invariant — Campaign-status-vs-dispatch — that genuinely requires it, following the identical, already-accepted precedent of `crm.fn_apply_lead_score()`'s Contact-row lock (095_5D4.sql, "the one narrow case where a Contact-row lock is justified — a real ordering invariant exists"). No in-memory mutex, no application-level lock table, and no second locking scheme layered on top of what PostgreSQL itself already provides is introduced anywhere in this document.
 
@@ -1771,6 +1791,8 @@ Reusing 6A §24's families exclusively — no new top-level `error.code` is intr
 | `NUMBER_NOT_PROVISIONED` | `VALIDATION_ERROR` | Same |
 | `COMPLIANCE_POLICY_NOT_FOUND` | `DEPENDENCY_UNAVAILABLE` | No `ACTIVE` org compliance policy at schedule/pre-flight time (§11.2) — fail-closed |
 | `CAMPAIGN_WINDOW_EXCEEDS_ORG_POLICY` | `VALIDATION_ERROR` | (duplicate listing for clarity — see above) |
+
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-03`, 2026-09-16) — see §54.** `TENANT_CALL_QUOTA_REACHED` now covers both the step 5 `ReadCapacity` pre-check and a step 12 `AcquireCapacity` refusal, and stays internal-only. No error family is added. The pre-flight `503` for missing configuration or an unreachable authority reuses `DEPENDENCY_UNAVAILABLE` with `details.reason` values, exactly as `COMPLIANCE_POLICY_NOT_FOUND` does (§54.3–§54.4).
 
 Every `error.details.reason` above that is annotated "internal" is intentionally **not reachable through any client request** in this document, because the corresponding write is executor-owned (§15.5) — they are listed for completeness against the governing task's requested catalogue, not because a client will ever see them in an HTTP response.
 
@@ -1932,6 +1954,8 @@ IDs/PII belong in redacted structured logs/traces (6A §25's PII-redacting proce
 | ROI/cost manipulation | `total_cost`/`roi_pct` have no write path at all (§26.2); `estimated_conversion_value` is tenant-writable only as forward-looking campaign configuration, never as a direct outcome-row edit |
 | Unsafe free-form SQL/filter input | Allow-listed filters only (§15.2), parameterized via SQLAlchemy, validated against the field allow-list before touching the query builder — identical discipline to 6A §15/6G §36 |
 
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-03`, 2026-09-16) — see §54.** "Quota bypass" and "Campaign concurrency abuse" are now closed by 6K §54.5's atomic final-slot admission, shared with 6D `POST /calls` and all campaigns of the tenant. The mitigation is no longer a per-tick read (§54.2).
+
 CSV content is treated as untrusted throughout — no row's raw values are ever executed, reflected into a spreadsheet-consuming response, or trusted as already-normalized (phone re-validated server-side exactly as 6G §8.2 already mandates for CRM's own Contact-creation path).
 
 ---
@@ -2005,6 +2029,8 @@ Consolidating every `DEP-6H-*` raised throughout this document:
 | DEP-6H-15 | Contact-merge lineage and Campaign's logical `contact_id` reference | 6G §10.2 | Dispatch-time consent read | **RESOLVED** | One-hop `merged_into_contact_id` dereference at consent-read time only; no bulk rewrite, §28 |
 | DEP-6H-16 | No wallet/billing-affordability check exists at Campaign start | 4F, 6K not started | `POST /campaigns/{id}/start` pre-flight | **DEFERRED TO 6K** | Not checked; capacity (`CONCURRENT_CALLS`) is checked, affordability is not, §29.2 |
 | DEP-6H-17 | No `campaign_budget`/spend-limit aggregate exists in 4D/5E | 4D, 5E | — | **DEFERRED TO 6K / future phase** | No field invented; a future `BudgetPolicy` VO would be the correct home, §29.3 |
+
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-03`, 2026-09-16) — see §54.** DEP-6H-13, DEP-6H-16 and DEP-6H-17 still say "6K not started", which is historical. Their current classification is recorded in the Final API Reconciliation handoff ledger (`FAR-P2-06`). The capacity clause of DEP-6H-16 reads as §54.3.
 
 **Zero BLOCKING items.** DEP-6H-01, -02, and -15 are **RESOLVED** within this document's own authority via documentation-level corrections and read-path specifications, no Phase 5 DDL touched. **DEP-6H-03, -12, -18, -20, -21, -22, -23, -24, -25, -27, -28, and -29 (twelve genuine production-safety/security defects found across six remediation passes — three in the first pass, two more found by adversarially re-testing the first pass's own fixes, four more found by a final independent adversarial freeze review of the second pass's own fixes, one more found by a final micro-remediation review of the third pass's own fix, one more found by a final micro-fix review of the fourth pass's own fix, and one more found by a final privilege-hardening review of the fifth pass's own fix) are RESOLVED via one additive, controlled-amendment migration (`099_5C1.sql`, corrected in place across all six passes, per the disclosed migration policy — never applied to production, so never renumbered) plus one more (`098_5E1.sql`, corrected across four of those six passes) plus one narrow labeled 6D amendment, and are now live-validated on both PostgreSQL 18 and PostgreSQL 16 (the declared production baseline, across four independently built PostgreSQL 16 instances), not merely design-reviewed** — see §49–§50 for full detail, including the genuine bugs found and fixed during live execution itself (§49.6, §49.9). **DEP-6H-26 is RESOLVED** — every claim in this document is now backed by PostgreSQL 16 evidence, not only PostgreSQL 18. **DEP-6H-27 is RESOLVED** — the reconciliation function's authorization boundary now matches its actual safety criticality, live-proven, §49.9a. **DEP-6H-28 is RESOLVED** — reconciliation provenance is now non-forgeable, structurally, not conventionally, live-proven, §49.9b. **DEP-6H-29 is RESOLVED** — no runtime role, including the platform-admin credential, can directly mutate either hardened table, closing the last remaining bypass around every prior invariant, live-proven, §49.9c. DEP-6H-04/05/06/07/08/09/10 remain **NON-BLOCKING**, closed either by classification or by deliberately not exposing a capability the DDD never defined. DEP-6H-11/13/14/16/17 are honest cross-phase or cross-legal-domain handoffs, not gaps in this document's own contract. **DEP-6H-19 is RESOLVED** — the live-execution/concurrent-race testing it called for has been performed, with results and transcripts in §49, matching the rigor of the Phase 6G reconciliation's own live-tested amendments.
 
@@ -2658,6 +2684,114 @@ Overall:
 PHASE 6H — APPROVED / FROZEN, LIVE-VALIDATED ON POSTGRESQL 18 AND POSTGRESQL 16
 ```
 
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-03`, 2026-09-16) — see §54.** The status block above is historical and is not re-approved by this pass. The tenant `CONCURRENT_CALLS` consumption it describes is reconciled by the §54 controlled amendment (`FAR-OD-03`), and the current project head is `112_5H5`.
+
 No genuine physical blocker was found that requires modifying Phase 5A–5J's *existing* content, and 6A–6C/6E–6G were not touched or reopened. Across seven remediation passes, thirteen genuine production-safety/security defects were found and closed with durable, PostgreSQL-enforced mechanisms — never with an in-memory lock, a probability argument, or a "single worker expected" assumption: CampaignContact duplicate-enqueue (Blocker #1), Pause/Stop-vs-dispatch race (Blocker #2), Campaign→Voice dispatch idempotency (Blocker #3), a provider-dispatch durability hole in the first fix for Blocker #3 (Blocker C, Revision 3), a SECURITY DEFINER `search_path` defect that would have failed on first real execution, two cross-tenant/cross-campaign ownership-verification gaps in Revision 3's own new functions, an expired-lease double-dial hazard in Revision 3's own provider-dispatch state machine (Blocker A, Revision 4, capable of physically dialing a customer twice), two direct-table-write privilege bypasses plus one idempotency replay validation gap (Blockers B/C/D, Revision 4), an overly broad reconciliation `EXECUTE` grant (finding 26, Revision 5 — without that fix, ordinary application/worker code could still authorize a second physical telephony attempt via the reconciliation path), a forgeable reconciliation-provenance parameter (finding 27, Revision 6 — without that fix, an authorized reconciliation credential could still misrepresent which trusted path made a physical-redial authorization decision), and — the last one, found only by this final pass's own review, closing a gap every one of the five prior privilege-hardening passes had individually left standing — `app_platform_admin`'s own original, untouched direct `INSERT`/`UPDATE`/`DELETE` grant on both hardened tables (finding 28, this pass — without this fix, a single raw `UPDATE` statement, invisible to every guarded function above it, could have reopened a `CONFIRMED` dispatch or forged reconciliation provenance regardless of how carefully every other role and function had been restricted). All thirteen — and the two additional PL/pgSQL bugs found purely by attempting to execute Revision 3's code — are now closed by two additive, forward migrations (`098_5E1.sql`, `099_5C1.sql`, each corrected in place across all six SQL-authoring passes per the disclosed never-applied-to-production migration policy) plus one narrow, labeled, additive amendment to `6D-Voice-Call-Agent-APIs.md` §28.10a, and **every one of the resulting guarantees has been directly demonstrated against real, disposable PostgreSQL databases — PostgreSQL 18 (Revision 3, §49.1–§49.8) and, across four independently built instances, a genuinely separate PostgreSQL 16.10 instance, the declared production baseline (§49.9, §49.9a, §49.9b, §49.9c)** — fresh-database and incremental Alembic upgrades (exit code 0 every time), direct `pg_proc`/`information_schema`/`role_table_grants` catalog inspection, genuine multi-connection concurrency races, real elapsed-time lease expiries, and genuine role-boundary/internal-`CHECK`/direct-DML privilege and forgery tests, not simulated or narrated. **The one explicitly disclosed exception, stated rather than hidden**: the migration-owning database role and genuine PostgreSQL superuser access remain technically able to write to either hardened table directly — a property of the database engine's own privilege model, outside any application-layer design's authority to override, and explicitly excluded from every invariant's own scope (INV-ADMIN-06). Three pre-existing, correctly-scoped-out-of-this-remediation open questions (recurring campaigns, DNC dispatch-proof logging, and the residual telephony-provider-side ambiguity §18.4 discloses — explicitly re-checked across multiple passes and confirmed still undocumented for any configured provider, not assumed away) remain exactly as 5E/5L/this document's own honest accounting leaves them — see §46 for the precise status of each. Phase 6I (Workflow) is not started.
 
 **STOP — Phase 6H complete, live-validated on PostgreSQL 18 and PostgreSQL 16. Phase 6I not started.**
+
+
+---
+
+## 54. FINAL API RECONCILIATION CONTROLLED AMENDMENT — Tenant `CONCURRENT_CALLS` Capacity Admission (`FAR-OD-03`, Option B)
+
+> **Status of this section.** This is a controlled amendment applied during the Final API Reconciliation pass under owner decision **`FAR-OD-03` = Option B**. The database layer is migration **`112_5H5`**, the contract of record is **6K §54**, and the Voice-side consumer is **6D §42**.
+>
+> §53's historical APPROVED / FROZEN recommendation is kept as written and is not re-issued. No earlier text is deleted. Statements that described the tenant ceiling as a direct `CheckQuota` read of `billing.quota_configs` are kept and scoped by controlled notes at §3.2, §5 (finding 9), §7, §17.2 (step 5), §21.1–§21.3, §29.2, §30, §32 (scenario 21), §37, §43 and §46 (DEP-6H-16).
+>
+> This section adds **no** endpoint, request or response field, permission, error family, campaign state, `CampaignContact` state or `call_jobs` state. It adds no migration and no application code.
+
+### 54.1 What changed
+
+Frozen 6H consumed the tenant ceiling as `CheckQuota(CONCURRENT_CALLS)` over `billing.quota_configs`, re-read on every executor tick. Under `FAR-OD-03`:
+- `CONCURRENT_CALLS` is a **capacity / entitlement** quota, not one of the 15 usage metrics.
+- Its effective limit is resolved by `billing.fn_resolve_effective_capacity_quota`, which applies base plus capacity override (`112_5H5`).
+- Admission is granted only by 6K §54.4's single runtime authority (`AcquireCapacity` / `ReleaseCapacity` / `ReadCapacity`), shared with 6D `POST /calls`.
+
+6H therefore:
+1. **does not** read `billing.quota_configs` directly to decide admission;
+2. **does not** maintain its own tenant-wide count, reservation or counter;
+3. **does not** use a monotonic counter for the tenant ceiling (6K §54.5 rule 1);
+4. **does** keep `campaigns.concurrency_policy.max_concurrent_calls` as a separate, campaign-scoped sub-ceiling (§54.6).
+
+A call is dispatched only when **both** limits allow it, as §21.1 has always required.
+
+### 54.2 Dispatch sequence (§17.2) — reconciled
+
+| Step | Frozen text | Reconciled reading |
+|---|---|---|
+| 5 | `ConcurrencyEnforcementService.check()` requires the campaign counter **and** `CheckQuota(CONCURRENT_CALLS)` to allow a slot | Checks the campaign sub-ceiling as before. The tenant ceiling is a **`ReadCapacity` pre-check that only informs the decision** (6K §54.4) and never admits. `remaining = 0` → `DEFERRED` with internal reason `TENANT_CALL_QUOTA_REACHED`. Capacity configuration absent, or authority unreachable → `DEFERRED` (fail closed, §21.3). `remaining` `NULL` (uncapped) → tenant ceiling passes. |
+| 10–11 | `campaign.fn_reserve_dispatch()` | Unchanged. This reserves the campaign's `call_jobs` row, **not** a tenant capacity slot. |
+| 12 | Voice `InitiateOutboundCallUseCase(..., dispatch_idempotency_key)` | **Authoritative tenant admission happens here, inside Voice** (6D §42.3). `AcquireCapacity(organization_id, CONCURRENT_CALLS, reservation_id = call_session_id)` runs after Voice Step 1 and before Step 3 (`fn_begin_provider_submission`). |
+
+**Refusal at step 12** (`REFUSED_AT_LIMIT`, `REFUSED_NOT_CONFIGURED` or `UNAVAILABLE`):
+- Voice does not call Step 3 and does not contact the provider.
+- If it holds a Step 2 claim, it records the existing local pre-submission abort (`fn_record_dispatch_failed`). That dispatch key is `FAILED` and is re-claimable under §18.4's unchanged caller contract.
+- 6H does **not** mark the `call_jobs` row `DISPATCHED`, does not `INCR` the campaign counter (§31's `INCR` is post-acceptance), and raises no client error.
+- The attempt is counted against §37's internal `TENANT_CALL_QUOTA_REACHED`.
+- A later re-drive of the same dispatch idempotency key resolves to the same `call_session_id`, so it re-attempts `AcquireCapacity` under the same `reservation_id` and never takes a second slot (6K §54.5 rules 3–4).
+
+The pre-check in step 5 and the authoritative acquisition in step 12 are deliberately separate. The pre-check avoids reserving a `call_jobs` row when the tenant is visibly full. Only step 12 closes the final-slot race (6K §54.5 rule 2), including races against 6D `POST /calls` and against other campaigns of the same tenant.
+
+**Release.** 6H never calls `ReleaseCapacity` for the tenant slot. Voice and 6K release it exactly once:
+- when the dispatch is definitively `FAILED` (including reconciliation to `FAILED`);
+- or when the call session reaches any frozen terminal state (6K §54.6, 6D §42.4).
+
+The 6K reconciler is the crash backstop (6K §54.5 rule 8). While a dispatch is `SUBMITTING` or `AMBIGUOUS`, the slot stays held.
+
+> **Decision identifier.** The tenant-slot lifetime consumed here is **`FAR-OD-04` — `CONCURRENT_CALLS` reservation lifecycle = Admission → terminal** (6K §54.6, 6D §42.4). 6H adds nothing to it.
+
+### 54.3 Start pre-flight (§30 items 9–10) — reconciled
+
+- **Item 9.** The "current tenant `CONCURRENT_CALLS` hard_limit" is the **effective** limit from `ReadCapacity` (resolver: base plus capacity override, with its `source`), not a direct `billing.quota_configs` read. It remains a soft warning. An uncapped (`NULL`) effective limit produces no warning.
+- **Item 10.** "Current usage" is `ReadCapacity`'s occupied reservation count. That count includes slots held by 6D `POST /calls` and by other campaigns of the tenant, so it is not limited to "other running campaigns". Item 10 remains advisory: `429 CONCURRENCY_LIMIT_REACHED`, non-blocking.
+- **Fail closed at pre-flight.** A missing configuration or an unreachable authority is not a moment-to-moment condition that item 10's advisory rationale covers. It **blocks** the `→ PREPARING` transition, in the same way §30 item 7 blocks on a missing compliance policy:
+
+| Condition at pre-flight | Result |
+|---|---|
+| Capacity configuration absent (resolver returns zero rows, 6K §54.3 case B) | `503 DEPENDENCY_UNAVAILABLE`, `details.reason = "CAPACITY_QUOTA_NOT_CONFIGURED"` |
+| Capacity authority or resolver unreachable | `503 DEPENDENCY_UNAVAILABLE`, `details.reason = "CAPACITY_AUTHORITY_UNAVAILABLE"` |
+
+Both reuse the existing `DEPENDENCY_UNAVAILABLE` family exactly as §37's `COMPLIANCE_POLICY_NOT_FOUND` row does. They are `details.reason` values defined by 6K §54.7, **not** new error codes. `ReadCapacity` never admits, so a passing pre-flight does not reserve anything.
+
+### 54.4 Error and outcome mapping — no new error family
+
+| Situation | Surface | Code / reason |
+|---|---|---|
+| Tenant at limit, dispatch time (step 5 pre-check or step 12 refusal) | Internal only (deferred count in `GetCampaignProgress`) | `TENANT_CALL_QUOTA_REACHED` (§37, unchanged, `RATE_LIMIT_EXCEEDED` family) |
+| Capacity configuration absent or authority unreachable, dispatch time | Internal only; contact `DEFERRED`, never `ELIGIBLE` by default | §21.3 fail-closed rule, unchanged. No client error. |
+| Tenant visibly full at pre-flight | `429`, advisory | `CONCURRENCY_LIMIT_REACHED` (§37, unchanged) |
+| Configuration absent or authority unreachable at pre-flight | `503`, blocking | `DEPENDENCY_UNAVAILABLE` + `details.reason` (§54.3) |
+| Effective limit `NULL` | Admitted by the tenant ceiling | The campaign sub-ceiling still applies |
+
+### 54.5 Lowering the limit mid-campaign — non-destructive
+
+§21.2 and §32 scenario 21 are unchanged in spirit, now read through 6K §54.8. When a lower base, a lower or superseding override, or the expiry of a higher override brings the effective limit below current occupancy:
+- no running campaign call is terminated;
+- no provider call is acted on;
+- no call session, `call_jobs` row or `CampaignContact` is mutated;
+- no reservation is revoked.
+
+The next dispatch attempts receive `remaining = 0` or `REFUSED_AT_LIMIT` and are deferred until occupancy falls below the new limit. Nothing is cached campaign-side: every step 5 pre-check and every step 12 acquisition reads the current authority.
+
+### 54.6 Campaign sub-ceiling counter (§19.1) — unchanged, and not the tenant authority
+
+`campaign:concurrency:{tenant_id}:{campaign_id}` remains the campaign-scoped counter behind `concurrency_policy.max_concurrent_calls`. Its behaviour is unchanged:
+- it is `INCR` on recorded acceptance and `DECR` on `call.ended`, so it is paired rather than monotonic;
+- it is non-authoritative and reconciled against `call_jobs.status='DISPATCHED'`.
+
+It is scoped to one campaign and is **never** used as, summed into, or substituted for the tenant `CONCURRENT_CALLS` gauge. Its reconciliation does not touch 6K reservations, and 6K's reconciler does not touch it.
+
+### 54.7 Boundary and dependency effects
+
+- §3.2's "6K (not started)" and §7's "Billing (6K, future) — CheckQuota(CONCURRENT_CALLS)" are historical. 6K now exists, and the capacity consumption contract is 6K §54.
+- **DEP-6H-16** (wallet / affordability check at start) is **unchanged in scope**: affordability is still not checked at start. Its clause "capacity (`CONCURRENT_CALLS`) is checked" now reads as §54.3. Its dependency classification is recorded in the Final API Reconciliation handoff ledger (`FAR-P2-06`), not re-decided here.
+- No Campaign table stores a tenant capacity number, and no campaign-side capacity override endpoint exists (§21.3, unchanged). Capacity overrides are a Platform Admin concern (6M §67).
+
+### 54.8 Scope and evidence
+
+- The capacity reservation runtime is a contract (6K §54.4–§54.5). It is not implemented and not live-tested in this pass.
+- No 6H function, table, grant, invariant (§51) or freeze-gate item (§52) is altered.
+- `098_5E1` and `099_5C1` are unchanged by `112_5H5`.
+
+Database evidence (PostgreSQL 18.6) is in `docs/phase-05-database-design/5K/validation/FINAL_API_RECONCILIATION_112_VALIDATION_REPORT.md`: fresh `001 → 112` PASS, incremental `111 → 112` PASS, and `001`–`111` byte-unchanged (222 OK / 0 FAILED). Migrations `001`–`111` are unchanged, **`112_5H5` is the single project head**, and there is no `113`.

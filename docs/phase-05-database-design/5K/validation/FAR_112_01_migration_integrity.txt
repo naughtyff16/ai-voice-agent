@@ -1,0 +1,243 @@
+==================================================================================
+FAR_112_01 - MIGRATION 112_5H5 EXECUTION, HEAD OWNERSHIP AND FROZEN-HISTORY
+             INTEGRITY
+Final API Reconciliation - CAPACITY-QUOTA FINAL CLOSURE PASS
+Owner decision in force: FAR-OD-03 = OPTION B
+                         (CONCURRENT_CALLS is a CAPACITY / ENTITLEMENT quota,
+                          NOT a 16th accumulated USAGE metric; the canonical
+                          15-metric usage vocabulary of 5H section 11.1 is
+                          unchanged)
+Defects addressed:       FAR-P1-06 (CONCURRENT_CALLS cross-phase quota
+                                    contradiction - governed by 6D/6H/6K as a
+                                    per-organization limit, but not
+                                    representable anywhere in the database)
+                         FAR-P2-08 (NULL metric defeated the canonical-metric
+                                    guard through SQL three-valued logic)
+                         FAR-P2-09 (audit resource_type reconciliation across
+                                    the pre-111 / 111+ boundary)
+==================================================================================
+
+SCOPE OF THIS FILE
+  Migration execution on both upgrade paths, single-head ownership, file
+  hashes, repository counts, frozen-history integrity for 001-111, and the
+  fresh-vs-incremental catalog convergence proof. Behavioural evidence is in
+  FAR_112_02 (capacity catalog, resolver and override semantics) and
+  FAR_112_03 (cross-domain security and the targeted 110/111 regressions).
+
+RELATIONSHIP TO THE EARLIER FAR_* EVIDENCE SETS
+  FAR_DB_01 / FAR_DB_02 / FAR_DB_03 are the evidence set for migration
+  110_5C2. FAR_111_01 / FAR_111_02 / FAR_111_03 are the evidence set for
+  migration 111_5H4. Both remain valid for the migrations they describe and
+  are NOT rewritten by this pass.
+
+  Exactly one class of statement in FAR_111_* is superseded here: any
+  statement of the form "no migration 112 exists" or "112 is the next
+  unallocated revision". Migration 112_5H5 now exists. Nothing else in either
+  earlier evidence set is withdrawn. Migrations 110_5C2 and 111_5H4 were NOT
+  modified by this pass, and their hashes below prove it.
+
+  FAR_111_01's engine and tooling notes still apply: the workstation's local
+  psql client is 16.15 and is too old to be used against an 18.x server for
+  catalog work, so every statement below was executed inside disposable
+  PostgreSQL 18 containers using each container's own client.
+
+ENGINE ..... PostgreSQL 18.6 (Debian 18.6-1.pgdg12+2) on x86_64-pc-linux-gnu,
+             image pgvector/pgvector:pg18 (required: 034_5F.sql creates the
+             `vector` extension; 001_5B.sql additionally requires pgcrypto and
+             pg_stat_statements).
+             Both instances are disposable and were created empty for this
+             pass. No shared, long-lived or production database was used.
+
+TOPOLOGY ... far112_fresh  (port 55441) - fresh database, 001 -> 112 in one run
+             far112_incr   (port 55442) - 001 -> 111 first, held at 111 while
+                                          the pre-112 defect reproduction was
+                                          captured, then 111 -> 112
+             far112_runner (python:3.11-slim, repo mounted read-write at /repo)
+             far112_net    (user-defined bridge network)
+
+             The incremental instance was deliberately pinned at 111_5H4 with
+             fixtures already loaded, so that the identical probes could be
+             replayed across the 111/112 boundary against the SAME data. That
+             is what makes the before/after comparison in FAR_112_02
+             meaningful rather than two unrelated runs.
+
+----------------------------------------------------------------------------------
+1. MIGRATION IDENTITY VERIFICATION BEFORE ANY AUTHORING (section 1)
+----------------------------------------------------------------------------------
+  The instruction was to inspect the repository first and to STOP and report if
+  the identity of 110 or 111 differed from what had been stated. It did not
+  differ. Recorded identities, SHA-256:
+
+    migrations/110_5C2.sql        3d5b22737d1d8f58e7976037510b6a9aa42ea2087d6cdf3d7d6908a9208e9a26
+    migrations/111_5H4.sql        5fe2bc96431236d637dbe2558c0c78d13ab17b7cce647aac3e61db2ac2f4c048
+    alembic/versions/110_5C2.py   8885326ee0b085dbd1f6d7e5a1726ef8956c6027266bcc2281e588002a376104
+    alembic/versions/111_5H4.py   78b3fda47b22e9e5ef55b66ce4815a415578351a5e786f6977355cdd067e70ea
+
+  These four hashes were taken BEFORE migration 112 was authored and were
+  re-verified AFTER it was authored and after both live upgrade runs. They are
+  unchanged in both checks. No STOP condition arose.
+
+----------------------------------------------------------------------------------
+2. FROZEN-HISTORY INTEGRITY FOR 001-111 (sections 43, 3)
+----------------------------------------------------------------------------------
+  Method. A SHA-256 manifest of all 222 frozen files (111 .sql migration files
+  and 111 .py revision modules) was captured before authoring began and stored
+  outside the repository. Integrity is asserted by re-verifying that manifest,
+  NOT by reading `git status` alone - some prior reconciliation files in this
+  repository are uncommitted, so `git status` on its own cannot distinguish
+  "unchanged" from "changed but never committed".
+
+    $ sha256sum -c baseline_001_111.sha256
+    OK = 222        FAILED = 0        entries = 222
+
+  Every frozen migration 001 through 111 is byte-identical to its pre-authoring
+  state. In particular 110_5C2 and 111_5H4 were not amended, not re-run and not
+  edited for prose. Migration 112 is purely additive and uses CREATE OR REPLACE
+  for the three pre-existing functions it forward-replaces.
+
+  Git corroboration (secondary, not the primary evidence):
+
+    $ git status --porcelain docs/phase-05-database-design/5K/
+    ?? docs/phase-05-database-design/5K/alembic/versions/112_5H5.py
+    ?? docs/phase-05-database-design/5K/migrations/112_5H5.sql
+
+  Exactly two new untracked files and zero modified tracked files under 5K.
+
+----------------------------------------------------------------------------------
+3. THE AUTHORISED ARTEFACTS (section 3)
+----------------------------------------------------------------------------------
+  Exactly one additive migration was authorised and exactly one was created.
+
+    docs/phase-05-database-design/5K/migrations/112_5H5.sql
+      38,635 bytes
+      6c3c0e0c546ccfa845822e94781193f6a5516a0176de0ec3bd24449b1abfdb53
+
+    docs/phase-05-database-design/5K/alembic/versions/112_5H5.py
+      12,673 bytes
+      fb53b23ae715060fcffa987ee03b7411ae72f252f574e7ab8cd4241925f0e238
+
+  Revision chain tail, read from the modules themselves:
+
+    110_5C2   revision='110_5C2'   down_revision='109_5B7'
+    111_5H4   revision='111_5H4'   down_revision='110_5C2'
+    112_5H5   revision='112_5H5'   down_revision='111_5H4'     <- new
+
+  The revision identifier is '112_5H5' and the parent is '111_5H4', exactly as
+  specified. The wrapper contains no DDL of its own: it calls
+  run_frozen_sql('112_5H5.sql') through the shared _frozen_sql helper, the same
+  mechanism every 5K revision uses, so the .sql file remains the single source
+  of truth. downgrade() raises NotImplementedError, consistent with the
+  forward-only policy in force since 001_5B.
+
+----------------------------------------------------------------------------------
+4. REPOSITORY COUNTS AND ABSENCE OF 113 (sections 3, 37)
+----------------------------------------------------------------------------------
+    SQL migration files in 5K/migrations          112
+    Alembic revision modules in 5K/alembic/versions  112   (excluding __init__)
+    highest SQL migration                         112_5H5.sql
+    highest Alembic revision                      112_5H5.py
+    files matching 113*                           0
+
+  Counts agree at 112 on both sides. No migration 113 was created. The
+  instruction that 113 must not be created merely because a session restarted
+  was honoured: this session continued the existing 112 work rather than
+  allocating a new revision number.
+
+----------------------------------------------------------------------------------
+5. LIVE EXECUTION - FRESH PATH 001 -> 112 (section 37)
+----------------------------------------------------------------------------------
+  Database far112_fresh was confirmed empty before the run (no alembic_version
+  table, no application schemas). Then:
+
+    $ DATABASE_URL=postgresql+psycopg2://.../far112 alembic upgrade head
+    ... INFO [alembic.runtime.migration] Running upgrade 111_5H4 -> 112_5H5,
+        Phase 5H.5 -- capacity-quota domain separation: CONCURRENT_CALLS
+        becomes a governed CAPACITY / ENTITLEMENT quota with its own catalog,
+        its own administrative override store and its own effective-quota
+        resolver, and the canonical usage-metric helper is made NULL-safe.
+    exit status 0
+
+  All 112 revisions applied in one pass with no error and no manual
+  intervention.
+
+----------------------------------------------------------------------------------
+6. LIVE EXECUTION - INCREMENTAL PATH 111 -> 112 (section 37)
+----------------------------------------------------------------------------------
+  Database far112_incr was brought to 111_5H4 and held there:
+
+    $ alembic current
+    111_5H4
+
+  The pre-112 defect reproduction (FAR_112_02 section 1) was captured at that
+  head, including a real ACTIVE_AGENTS usage override created through the
+  111 Platform Admin function, id 01a0a932-92dc-724d-9919-191506e37ee6, so
+  that a genuine pre-existing 111 row would be present across the upgrade.
+  Then the single incremental step was applied:
+
+    $ alembic upgrade head
+    INFO [alembic.runtime.migration] Running upgrade 111_5H4 -> 112_5H5, ...
+    exit status 0
+
+  The pre-existing 111 override row survived the upgrade unchanged and still
+  resolves through billing.fn_resolve_effective_quota as
+  source = PLATFORM_OVERRIDE, soft 18.0000 / hard 20.0000. See FAR_112_03.
+
+----------------------------------------------------------------------------------
+7. SINGLE-HEAD OWNERSHIP (section 37)
+----------------------------------------------------------------------------------
+                            alembic current      alembic heads
+    far112_fresh            112_5H5 (head)       112_5H5 (head)
+    far112_incr             112_5H5 (head)       112_5H5 (head)
+
+    rows in alembic_version (both instances)     1
+    version_num             (both instances)     112_5H5
+
+  Exactly one head, named 112_5H5, on both paths. No branch, no merge point and
+  no second head anywhere in the revision graph.
+
+----------------------------------------------------------------------------------
+8. CATALOG CONVERGENCE, FRESH vs INCREMENTAL (section 37)
+----------------------------------------------------------------------------------
+  A catalog fingerprint was extracted from each instance covering, for schemas
+  billing / voice / organization / audit (plus public columns):
+
+    columns (name, type, nullability, default)
+    constraints (name and full definition)
+    indexes (name and full definition)
+    functions (identity arguments, SECURITY DEFINER flag, volatility, and an
+               md5 of the complete pg_get_functiondef output)
+    RLS policies (command, USING expression, WITH CHECK expression)
+    per-table relrowsecurity and relforcerowsecurity flags
+    table-level grants (grantee, privilege)
+    triggers (full definition)
+
+    far112_fresh fingerprint lines .......... 3969
+    far112_incr  fingerprint lines .......... 3969
+    diff fresh vs incremental ............... IDENTICAL (zero differing lines)
+
+  The two upgrade paths converge on a byte-identical catalog. Including the
+  md5 of each function's full definition means this is not merely a signature
+  match: the function BODIES agree as well, which is the property that matters
+  for a migration whose main content is CREATE OR REPLACE.
+
+  New capacity objects present in BOTH instances:
+
+    to_regclass('billing.capacity_quota_overrides')     billing.capacity_quota_overrides
+    billing functions matching '%capacity%'             2
+    capacity-related catalog fingerprint lines          45
+
+  At head 111_5H4 the same two probes returned NULL and 0 respectively, which
+  is recorded in FAR_112_02 as the before-state.
+
+----------------------------------------------------------------------------------
+9. WHAT THIS FILE DOES NOT CLAIM
+----------------------------------------------------------------------------------
+  * It does not claim the capacity RUNTIME is implemented. Migration 112
+    establishes the governed capacity vocabulary, the entitlement store and the
+    resolver. The reservation/gauge runtime (acquire, release, recovery) is an
+    API contract owned by 6K and is deliberately not application code in this
+    pass.
+  * It does not claim any test was run that is not shown here.
+  * It does not claim APPROVED or FROZEN status. Those are the independent
+    reviewer's decisions.
+==================================================================================

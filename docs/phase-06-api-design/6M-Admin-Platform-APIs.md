@@ -57,6 +57,8 @@ Out of scope (see §4, §46): manual `billing_accounts` suspend/reactivate overr
 
 `109_5B7` is the current head and is confirmed the final migration of the Phase 6M closure pass — no `110` follows it. See §59 for the closure status.
 
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-P3-05`, 2026-09-16).** This sentence is **historical**: it is true of the Phase 6M closure pass, and `109_5B7` remains the frozen Phase 6M head. It is not the current project head. The Final API Reconciliation pass added `110_5C2`, `111_5H4` and `112_5H5`. The migration progression is `109_5B7` → `110_5C2` → `111_5H4` → **`112_5H5` (current single project head)**, and there is no `113`. See §66.7 and §67.9.
+
 ## 8. Bounded Context Ownership
 
 | Concern | Owning schema/phase | 6M's role |
@@ -155,6 +157,8 @@ $$;
 `billing.fn_platform_set_quota_override(p_organization_id UUID, p_admin_user_id UUID, p_metric TEXT, p_soft_limit NUMERIC, p_hard_limit NUMERIC, p_reason TEXT, p_expires_at TIMESTAMPTZ DEFAULT NULL, p_unit_label TEXT DEFAULT NULL) RETURNS UUID` — `SECURITY DEFINER`, `app_platform_admin`-only. **Endpoint:** `POST /api/v1/platform-admin/organizations/{organization_id}/quota-overrides`. `app_platform_admin` additionally holds direct `SELECT` on `billing.quota_configs` for read/listing without going through a function (`GET /api/v1/platform-admin/organizations/{organization_id}/quota-overrides`).
 
 > **AMENDED BY `111_5H4` (Final API Reconciliation, owner decision `FAR-OD-02` = Option B) — see §66.** The paragraph above is the `107_5B5`-era statement and is retained unedited as the historical record. It is superseded on two points, both closed in §66: (a) the function's signature is unchanged, but it now writes a **separate** `billing.quota_overrides` row and no longer mutates `billing.quota_configs`; (b) the `GET` listing no longer reads `billing.quota_configs` — an override is not a base row, and the two must not be conflated. Neither endpoint's route, method, permission or audit `action_kind` changes.
+
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-03`, 2026-09-16) — see §67.** The §18 paragraph and the `111_5H4` amendment above are both retained unedited. After `112_5H5`, `fn_platform_set_quota_override()` keeps the same 8-argument signature, `SECURITY DEFINER` class and `app_platform_admin`-only `EXECUTE`, but dispatches by governed domain: a usage metric writes `billing.quota_overrides`, `CONCURRENT_CALLS` writes `billing.capacity_quota_overrides`, and anything else raises `P0001` (§67.3). The GET listing reads both override stores and reports a derived `quota_domain` (§67.4). `billing.quota_configs` remains the shared base store and is not written by either branch.
 
 ## 19. Refund Saga — Design
 
@@ -281,6 +285,8 @@ These are not open recommendations; they are closed for this phase.
 | GET | `/api/v1/platform-admin/sessions/{session_id}` | View column-restricted safe session metadata | `PLATFORM_ADMIN` | Yes | No | Role grant only, `SELECT` on `identity.v_platform_safe_sessions` (new view, `app_platform_admin`) | `identity.v_platform_safe_sessions` | N/A | 6B admin tier | No | NEW 6M hardening (109) — §55, §65 |
 | POST | `/api/v1/platform-admin/users/{user_id}/sessions/revoke-all` | Force-revoke all of a user's sessions | `PLATFORM_ADMIN` | Yes | No | `is_platform_admin()` via `identity.fn_platform_revoke_all_sessions` (new guarded wrapper, `app_platform_admin`) | `identity.fn_platform_revoke_all_sessions` — preserves 6B's existing forced-revocation semantics; outbox durability fixed this pass (P1 #1) | Yes — revoking an already-fully-revoked session set is a no-op (matches 6B's existing semantics, §55) | 6B admin tier | Yes — `PLATFORM_SESSIONS_REVOKED` | REUSED EXISTING 6B (109 DB-layer hardening only) — route/HTTP contract is 6B's own frozen endpoint (§21.36, endpoint #36); DB access path newly function-mediated via guarded wrapper in 109 — §55, §65 |
 | GET | `/api/v1/platform-admin/api-keys/{api_key_id}` | View column-restricted safe API-key metadata | `PLATFORM_ADMIN` | Yes | No | Role grant only, `SELECT` on `identity.v_platform_safe_api_keys` (new view, `app_platform_admin`) | `identity.v_platform_safe_api_keys` | N/A | 6B admin tier | No | NEW 6M hardening (109) — §55, §65 |
+
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-03`, 2026-09-16) — see §67.** The two `quota-overrides` rows in this table are unchanged in route, method, principal and guard. After `112_5H5` the GET listing spans both override stores (`billing.quota_overrides`, `billing.capacity_quota_overrides`) with a derived `quota_domain`, and the POST function dispatches between the USAGE and CAPACITY domains. There is no second route and no `domain` request field (§67.3–§67.4).
 
 **Non-endpoint items (excluded from the table and its 41-route count — neither names an HTTP Method nor a Path):**
 - **Feature flags** — no endpoint exists. FUTURE-DEFERRED — SCHEMA GAP, not built (§38, §54).
@@ -418,6 +424,8 @@ One row per public `/api/v1/platform-admin/*` route in §25, against every appli
 | `WEBHOOK_MUTATION_FORBIDDEN` | 500 | `webhooks.webhook_deliveries` mutation (`INSERT`/`UPDATE`/`DELETE`) attempted by `app_platform_admin` (post-109); Postgres raises `permission denied for relation webhook_deliveries` (`42501`) — defense-in-depth only, not reachable via this document's endpoints, which are read-only per §11/§55 | No | None reachable via this document's endpoints |
 | `QUOTA_OVERRIDE_VALIDATION_FAILED` | 422 | Quota override value fails validation ~~(pre-existing `105` function; exact accepted-value range not reconfirmed this pass, outside the 6 P1 items' scope)~~ — *the parenthetical is retained struck rather than deleted so the change is auditable; the accepted-value range **was** reconfirmed by the `111_5H4` pass and is enumerated exactly in §66.2/§66.4: Platform Admin session, non-NULL organization and admin user, canonical metric, 10–2000-character reason, `expires_at` NULL or strictly future, non-negative `soft_limit`/`hard_limit` with `soft_limit <= hard_limit`, existing organization. `NULL` `hard_limit` (unlimited) and fractional `NUMERIC(18,4)` limits are **valid**, not validation failures.* | Yes — with corrected input | `POST /organizations/{organization_id}/quota-overrides` |
 
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-03`, 2026-09-16) — see §67.** `QUOTA_OVERRIDE_VALIDATION_FAILED` (422) is unchanged and now also covers the CAPACITY domain: a metric in **neither** governed vocabulary, a legacy name, or any capacity-side `P0001`, `23505` or `23514` maps to it. No new error code is added (§67.3).
+
 **Freeze-gate closure pass — error codes for `GET /analytics/financial` and `GET /audit/events`:** no new code is added for either route, and the 29-named-condition count above is unchanged. Both are read-only and subject only to the two universal entry-gate codes already in this table (`PLATFORM_ADMIN_REQUIRED`, `TENANT_PRINCIPAL_FORBIDDEN`); this matches every other plain-`SELECT` GET route in this catalog (e.g. `GET /organizations`, `GET /organizations/{organization_id}/quota-overrides`, `GET /plans`), none of which carry a dedicated validation code of their own. Malformed filter or pagination parameters on these two new routes (an invalid `start_time`/`end_time`, an unrecognized `outcome`, a malformed cursor) are rejected by the platform's standard request-validation layer, consistent with the rest of this table — no new `PLATFORM_DATA_UNAVAILABLE`/`ADMIN_OPERATION_NOT_ALLOWED`-style code is introduced, since neither route has a genuinely distinct failure mode beyond the universal gate and ordinary input validation.
 
 ## 29. Rate Limiting
@@ -427,6 +435,8 @@ Platform Admin endpoints are per-admin-user rate-limited at the application laye
 ## 30. Audit Event Catalog (updated)
 
 Relevant `action_kind` values, `voice`/`organization`/`billing`/`identity` domains: `BREAK_GLASS_GRANTED`, `BREAK_GLASS_RELEASED`, `ORGANIZATION_SUSPENDED`, `ORGANIZATION_REACTIVATED`, `RECORDING_ACCESS_GRANTED`, `TRANSCRIPT_ACCESS_GRANTED`, `QUOTA_OVERRIDE_SET` (added to the governed `action_kind` vocabulary by 5J's `✧` footnote amendment, 2026-09-05 — the value existed as a documentation gap, not a schema gap: `chk_ae_action_kind` is a generic `CHECK (length(action_kind) BETWEEN 1 AND 200)` length constraint, not an enumerating `IN`-list, so no migration was required to add this literal — see 5J §14.3 for the exact wording; `QUOTA_OVERRIDE_SET` itself was already emitted by the pre-existing `105` `fn_platform_set_quota_override` function and referenced at §25/§37 before this pass, but had been omitted from this catalog list — added here as a freeze-gate closure documentation-completeness fix, not a new literal or a schema change), `REFUND_RESERVED`, `REFUND_SETTLED`, `REFUND_FAILED`.
+
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-03`, 2026-09-16) — see §67.** The `QUOTA_OVERRIDE_SET` literal is unchanged and is emitted for both quota domains. Its `resource_type` is **not** unchanged: it was `QUOTA_CONFIG` under `107_5B5` and has been `QUOTA_OVERRIDE` from `111_5H4` on, with `resource_snapshot.quota_domain` added by `112_5H5`. This is the `FAR-P2-09` controlled audit-contract extension; consumers must accept both `resource_type` values (§67.6).
 
 **Added this pass (5J's `❖` footnote amendment, 2026-09-05 — same documentation-gap-not-schema-gap treatment as `✧` above; migration `109` is the code that emits these, not what authorizes the literals):** `PLATFORM_CREDIT_APPLIED` (§65.1), `PLATFORM_BILLING_ADJUSTMENT_CREATED` (§65.2), `PLATFORM_PLAN_CREATED` / `PLATFORM_PLAN_VERSION_CREATED` / `PLATFORM_PLAN_VERSION_PUBLISHED` / `PLATFORM_PLAN_PRICE_CREATED` / `PLATFORM_PLAN_DEACTIVATED` (§65.3 — the last of these was already emitted by `billing.fn_platform_deactivate_plan` and used at §27/§62/§65 before this pass, but had been omitted from this catalog list; added here as a P2 documentation-completeness fix, not a new literal or a schema change), `PLATFORM_CPA_CREATED` / `PLATFORM_CPA_VERSION_CREATED` / `PLATFORM_CPA_VERSION_ACTIVATED` / `PLATFORM_CPA_VERSION_EXPIRED` (§65.4), `PLATFORM_TAX_CATEGORY_CREATED` / `PLATFORM_TAX_RULE_CREATED` (§65.5), `PLATFORM_SESSIONS_REVOKED` (§65.6). Each is written synchronously in the same transaction as its guarded function's mutation, per the same in-transaction-audit pattern as `107_5B5.sql`'s `✧`-amendment functions (§9 item 6). §65.7 (webhook-delivery DML narrowing) emits no new `action_kind` — it is a plain `REVOKE` with no accompanying function.
 
@@ -591,6 +601,8 @@ Equivalent to §35; both are retained as separate sections because §35 is invar
 | `FR-AUTH-004` | System shall log every authentication and authorization decision to an immutable audit trail. | P0 | §30 (this document's slice), overall owned by 5J/6B | `audit.audit_events` | n/a (cross-cutting) | Append-only, hash-chained per 5J | **PARTIALLY COVERED (this document's slice); overall COVERED at 5J/6B** | Every Platform-Admin-specific mutating action in §25 is audited (§30); this document does not itself implement the general authN/authZ-decision audit trail for the whole platform, which is 6B/5J's concern |
 | `FR-FLAG-001` | System shall support feature flags scoped at organization, user, and environment level with percentage rollout. | P1 | None | None — no table exists | None | n/a | **P1 RELEASE-TRAIN DEPENDENCY** | Confirmed via repo-wide search: no `feature_flags` migration exists; only a Redis cache-key naming convention is documented, which is not a durable source of truth. Per SRS priority semantics (P1 = required within the first two release trains, not MVP-blocking), this is **not** a Phase-6M API-design freeze blocker — it is carried forward as an explicit dependency into Final API Reconciliation/release-train planning, not cancelled and not built as a Redis-only API this pass. See §54, §57 |
 | `FR-ADM-001` | System shall provide tenant management, quota management, usage, billing, support tooling, logs, health, API keys, and system configuration to Platform Super Admins. | P1 | §16, §18, §52, §53, §55 | Various (see referenced sections) | Various (§25) | Various | **PARTIALLY COVERED** | Tenant mgmt/quota/usage/billing/health/API-key-metadata are covered; "system configuration" as *mutable REST config* is explicitly out of scope (this pass does not expose deployment secrets/environment configuration as mutable REST config, per this pass's governing instructions) — see §54 |
+
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-03`, 2026-09-16) — see §67.** The `FR-TEN-005` row's statement that "concurrent calls" has no canonical metric and is not representable as a quota override is historical at `111_5H4`. After `112_5H5`, `CONCURRENT_CALLS` is the single V1 member of the separate CAPACITY domain and is representable through the same Platform Admin route. The usage vocabulary is still the 15 metrics. `FR-TEN-005` remains COVERED, now for all five dimensions (§67.2).
 
 ## 52. 6L Handoff Reconciliation
 
@@ -827,6 +839,8 @@ This section closes the two forward references added in-place by the `111_5H4` p
 
 Migration `111_5H4` (`down_revision = '110_5C2'`) is the sole carrier. Migration `110_5C2` was **not** amended by this pass, and no migration `112` exists.
 
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-03`, 2026-09-16) — see §67.** "No migration `112` exists" was true when §66 was written and is historical. `112_5H5` (`down_revision = '111_5H4'`) now exists and is the current single head (§67.9).
+
 ### 66.1 Owner decision `FAR-OD-02` — two layers, never one
 
 | Layer | Object | Owner | Lifetime | Written by |
@@ -891,6 +905,8 @@ The canonical vocabulary is 5H §11.1's 15 usage dimensions: `CALL_MINUTES`, `AI
 
 **Disclosed gap, unchanged by this pass.** `billing.quota_configs.metric` is unconstrained `TEXT` (`052_5H.sql` has no metric `CHECK`), so a base row can carry any string; the override layer cannot. Concretely, "concurrent calls" — named in `FR-TEN-005`'s requirement text and referenced by 6H §21 as `CONCURRENT_CALLS` — has **no** canonical metric and no seeding migration, and is therefore not representable as a quota override. It is a concurrency ceiling, not a metered usage dimension. `FR-TEN-005` remains **COVERED** for the four dimensions it enumerates that *are* metered (`ACTIVE_AGENTS`, `ACTIVE_PHONE_NUMBERS`, `STORAGE_GB`, `API_REQUESTS`); the concurrency ceiling is recorded here as a known limitation of the override surface rather than papered over by relaxing the vocabulary.
 
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-03`, 2026-09-16) — see §67.** The concurrency-ceiling part of this disclosed gap is **closed** by the CAPACITY domain introduced in `112_5H5` (§67.1–§67.2), without adding `CONCURRENT_CALLS` to the usage vocabulary. The other part is unchanged: `billing.quota_configs.metric` is still unconstrained `TEXT`.
+
 ### 66.5 Effective-quota resolution — what consumers read
 
 Platform Admin diagnostics, 6K reporting (§53) and 6E admission (§43.12) all resolve through one function, `billing.fn_resolve_effective_quota(p_organization_id UUID, p_metric TEXT)`, which returns `(metric, soft_limit, hard_limit, unit_label, source, override_id, effective_from, expires_at)` where `source` is `'PLATFORM_OVERRIDE'` or `'BASE'`:
@@ -911,6 +927,8 @@ Because the base row is read live at step 2, a base value changed while an overr
 - **Redis is unchanged.** No key, TTL or invalidation contract is altered; only the source a cache entry is *seeded* from changes. See 6K §53.4.
 - **No quota-override endpoint gains a delete or edit verb.** An override is corrected by issuing a new one, which supersedes it — the same immutability discipline as `billing.plan_versions` (§65.3).
 
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-03`, 2026-09-16) — see §67.** The bullet "Audit unchanged in shape and literal" is inaccurate for `resource_type`, which changed from `QUOTA_CONFIG` (`107_5B5`) to `QUOTA_OVERRIDE` (`111_5H4`). `action_kind` did not change. The bullet is retained as written; the corrected statement is §67.6 (`FAR-P2-09`).
+
 ### 66.7 Validation and head ownership
 
 The contract above was exercised against disposable PostgreSQL 18.6 databases built from `001` → `111_5H4`; the transcripts are `FAR_111_01_migration_integrity.txt`, `FAR_111_02_override_resolver_battery.txt` and `FAR_111_03_security_integration_battery.txt`, consolidated in `FINAL_API_RECONCILIATION_111_VALIDATION_REPORT.md` (all under `docs/phase-05-database-design/5K/validation/`). Battery I covers this section's Platform Admin GET read model — ACTIVE, EXPIRED and SUPERSEDED rows observed and distinguished from stored `superseded_at`/`expires_at` against `NOW()`.
@@ -918,3 +936,171 @@ The contract above was exercised against disposable PostgreSQL 18.6 databases bu
 Scope of the security result: **under normal SQL execution with the defined triggers/functions/ACLs enabled, the tested runtime principals and tested privileged session cannot bypass the application invariant; deliberate superuser DDL/trigger-disabling actions are outside the application guarantee.**
 
 **Head ownership.** `109_5B7` remains the frozen Phase-6M head as a matter of project history — **Phase 6M is not reopened by this pass**, and nothing in 6M's endpoint inventory, permission model or audit catalogue changed. `111_5H4` is the current project head, owned by the FINAL API RECONCILIATION pass (`FAR-OD-02` / `FAR-P1-04` / `FAR-P1-05`), with `110_5C2` as its immediate parent. The amendments in §18, in the `FR-TEN-005` row and in this section are corrections of *descriptions* that `111_5H4` made inaccurate, not new 6M design.
+
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-03`, 2026-09-16) — see §67.** The statement that `111_5H4` is the current project head is historical. The current single head is **`112_5H5`**, and there is no `113` (§67.9).
+
+---
+
+## 67. FINAL API RECONCILIATION CONTROLLED AMENDMENT — Capacity Quota Overrides and the Two Quota Domains (`FAR-OD-03`, Option B)
+
+> **Status of this section.** This is a controlled amendment in the same form as §66. No historical statement in this document is rewritten. Each statement that `112_5H5` makes inaccurate keeps its original text and gets a scope-marking note pointing here. The corrected contract is below. **Phase 6M is not reopened**: no route, method, permission, principal or error code is added.
+
+Migration `112_5H5` (`down_revision = '111_5H4'`) is the sole carrier. Migrations `001`–`111` were not amended.
+
+### 67.1 What changed and why
+
+§66.4 recorded a disclosed gap: "concurrent calls", named in `FR-TEN-005`, had no canonical metric and "is therefore not representable as a quota override". Owner decision **`FAR-OD-03` = Option B** closes that gap **without** adding `CONCURRENT_CALLS` to the usage vocabulary. There are now **two governed quota domains**, and they are never collapsed:
+
+| Domain | Canonical vocabulary | Predicate | Override store | Effective resolver |
+|---|---|---|---|---|
+| **USAGE / ACCOUNTING** | The 15 metrics of 5H §11.1, **unchanged**: `CALL_MINUTES`, `AI_MINUTES`, `STT_SECONDS`, `TTS_CHARACTERS`, `LLM_PROMPT_TOKENS`, `LLM_COMPLETION_TOKENS`, `EMBEDDING_TOKENS`, `CAMPAIGN_CALLS`, `WORKFLOW_EXECUTIONS`, `TOOL_EXECUTIONS`, `KNOWLEDGE_RETRIEVALS`, `STORAGE_GB`, `API_REQUESTS`, `ACTIVE_AGENTS`, `ACTIVE_PHONE_NUMBERS` | `billing.fn_is_canonical_usage_metric(TEXT)` | `billing.quota_overrides` (`111_5H4`) | `billing.fn_resolve_effective_quota(UUID, TEXT)` |
+| **CAPACITY / ENTITLEMENT** | Exactly one V1 member: `CONCURRENT_CALLS` | `billing.fn_is_canonical_capacity_quota_metric(TEXT)` | `billing.capacity_quota_overrides` (`112_5H5`) | `billing.fn_resolve_effective_capacity_quota(UUID, TEXT)` |
+
+The two vocabularies are disjoint. `billing.quota_configs` remains the **shared** commercial base store for both domains and is never written by the override path. `CONCURRENT_CALLS` rows are never written to `billing.quota_overrides`, whose `chk_qo_metric_canonical` still admits only the 15 usage metrics. The legacy `107_5B5` names `AGENT_COUNT` and `CONCURRENT_CALL_COUNT` are rejected, not aliased.
+
+A capacity quota is a **gauge ceiling**: the maximum number of simultaneously held call slots. Runtime occupancy is not stored in any 6M-visible table. It belongs to 6K §54's single capacity authority, and 6M neither reads nor administers it.
+
+### 67.2 `FR-TEN-005` — both domains, one requirement
+
+`FR-TEN-005` ("per-tenant configurable quotas (agents, numbers, concurrent calls, storage, API rate)") spans both domains:
+
+| Requirement dimension | Domain | Canonical key |
+|---|---|---|
+| agents | USAGE | `ACTIVE_AGENTS` |
+| numbers | USAGE | `ACTIVE_PHONE_NUMBERS` |
+| storage | USAGE | `STORAGE_GB` |
+| API rate | USAGE | `API_REQUESTS` |
+| concurrent calls | **CAPACITY** | `CONCURRENT_CALLS` |
+
+All five dimensions are now representable as a Platform Admin override through the **same** route. `FR-TEN-005` remains **COVERED**, now without the concurrent-calls exception. The §66.4 "disclosed gap" paragraph and the gap sentence in the §51 `FR-TEN-005` row are **historical at `111_5H4`** and superseded by this section. They are left in place.
+
+### 67.3 `POST /api/v1/platform-admin/organizations/{organization_id}/quota-overrides` — one route, database-side dispatch
+
+Route, method, principal (`PLATFORM_ADMIN`), permission guard and audit `action_kind` are **unchanged**. There is **no** second route and no `domain` request field. The function signature is unchanged from `107_5B5`/`111_5H4`:
+
+```
+billing.fn_platform_set_quota_override(
+  p_organization_id UUID, p_admin_user_id UUID, p_metric TEXT,
+  p_soft_limit NUMERIC, p_hard_limit NUMERIC, p_reason TEXT,
+  p_expires_at TIMESTAMPTZ DEFAULT NULL, p_unit_label TEXT DEFAULT NULL
+) RETURNS UUID   -- SECURITY DEFINER, SET search_path = billing, organization, pg_catalog
+```
+
+The body is now a **governed domain dispatcher**. The §66.2 sequence is preserved, and step (4) is replaced:
+
+1. `organization.is_platform_admin()`, `p_organization_id` required, `p_admin_user_id` required — as §66.2.
+2. `p_metric` required (NULL raises).
+3. **Dispatch.** A canonical usage metric selects the `USAGE` domain. Otherwise a canonical capacity metric selects the `CAPACITY` domain. Otherwise the call raises `P0001` ("outside both governed quota vocabularies"). Free-text metrics are not accepted.
+4. Reason 10–2000 characters, `p_expires_at` NULL or strictly future, `soft_limit >= 0`, `hard_limit >= 0`, `soft_limit <= hard_limit` (NULL `hard_limit` = unlimited), and the organization exists — identical for both domains.
+5. Canonical `unit_label` derived unless supplied; `CONCURRENT_CALLS` → `calls` (simultaneous slots).
+6. `pg_advisory_xact_lock` in a **domain-scoped** namespace (`billing.quota_override:` or `billing.capacity_quota_override:`), so the two stores never contend with each other.
+7. Supersede the current row **in the same domain's store**, then insert the new row. `billing.quota_configs` is not written in either branch.
+8. Atomic `QUOTA_OVERRIDE_SET` audit event in the same transaction (§67.6). If the audit write fails, no override exists.
+
+Structural backstops, per domain: `uq_qo_org_metric_current` / `chk_qo_metric_canonical` on `billing.quota_overrides`, and `uq_cqo_org_metric_current` / `chk_cqo_metric_canonical` on `billing.capacity_quota_overrides`.
+
+**Privileges.** `EXECUTE` is revoked from `PUBLIC` and `app_api` and granted to `app_platform_admin` only, exactly as `111_5H4`. `billing.capacity_quota_overrides` is `REVOKE ALL FROM PUBLIC` and `GRANT SELECT` to `app_api, app_worker, app_readonly, app_platform_admin`. **No role holds `INSERT`/`UPDATE`/`DELETE`**, Platform Admin included. The guarded function is the only mutation path. `112_5H5` created no role and granted `BYPASSRLS` to no role.
+
+**Error mapping — unchanged codes.** Every `P0001` validation failure in either domain, including a metric in neither vocabulary, maps to the existing §28 `QUOTA_OVERRIDE_VALIDATION_FAILED` (422). The server-side invariant violations `23505` (`uq_cqo_org_metric_current` / `uq_qo_org_metric_current`) and `23514` (`chk_cqo_metric_canonical` / `chk_qo_metric_canonical`) surface as the same 422, as §66.6 already specifies. A missing `EXECUTE` privilege raises `42501` → `403 PLATFORM_ADMIN_REQUIRED`. The §28 accepted-value enumeration now reads "canonical metric **in either governed vocabulary**".
+
+**Setting and lowering are non-destructive.** A capacity override, or its expiry or supersession, changes the effective ceiling for **new** acquisitions only. No in-flight call, call session, campaign `call_jobs` row or held reservation is terminated, released or rewritten (6K §54.8, 6D §42.5, 6H §54.5).
+
+### 67.4 `GET /api/v1/platform-admin/organizations/{organization_id}/quota-overrides` — both domains
+
+The §66.3 read model is extended, not replaced. The listing reads **both** override stores through the existing `SELECT` grants and the Platform Admin RLS policies (`rls_qo_platform_admin`, `rls_cqo_platform_admin`, each `FOR ALL USING (organization.is_platform_admin())`). No new grant, role or `BYPASSRLS`.
+
+Each listed row carries a response-level **`quota_domain`** (`USAGE` | `CAPACITY`). It is derived from the store the row was read from, not from a stored column. The two stores are never merged into one supersession chain: a capacity override never supersedes a usage override, or the reverse.
+
+State derivation is **identical** for both domains and unchanged from §66.3. It is computed at read time against `NOW()`, and `superseded_at` is evaluated first:
+
+| Reported state | Derivation (per store) |
+|---|---|
+| **SUPERSEDED** | `superseded_at IS NOT NULL` |
+| **EXPIRED** | `superseded_at IS NULL AND expires_at IS NOT NULL AND expires_at <= NOW()` |
+| **ACTIVE** | `superseded_at IS NULL AND effective_from <= NOW() AND (expires_at IS NULL OR expires_at > NOW())` |
+
+Available columns are the §66.3 set (`id, organization_id, metric, soft_limit, hard_limit, unit_label, reason, effective_from, expires_at, superseded_at, created_by, created_at`) plus the derived `quota_domain`. At most one ACTIVE row exists per `(organization_id, metric)` **per store**. No capacity occupancy value appears in this listing. Occupancy is advisory runtime state owned by 6K §54 (`ReadCapacity`), not override history.
+
+### 67.5 Effective-capacity resolution — what consumers read
+
+`billing.fn_resolve_effective_capacity_quota(p_organization_id UUID, p_metric TEXT)` returns at most one row: `(metric, soft_limit, hard_limit, unit_label, source, override_id, effective_from, expires_at)`.
+
+1. The currently effective, non-superseded `billing.capacity_quota_overrides` row, if any (`source = 'PLATFORM_CAPACITY_OVERRIDE'`); **else**
+2. the **current** `billing.quota_configs` row for the same organization and metric, read live (`source = 'BASE'`); **else**
+3. **zero rows**.
+
+The three outcomes are **not** interchangeable with the usage domain's reading (6K §54.3):
+
+| Outcome | Capacity meaning |
+|---|---|
+| A — row with `hard_limit IS NULL` | Explicitly unlimited; admission is permitted. |
+| B — **zero rows** | Not configured. Admission is **refused**, never admitted by default: `503 DEPENDENCY_UNAVAILABLE`, `details.reason = "CAPACITY_QUOTA_NOT_CONFIGURED"`. |
+| C — row with a finite `hard_limit` | Enforced by the 6K §54 reservation authority. |
+
+The resolver is `STABLE` and **`SECURITY INVOKER`**, with `EXECUTE` granted to `app_api, app_worker, app_readonly, app_platform_admin`. A Platform Admin may resolve any organization. Every other caller may resolve only its own tenant: an unset `app.tenant_id` or a mismatched `p_organization_id` raises. A usage metric (for example `ACTIVE_AGENTS`), a legacy name or NULL raises rather than returning zero rows, and the usage resolver likewise rejects `CONCURRENT_CALLS`. **Tenant consumers never borrow Platform Admin privilege to read their own effective capacity quota**; they read it under their own grants and `rls_cqo_tenant`.
+
+The runtime consumers are 6D §42 (`POST /calls`) and 6H §54 (campaign dispatch), both through 6K §54's single capacity authority. 6M's own use is Platform Admin diagnostics only.
+
+### 67.6 Audit contract — `FAR-P2-09` controlled audit-contract extension
+
+§66.6 states that the audit was "unchanged in shape and literal" with `resource_type = 'QUOTA_OVERRIDE'`. That is **inaccurate for `resource_type`**, and is corrected here rather than rewritten there:
+
+| Migration era | `action_kind` | `resource_type` | `resource_id` |
+|---|---|---|---|
+| `107_5B5` (pre-`111`) | `QUOTA_OVERRIDE_SET` | **`QUOTA_CONFIG`** | the mutated `billing.quota_configs` row |
+| `111_5H4` | `QUOTA_OVERRIDE_SET` | **`QUOTA_OVERRIDE`** | the new `billing.quota_overrides` row |
+| `112_5H5` | `QUOTA_OVERRIDE_SET` | **`QUOTA_OVERRIDE`**, for **both** domains | the new row in the domain's override store |
+
+- `action_kind` is unchanged across all three eras.
+- `resource_type` changed at `111_5H4`. This is a **controlled audit-contract extension**, not an unchanged literal. It is deliberate and is not reverted: an override is now its own resource, and naming a base config would misidentify the row that changed.
+- `112_5H5` adds `resource_snapshot.quota_domain` (`USAGE` | `CAPACITY`) instead of minting a second `resource_type`.
+- **No migration was required.** `audit.audit_events.resource_type` is constrained only by `chk_ae_resource_type` (length 1..200), and `action_kind` by a length check (§30).
+- The actor is `PLATFORM_ADMIN` with `p_admin_user_id`, and the event is written in the same transaction as the supersede+insert pair (verified with `ROLLBACK`, `FAR_112_03`).
+
+**Consumer obligation.** Any reader filtering override history, including `GET /api/v1/platform-admin/audit/events?action_kind=QUOTA_OVERRIDE_SET&resource_type=…`, must accept **both** `QUOTA_CONFIG` (events before the `111_5H4` boundary) and `QUOTA_OVERRIDE` (events from `111_5H4` on). Filtering on `action_kind = QUOTA_OVERRIDE_SET` alone returns the complete history. Historical events are never rewritten; the audit chain is append-only and hash-chained (5J).
+
+### 67.7 Security scope (`FAR-P3-04` wording)
+
+The guarantee is the **application runtime trust boundary**. It covers sessions connecting as the non-superuser application roles and acting through the guarded `SECURITY DEFINER` setter and its minimum `EXECUTE` grant, with:
+- no raw DML path;
+- same-transaction audit;
+- the partial unique index backstops;
+- `ENABLE` + `FORCE` RLS for read isolation.
+
+`app_migration` and `app_platform_admin` already hold `BYPASSRLS` from `001_5B`; `112_5H5` adds none.
+
+This section does **not** claim that `FORCE ROW LEVEL SECURITY` binds a superuser, that PostgreSQL superuser privilege cannot be bypassed, or that triggers are unbypassable. The following are **outside** the guarantee and belong to credential custody and infrastructure controls: deliberate superuser or table-owner DDL, `ALTER TABLE … DISABLE TRIGGER`, `SET session_replication_role`, and direct catalog or table writes. The §66.7 scope sentence ("under normal SQL execution with the defined triggers/functions/ACLs enabled…") is consistent with this and remains in force.
+
+### 67.8 Statements in this document scoped by this section
+
+| Location | Statement | Reading after `112_5H5` |
+|---|---|---|
+| §18 | GET listing reads `billing.quota_configs`; §66 amendment note | GET reads both override stores (§67.4). |
+| §25 GET/POST `quota-overrides` rows | Direct `SELECT`; single function | Unchanged route and guard. GET spans both stores; POST dispatches by domain (§67.3–§67.4). |
+| §28 `QUOTA_OVERRIDE_VALIDATION_FAILED` | "canonical metric" | Canonical metric in **either** governed vocabulary (§67.3). |
+| §30 `QUOTA_OVERRIDE_SET` | Catalogue entry | Unchanged literal. The `resource_type` history is in §67.6. |
+| §51 `FR-TEN-005` | "concurrent calls has **no** canonical metric … not representable" | Historical at `111_5H4`. Now **representable** as a capacity override (§67.2). |
+| §66 opening | "no migration `112` exists" | Historical at `111_5H4`. `112_5H5` exists and is the head (§67.9). |
+| §66.4 "Disclosed gap" | Concurrency ceiling not representable | **Closed** by the capacity domain (§67.1–§67.2). The usage vocabulary is still 15. `quota_configs.metric` is still unconstrained `TEXT`; that part of the gap is unchanged. |
+| §66.6 "Audit unchanged in shape and literal" | `resource_type = 'QUOTA_OVERRIDE'` | `QUOTA_OVERRIDE` is correct from `111_5H4` on, but it **changed** from `QUOTA_CONFIG` (§67.6, `FAR-P2-09`). |
+| §66.7 head ownership | "`111_5H4` is the current project head" | Historical. **`112_5H5`** is the current head (§67.9). |
+
+### 67.9 Validation and head ownership
+
+Live on **PostgreSQL 18.6**, disposable containers only:
+- fresh `001 → 112`: PASS;
+- incremental `111 → 112`: PASS;
+- catalog and security-surface convergence: PASS;
+- `001`–`111` byte-unchanged: 222 OK / 0 FAILED;
+- single head `112_5H5`, no `113`: PASS;
+- capacity vocabulary, resolver and override lifecycle, including ACTIVE, EXPIRED, SUPERSEDED and the zero-row case: PASS;
+- domain separation, including cross-domain rejection: PASS;
+- ACL and RLS: PASS;
+- audit atomicity, including `ROLLBACK`: PASS;
+- 110 Agent and 111 usage-override regressions: PASS.
+
+Record: `docs/phase-05-database-design/5K/validation/FINAL_API_RECONCILIATION_112_VALIDATION_REPORT.md`, with transcripts `FAR_112_01_migration_integrity.txt`, `FAR_112_02_capacity_quota_battery.txt` and `FAR_112_03_cross_domain_security_regression.txt`. Schema contract: 5H, controlled amendment `112_5H5`. Manifest: `5K/MIGRATION_MANIFEST.md` Row 112. Capacity runtime contract: 6K §54. Consumers: 6D §42, 6H §54.
+
+**The HTTP layer (request and response DTOs, the derived `quota_domain` field) and the 6K reservation runtime are API contracts only. They are not implemented or live-tested in this pass.**
+
+**Head ownership.** `109_5B7` remains the frozen Phase-6M head as a matter of project history, and Phase 6M is not reopened. The progression is `109_5B7` → `110_5C2` → `111_5H4` → **`112_5H5` (current single project head)**, owned by the FINAL API RECONCILIATION pass (`FAR-OD-03` / `FAR-P1-06` / `FAR-P2-08`). There is no `113`.

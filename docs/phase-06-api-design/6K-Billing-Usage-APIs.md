@@ -3611,3 +3611,178 @@ When the effective limit drops below current usage — by expiry, by supersessio
 Live on **PostgreSQL 18.6**, disposable databases only: vocabulary rejection (function and table), baseline-only resolution, override-wins, base-not-overwritten, base-raised-while-override-active, post-expiry fallback to the **current** base, permanent overrides, unlimited (`hard_limit IS NULL`) at both layers, atomic supersession with no reactivation, fractional limits, two-process concurrency, admin-mutation validation failures, `created_by` negative cases, the Platform Admin read model (ACTIVE / EXPIRED / SUPERSEDED) and the tenant effective-quota contract including cross-tenant refusal. Under normal SQL execution with the defined triggers, functions and ACLs enabled, the tested runtime principals and the tested privileged session cannot bypass the application invariant; deliberate superuser DDL or trigger-disabling actions are outside the application guarantee.
 
 Record: `docs/phase-05-database-design/5K/validation/FINAL_API_RECONCILIATION_111_VALIDATION_REPORT.md` with transcripts `FAR_111_01_migration_integrity.txt`, `FAR_111_02_override_resolver_battery.txt`, `FAR_111_03_security_integration_battery.txt`. Schema contract: `5H-Billing-Usage-Schema.md` ("Controlled Amendment — Final API Reconciliation"). Manifest: `5K/MIGRATION_MANIFEST.md` Row 111. Migrations `001`–`110` are unchanged; `111_5H4` is the single project head; there is no `112`.
+
+---
+
+## 54. FINAL API RECONCILIATION CONTROLLED AMENDMENT — Capacity / Entitlement Quotas (`FAR-OD-03`, Option B)
+
+> **Status of this section.** A controlled amendment applied during the Final API Reconciliation pass under owner decision **`FAR-OD-03` = Option B**, implemented at the database layer by migration **`112_5H5`** (`down_revision = '111_5H4'`). It closes **`FAR-P1-06`**: `CONCURRENT_CALLS` was governed as a per-organization limit by 6D, 6H and this document, but could not be represented, overridden or resolved anywhere in the database. This section adds **no** endpoint, request field, response field, permission string or top-level error code to 6K. §52 and §53 remain in force **for the usage domain**. Where an earlier section of this document, or 4F §13.4, describes `CONCURRENT_CALLS` as a counter-based usage quota, **this section governs**. No earlier text is deleted; §54.9 scopes it.
+
+### 54.1 Two quota domains — not collapsed
+
+| Property | USAGE / ACCOUNTING | CAPACITY / ENTITLEMENT |
+|---|---|---|
+| Vocabulary | the canonical **15** usage metrics (§53.3, 5H §11.1) — **unchanged** | **`CONCURRENT_CALLS`** — the only V1 capacity metric |
+| Vocabulary predicate | `billing.fn_is_canonical_usage_metric` | `billing.fn_is_canonical_capacity_quota_metric` |
+| Base commercial limit | `billing.quota_configs` | `billing.quota_configs` (same table, row `metric = 'CONCURRENT_CALLS'`) |
+| Temporary Platform Admin override | `billing.quota_overrides` | `billing.capacity_quota_overrides` |
+| Effective resolver | `billing.fn_resolve_effective_quota` | `billing.fn_resolve_effective_capacity_quota` |
+| What is measured | an amount accumulated over a period | occupied capacity **now** (an instantaneous gauge) |
+| Runtime model | monotonic counter (§25.2); bounded over-consumption tolerated | acquire / release reservation (§54.4–§54.6); **no** over-admission |
+| Billable | yes — drives usage events and overage (§21–§23, §26) | **no** — a capacity entitlement is never metered, rated or invoiced |
+
+`CONCURRENT_CALLS` is **not** a sixteenth usage metric and is not added to §21.1's metric table or §53.3's list. The usage resolver rejects it and the capacity resolver rejects every usage metric. Separation is enforced independently by the two table `CHECK` constraints (`chk_qo_metric_canonical`, `chk_cqo_metric_canonical`), by the two resolvers, and by the Platform Admin setter. A `CONCURRENT_CALLS` row is never written to `billing.quota_overrides`. No legacy name is aliased into either vocabulary.
+
+### 54.2 Configuration and resolution
+
+- **Base:** `billing.quota_configs`, which remains read-only to `app_api` exactly as §53.7 states.
+- **Override:** `billing.capacity_quota_overrides`. This is an additive table with the same shape and lifecycle as `billing.quota_overrides`: at most one current override per `(organization_id, metric)`, enforced by the partial unique index `uq_cqo_org_metric_current`. It is written **only** through the guarded setter, and no application role holds `INSERT`, `UPDATE` or `DELETE` on it. RLS is `ENABLE`d and `FORCE`d.
+- **Setter:** the **existing** `billing.fn_platform_set_quota_override(...)`. It keeps the same 8-argument public signature and still returns `UUID`, so 6M's route contract is unchanged. It now **dispatches by vocabulary**:
+  - a usage metric writes `billing.quota_overrides` with behaviour identical to §53.5;
+  - `CONCURRENT_CALLS` writes `billing.capacity_quota_overrides`;
+  - anything else is refused (`P0001`).
+
+  `EXECUTE` is granted to `app_platform_admin` only; `PUBLIC` and `app_api` are revoked. Usage-domain behaviour is **not** redefined by the dispatch.
+- **Resolver:** `billing.fn_resolve_effective_capacity_quota(p_organization_id, p_metric)`. It is `STABLE`, **`SECURITY INVOKER`** and has an explicit `search_path`. It returns `metric, soft_limit, hard_limit, unit_label, source, override_id, effective_from, expires_at`. The precedence and read-time expiry are those of §53.2: an active, non-superseded override (`source = 'PLATFORM_OVERRIDE'`), otherwise the current base row (`source = 'BASE'`). On expiry, resolution falls back to the **current** base. A tenant consumer reads its own effective capacity quota under its own grants and RLS, **without** Platform Admin privilege, and cannot read another tenant's.
+
+### 54.3 The three resolution outcomes — zero rows is not unlimited
+
+| Case | Resolver result | Meaning | Admission behaviour |
+|---|---|---|---|
+| **A** | one row, `hard_limit IS NULL` | **Explicitly uncapped.** A deliberate configuration decision recorded in a row. | Admit, subject to §54.5's reservation discipline. The reservation is still recorded so that release, reconciliation and `ReadCapacity` stay truthful. |
+| **B** | **zero rows** | **Capacity configuration absent.** No base row and no active override. | **Refuse — fail closed.** Never interpreted as unlimited. |
+| **C** | one row, finite `hard_limit` | **Capped** at `hard_limit`. | Admit only while occupied reservations `< hard_limit` (§54.5 rule 2). |
+
+At the SQL layer, case B is a clean zero-row result, not an exception (FAR_112_02 §15). Refusing it is therefore a **consumer obligation**, and this section imposes it on every capacity consumer. For capacity, two usage-domain statements are **not inherited**:
+- §52.2's usage-domain "no effective hard_limit row … no hard stop";
+- §53.2(3)'s "no configured quota".
+
+`soft_limit` has no admission effect for capacity. It is reported only.
+
+### 54.4 Single runtime admission authority
+
+6K is the **single owner** of runtime capacity admission. There is one authority per organization and metric, and every admitting path consumes it: 6D `POST /calls`, 6D's in-process `InitiateOutboundCallUseCase` (§28.10a), and 6H campaign dispatch. No consumer maintains its own tenant-wide count, reads `billing.quota_configs` directly to decide admission, or implements a private reservation algorithm.
+
+The conceptual ports are an in-process application boundary. They are not HTTP endpoints, and no route is added:
+
+| Port | Input | Result |
+|---|---|---|
+| `AcquireCapacity` | `organization_id`, `metric = CONCURRENT_CALLS`, `reservation_id` = the canonical call-session ID (`voice.call_sessions.id`) | `ADMITTED` (new reservation) · `ALREADY_HELD` (same `reservation_id` already occupies a slot — idempotent success, no second slot) · `REFUSED_AT_LIMIT` · `REFUSED_NOT_CONFIGURED` · `UNAVAILABLE` |
+| `ReleaseCapacity` | `organization_id`, `metric`, `reservation_id`, `release_reason` | `RELEASED` · `NOT_HELD` (already released or never held — idempotent no-op, **no decrement**) · `UNAVAILABLE` (retried; the reconciler is the backstop, §54.5 rule 8) |
+| `ReadCapacity` | `organization_id`, `metric` | effective limit (from the resolver, including `source`) · occupied reservation count · `remaining` (`NULL` when uncapped) |
+
+`ReadCapacity` is advisory. It may be shown to a user or used in a pre-flight courtesy check, but it **never** grants admission. Only `AcquireCapacity` admits.
+
+### 54.5 Mandatory semantics
+
+The following rules are binding on any implementation. The storage and locking mechanism is an implementation choice and is deliberately not specified here: no application code and no Redis script are part of this contract.
+
+1. **Gauge, not counter.** The occupied value equals the number of currently held reservations. It must go down as well as up. A monotonic `INCR` without a paired release, as in 4F §13.4's `INCR usage:quota:{tenant_id}:CONCURRENT_CALLS`, is **prohibited** for this metric.
+2. **Atomic final-slot admission.** The comparison "occupied < effective `hard_limit`" and the recording of the new reservation are one atomic step. Two concurrent acquisitions competing for the last slot must not both be admitted: exactly one receives `ADMITTED` and the other `REFUSED_AT_LIMIT`. A read-then-compare-then-write sequence across separate steps does not satisfy this rule.
+3. **Reservation identity.** `reservation_id` is the canonical call-session ID, the same identifier 6D returns as `call_id` and that `InitiateOutboundCallUseCase` returns as `call_session_id`. It is never a request ID, an idempotency key or a random token.
+4. **Idempotent acquire.** A repeated `AcquireCapacity` for a `reservation_id` that is already held returns `ALREADY_HELD` and consumes no additional slot. This covers an HTTP `Idempotency-Key` replay that reaches the use case, a campaign dispatch replay that resolves to the same `call_session_id`, and a worker retry.
+5. **Idempotent release.** A repeated `ReleaseCapacity` returns `NOT_HELD` and never decrements a second time. A release for a `reservation_id` that was never admitted is likewise a no-op. The occupied value can never be driven below zero or below the true number of held reservations.
+6. **Setup failure releases.** If call setup fails after `ADMITTED` and before the call is established, the reservation is released exactly once. Examples: the call-session transaction rolls back, the dispatch is recorded `FAILED`, or the provider rejects `place_call`.
+7. **Leaving the counted lifetime releases.** Release happens exactly once when the call leaves the counted lifetime defined in §54.6.
+8. **Stale / crash recovery.** A process may crash between acquire and persistence, or between the terminal transition and release. A periodic reconciler therefore compares held reservations against **authoritative** Postgres state and releases:
+   - a reservation whose `voice.call_sessions` row is in a terminal state;
+   - a reservation whose campaign dispatch (`voice.call_dispatch_keys`, 6D §28.10a) is `FAILED`, whether or not the session row has been moved to a terminal state yet;
+   - a reservation older than a bounded setup grace period that has no corresponding call-session row.
+
+   A reservation is **never** released by the reconciler while its dispatch is `SUBMITTING` or `AMBIGUOUS`: the provider may have placed the call, so the slot stays held until the dispatch is reconciled (6D §28.10a) and the session reaches a terminal state. An OUTBOUND, non-terminal call session that may have reached the provider (a committed `POST /calls` session, or a dispatch in `SUBMITTING`, `AMBIGUOUS` or `CONFIRMED`) but holds no reservation is recorded as drift and alerted on, and the reservation is re-established where possible. The call itself is not terminated (§54.8).
+
+   Postgres state is the source of truth, and the reservation store is reconciled **to** it, never the reverse. The grace period and reconciler cadence are runtime configuration values, like 6D's DEP-6D-05 timers, not API-contract values.
+9. **Fail closed on store failure.** If the reservation store or the resolver cannot be reached, `AcquireCapacity` returns `UNAVAILABLE` and the consumer **refuses**. Capacity is never granted by default because its authority is down.
+10. **One authority for 6D and 6H.** A slot acquired by a campaign dispatch and a slot acquired by `POST /calls` are drawn from the same per-organization gauge.
+
+### 54.6 Counted lifetime — reconciled against the frozen 6D state machine
+
+**Owner-confirmed rule for this pass.** A `CONCURRENT_CALLS` reservation is held from **admission** until the call reaches **any terminal state** of the frozen 6D §11.1 / 4B §7.1 / 5C §5.1 state machine, or until setup fails.
+
+The terminal set is `NO_ANSWER, CANCELLED, VOICEMAIL, TRANSFERRED, COMPLETED, FAILED, ABANDONED`, used exactly as frozen: no state is added, renamed or reinterpreted. Every non-terminal state is inside the counted lifetime: `INITIATED`, `RINGING`, `ANSWERED`, `ACTIVE`, `ON_HOLD`, `TRANSFERRING` and `WRAP_UP`.
+
+> **Decision identifier — `FAR-OD-04` (registered 2026-09-16).** The owner answer recorded in this subsection is registered in the Final API Reconciliation as **`FAR-OD-04` — `CONCURRENT_CALLS` reservation lifecycle = Admission → terminal**. The identifier names the decision above; it does not change it. Acquire happens exactly once at an admission point, before provider setup. The slot is held across every non-terminal state, with no release or re-acquire on any transition into or out of `ACTIVE`. It is released exactly once, on setup failure or on entry to one of the seven frozen terminal states. The reservation identity is the call-session ID, so a retry, replay, transfer or resume never takes a second slot. The `status = 'ACTIVE'` index is a reconciliation and reporting signal only. `FAR-OD-04` is distinct from `FAR-OD-03` (the domain split, Option B).
+
+**Why this is recorded as a controlled reconciliation rather than silently adopted.** The frozen 6D §10.5 / 5C §9.1 check counts only `status = 'ACTIVE'` through `idx_cs_org_status`. Applied literally as the reservation lifetime, that predicate cannot deliver the contract this section must satisfy:
+- **Admission would come too late.** Admission must happen at `POST /calls` / dispatch, before the provider is contacted and before the call session reaches `ACTIVE`. An ACTIVE-only slot could first be refused only after the callee has already answered.
+- **The frozen transitions would lose their slot.** `ON_HOLD → ACTIVE` (resume) and `TRANSFERRING → ACTIVE` (transfer failed) would each release and then need to re-acquire, so a resume or a failed transfer could be refused mid-call.
+- **Setup-phase calls would go uncounted.** `INITIATED`, `RINGING` and `ANSWERED` calls already occupy telephony capacity.
+
+The owner resolved this ambiguity for this pass as **admission → terminal**. The frozen `status = 'ACTIVE'` indexed count is **retained** as-is, as a reporting and observability read and a reconciliation cross-check. It is no longer the admission decision. The reconciler's authoritative predicate is "non-terminal", taken from the same frozen terminal set.
+
+**Admission points and direction scope.** Per the owner answer, a slot is taken at exactly two admission points, both outbound: 6D `POST /calls`, and campaign dispatch through 6D §28.10a's `InitiateOutboundCallUseCase`. Inbound calls pass through neither point, so in V1 they are **neither admitted nor refused** by `CONCURRENT_CALLS` and hold no reservation. This matches frozen 6D's enforcement surface, where the policy ran only on `POST /calls` (6D §10.5), and no inbound refusal behaviour is defined anywhere in Phase 6. One thing does change: under the frozen ACTIVE-only count, an in-progress inbound call reduced the outbound headroom; under this contract it does not. The retained `idx_cs_org_status` reporting read still shows inbound ACTIVE calls. 4B §14.1 routes inbound `InitiateCall` through the same use case as outbound, so bringing inbound calls under capacity governance would require its own controlled amendment, which must define the provider-facing refusal behaviour. It is registered as a future, non-blocking item, not silently adopted.
+
+### 54.7 Error mapping — no new top-level code
+
+| Condition | Synchronous surface (`POST /calls`) | Campaign dispatch (6H) |
+|---|---|---|
+| At limit (`REFUSED_AT_LIMIT`, case C) | `429 QUOTA_EXCEEDED` (§36; 6D §27.2), `details.metric = "CONCURRENT_CALLS"` | Not dispatched this tick. The contact is `DEFERRED` / retried under 6H's existing internal reason `TENANT_CALL_QUOTA_REACHED`. No client error. |
+| Capacity configuration absent (case B) | `503 DEPENDENCY_UNAVAILABLE`, `details.reason = "CAPACITY_QUOTA_NOT_CONFIGURED"`, `details.metric = "CONCURRENT_CALLS"` | Not dispatched. Fail closed, `DEFERRED`, never `ELIGIBLE` by default (6H §21.3). |
+| Reservation store or resolver unreachable (`UNAVAILABLE`) | `503 DEPENDENCY_UNAVAILABLE`, `details.reason = "CAPACITY_AUTHORITY_UNAVAILABLE"` | Not dispatched. Fail closed, `DEFERRED` (6H §21.3). |
+| `hard_limit IS NULL` (case A) | Admitted; no error | Admitted by the tenant ceiling; the campaign sub-ceiling still applies |
+
+`DEPENDENCY_UNAVAILABLE` is the existing cross-cutting code, reused exactly as 6D §27.1 ("Category B reuse, not a new code") and 6H §11.2 (`details.reason = "COMPLIANCE_POLICY_NOT_FOUND"`) already reuse it. `CAPACITY_QUOTA_NOT_CONFIGURED` and `CAPACITY_AUTHORITY_UNAVAILABLE` are **`details.reason` values**, not error codes. A missing configuration is not presented as `429`, because the tenant cannot remediate it by waiting or by ending a call. It is a platform provisioning gap, and it is surfaced as such.
+
+### 54.8 Lowering capacity — non-destructive
+
+When the effective `CONCURRENT_CALLS` limit drops below the currently occupied count, the behaviour is identical in every case. The limit can drop by a lower base row, a lower override, supersession by a lower override, or **expiry** of a higher override (read-time, §53.2):
+- **no** in-progress call is terminated;
+- **no** provider call is hung up or otherwise acted on;
+- **no** `voice.call_sessions` row is mutated;
+- **no** existing reservation is revoked.
+
+Only **new** acquisitions are refused (`REFUSED_AT_LIMIT`) until enough existing reservations are released for occupied to fall below the new limit. `ReadCapacity` may report `remaining` as zero or negative in the interim, matching §53.6's usage-domain reporting posture.
+
+### 54.9 Scope of earlier text
+
+| Earlier text | Reading after this amendment |
+|---|---|
+| §25.1 `GET /api/v1/billing/quotas` | **Usage-domain reporting endpoint, unchanged.** This amendment adds no field and no row type to it. Capacity is read in-process through `ReadCapacity` (§54.4) and administered through 6M §67. |
+| §25.2 hot path — `INCR quota:{org_id}:{metric}`; "Reservation: not required in V1 — a slight, bounded over-consumption … accepted" | **Usage domain only.** It does not apply to `CONCURRENT_CALLS`, which is governed by §54.4–§54.6. |
+| §52.2 "no effective hard_limit row … no hard stop" and §53.2(3) | **Usage domain only.** Capacity zero rows = refuse (§54.3 case B). |
+| §53.3 "`fn_is_canonical_usage_metric` is the single source of the canonical 15-metric vocabulary" | Still true, and still 15. The capacity vocabulary is a separate predicate (§54.1). |
+| §53.4 "Redis is unchanged" | Still true for usage. No capacity Redis key or structure is defined by this document (§54.5). |
+| §53.8 "`111_5H4` is the single project head; there is no `112`" | **Historical at the time of writing §53.** Superseded: the project head is **`112_5H5`**, and there is no `113`. |
+| §36 `429 QUOTA_EXCEEDED` | Unchanged code. For `CONCURRENT_CALLS` it now means `REFUSED_AT_LIMIT` from `AcquireCapacity`. |
+| 4F §13.4 `CONCURRENT_CALLS` counter pseudo-flow (GET → compare → `INCR`, no release) | **Superseded for `CONCURRENT_CALLS`** by §54.5 rules 1–2. Phase 4 is not edited. |
+| 6D DEP-6D-09 (COUNT → compare race) | **CLOSED — superseded** by §54.5 rule 2 (6D §42). |
+
+### 54.10 Security scope (`FAR-P3-04` wording)
+
+The guarantee is the **application runtime trust boundary**: sessions connecting as the non-superuser application roles, acting through the guarded `SECURITY DEFINER` setter and its minimum `EXECUTE` grant, with no raw DML path, same-transaction audit (§53.5, extended to both domains), the partial unique index backstop and `ENABLE` + `FORCE` RLS for tenant read isolation. Migration 112 added no role and granted `BYPASSRLS` to no role. The two application roles that already hold `BYPASSRLS` (`app_migration`, `app_platform_admin`) are pre-existing from `001_5B`.
+
+This document does **not** claim that `FORCE ROW LEVEL SECURITY` binds a superuser, that superuser privilege cannot be bypassed, or that triggers are unbypassable. Deliberate superuser or table-owner action is **outside** the guarantee: DDL, `DISABLE TRIGGER`, `SET session_replication_role` or direct writes. It belongs to credential custody and infrastructure controls.
+
+### 54.11 Audit
+
+A capacity override is audited exactly like a usage override (§53.5), in the same transaction, with `action_kind = QUOTA_OVERRIDE_SET`, `resource_type = QUOTA_OVERRIDE` and `resource_id` equal to the **override row** (`billing.capacity_quota_overrides.id`), never a `quota_configs` base row. `resource_snapshot.quota_domain` distinguishes `USAGE` from `CAPACITY`.
+
+The `resource_type` value is a **controlled audit-contract extension** (`FAR-P2-09`), not an unchanged literal:
+- pre-`111` override events carry `QUOTA_CONFIG`;
+- `111` and later carry `QUOTA_OVERRIDE`;
+- `112` applies `QUOTA_OVERRIDE` to both domains.
+
+No migration was needed, because `audit.audit_events` constrains `resource_type` by length only. Consumers that filter override history must accept both values across the boundary.
+
+### 54.12 Validation and head
+
+Live on **PostgreSQL 18.6**, disposable containers only:
+
+| Check | Result |
+|---|---|
+| Fresh `001 → 112` | PASS |
+| Incremental `111 → 112` | PASS |
+| Catalog and security-surface convergence | PASS |
+| Single head `112_5H5`, no `113` | PASS |
+| `001`–`111` byte-unchanged | 222 OK / 0 FAILED |
+| Targeted 110 Agent and 111 usage-quota regressions | PASS |
+| Capacity vocabulary, resolver and override lifecycle, including the zero-row case | PASS |
+| Domain separation | PASS |
+| ACL / RLS | PASS |
+| Audit atomicity, including `ROLLBACK` | PASS |
+
+**The reservation runtime of §54.4–§54.6 is an API contract and is not implemented or live-tested in this pass.**
+
+Record: `docs/phase-05-database-design/5K/validation/FINAL_API_RECONCILIATION_112_VALIDATION_REPORT.md`, with transcripts `FAR_112_01_migration_integrity.txt`, `FAR_112_02_capacity_quota_battery.txt` and `FAR_112_03_cross_domain_security_regression.txt`. Schema contract: `5H-Billing-Usage-Schema.md` (112 controlled amendment). Manifest: `5K/MIGRATION_MANIFEST.md` Row 112. Consumers: 6D §42, 6H §54, 6M §67.
+
+Migrations `001`–`111` are unchanged, **`112_5H5` is the single project head**, and there is no `113`.

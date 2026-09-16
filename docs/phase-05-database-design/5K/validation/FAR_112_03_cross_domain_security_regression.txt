@@ -1,0 +1,1154 @@
+==================================================================================
+FAR_112_03 - CROSS-DOMAIN SECURITY AND TARGETED 110 / 111 REGRESSION
+Final API Reconciliation - CAPACITY-QUOTA FINAL CLOSURE PASS
+Owner decision in force: FAR-OD-03 = OPTION B
+                         CONCURRENT_CALLS is a CAPACITY / ENTITLEMENT quota -
+                         instantaneous occupied capacity - and is NOT a 16th
+                         accumulated USAGE metric. The canonical 15-metric
+                         usage vocabulary of 5H section 11.1 is unchanged and
+                         CONCURRENT_CALLS was NOT added to it.
+==================================================================================
+
+SCOPE OF THIS FILE
+  The Stage 3 targeted regression battery and the security evidence for
+  migration 112_5H5: the targeted 110 Agent-admission regressions, the
+  targeted 111 usage-quota regressions, real concurrent create, real
+  concurrent clone, the created_by actor guard, the Agent lifecycle mutation
+  guard, USAGE / CAPACITY domain separation, function and table ACLs, PUBLIC
+  EXECUTE, BYPASSRLS provenance, row level security, guarded Platform Admin
+  capacity mutation, the tenant's inability to mutate capacity override rows
+  by any raw path, tenant reads in both domains without Platform Admin
+  privilege, audit atomicity, and the exact scoped security guarantee this
+  reconciliation is entitled to claim.
+
+  Migration execution, head ownership, file hashes and catalog convergence are
+  in FAR_112_01. Capacity vocabulary, resolver semantics, override lifecycle
+  and the zero-row "no configured capacity quota" case are in FAR_112_02.
+
+  This is a TARGETED battery, as directed. It is deliberately NOT a repeat of
+  the full historical 110 or 111 batteries. Those remain valid on their own
+  evidence and were not rewritten.
+
+ENGINE ..... PostgreSQL 18.6 (Debian 18.6-1.pgdg12+2) on x86_64-pc-linux-gnu,
+             image pgvector/pgvector:pg18. Disposable containers created empty
+             for this pass. No shared, long-lived or production database was
+             used. The workstation's local psql client is 16.15 and too old
+             for catalog work against an 18.x server, so every statement below
+             ran inside a container using that container's own client.
+
+INSTANCES ...... far112_fresh  - fresh 001 -> 112 path, database far112
+                 far112_incr   - incremental 111 -> 112 path, database far112
+             Both are at head 112_5H5.
+
+             WHICH INSTANCE PRODUCED WHICH EVIDENCE - stated explicitly
+             because it matters to how these results should be read:
+
+               * ALL BEHAVIOURAL evidence in this file (cases A-H, R1-R7,
+                 T.1-T.5) was produced against far112_incr. That is the
+                 instance carrying the fixture organizations, base quota
+                 rows, override rows and audit rows.
+
+               * ALL STRUCTURAL evidence in this file (S.1-S.11: role
+                 attributes, function ACLs, PUBLIC privileges, RLS flags,
+                 trigger definitions) was produced against far112_fresh,
+                 which holds the schema with no fixture data at all.
+
+               * Because a structural claim taken from one instance should
+                 not be assumed true of the other, the S.1-S.11 probe was
+                 then re-run unchanged against far112_incr and the two
+                 outputs were compared byte for byte after trailing-space
+                 normalisation. They are IDENTICAL. The fresh path and the
+                 incremental path converge exactly on role attributes,
+                 EXECUTE ACLs, PUBLIC privileges, RLS enable/force flags and
+                 trigger definitions. Evidence: s3_sec_out.txt,
+                 s3_sec_incr_out.txt, and the diff between them.
+
+EVIDENCE RULE APPLIED HERE
+  Every result quoted below is transcribed from a captured output file. No
+  result is asserted from reading SQL source, and no line is reproduced that
+  the harness did not actually print. Where a probe was mislabelled, where a
+  first attempt failed, or where a captured line does not mean what its own
+  header claims, that is recorded in DISCLOSED HARNESS LIMITATIONS AND
+  CORRECTIONS at the end of this file rather than quietly cleaned up.
+
+  Captured sources for this file:
+    s3_ab_out.txt        cases A, B
+    s3_cd_out.txt        cases C, D
+    s3_ef_out.txt        cases E, F
+    s3_gh_out.txt        cases G, H
+    s3_g4_out.txt        case G.4 clean re-run
+    post112_e_out.txt    cases R1-R7
+    post112_c_out.txt    cases P8-P11
+    s3_sec_out.txt       cases S.1-S.11 (far112_fresh)
+    s3_sec_incr_out.txt  cases S.1-S.11 (far112_incr), identical
+    s3_aud_out.txt       cases T.0-T.5, audit atomicity
+
+
+==================================================================================
+1. TARGETED 110 REGRESSION - ACTIVE_AGENTS BASE HARD ADMISSION
+==================================================================================
+
+  The question this section answers is narrow and specific: did migration 112,
+  which creates a SECOND quota domain and CREATE OR REPLACEs the shared
+  Platform Admin setter, disturb the Agent hard-admission behaviour that 110
+  established and 111 re-pointed at the usage resolver? It did not.
+
+1.1 Case A - effective ACTIVE_AGENTS hard limit of 2
+
+  A.0   effective limit installed through the guarded setter, not by raw DML:
+          override_id 01a0a944-8448-7f96-91e8-e8732d15e893
+  A.0b  ACTIVE_AGENTS | 1.0000 | 2.0000 | PLATFORM_OVERRIDE
+  A.0c  counted = 0
+  A.1   create agent #1 -> 01a0a944-8490-737a-b632-324af53222fc   (accepted)
+  A.2   create agent #2 -> 01a0a944-84ac-7eed-b77a-7a604c715bdd   (accepted)
+  A.3   create agent #3 -> REJECTED:
+
+          ERROR:  ACTIVE_AGENTS quota exceeded
+          DETAIL:  metric=ACTIVE_AGENTS; hard_limit=2.0000; active=2; requested=3
+          CONTEXT: PL/pgSQL function fn_assert_agent_quota_admission(uuid) line 42 at RAISE
+          SQL statement "SELECT voice.fn_assert_agent_quota_admission(v_org)"
+          PL/pgSQL function fn_create_agent(uuid,uuid,text,text) line 23 at PERFORM
+
+  A.4   counted after the rejection = 2, not 3
+  A.5   rows_named_a3 = 0
+
+  The rejection is raised from fn_assert_agent_quota_admission inside
+  fn_create_agent, and the rejected request left no row behind. Admission is
+  a hard gate, not an after-the-fact reconciliation.
+
+1.2 Case B - fractional limit 1.5000, never rounded (FAR-P1-02 property)
+
+  B.0   both case-A agents soft-deleted; counted = 0
+  B.1   ACTIVE_AGENTS | 1.5000 | 1.5000 | PLATFORM_OVERRIDE
+  B.2   create first agent -> 01a0a944-856e-7414-90ea-ea3222512137  (accepted;
+        0+1 = 1 <= 1.5)
+  B.3   create second agent -> REJECTED:
+
+          ERROR:  ACTIVE_AGENTS quota exceeded
+          DETAIL:  metric=ACTIVE_AGENTS; hard_limit=1.5000; active=1; requested=2
+
+  B.4   counted = 1
+  B.5   hard_limit_as_stored = 1.5000
+
+  The limit is compared as NUMERIC and is never rounded up to 2. B.5 confirms
+  the stored value is still exactly 1.5000 after the comparison. This is the
+  FAR-P1-02 fractional-safe post-insert invariant (v_active + 1) > v_hard_limit
+  behaving as 110/111 specified, unchanged by 112.
+
+
+==================================================================================
+2. CREATE CONCURRENCY - ONE SLOT, EXACTLY ONE WINNER
+==================================================================================
+
+  Case C uses two REAL concurrent database sessions released at a common
+  barrier, not two sequential calls. This matters: a sequential probe cannot
+  distinguish a correctly serialized admission gate from a racy one.
+
+  C.0   hard_limit 2.0000 | counted 1 | slots_remaining = 1
+  C.1   both sessions released at barrier 2026-09-16 08:11:11.387516+00
+          RC_C2=0   RC_C1=0
+          session C1 woke at 2026-09-16 08:11:11.39267+00
+          session C2 woke at 2026-09-16 08:11:11.392574+00
+
+        Session C1 outcome:
+          ERROR:  ACTIVE_AGENTS quota exceeded
+          DETAIL:  metric=ACTIVE_AGENTS; hard_limit=2.0000; active=2; requested=3
+
+        Session C2 outcome:
+          agent_id 01a0a945-12a2-7911-8461-612809b7150b
+
+  C.2   rows_created = 1
+  C.3   counted = 2, never 3
+
+  The two sessions woke 96 microseconds apart and contended for the same last
+  slot. Exactly one was admitted; the other received the same deterministic
+  53400 rejection a serial caller would have received. The counted set never
+  reached 3.
+
+  The serialization is the transaction-scoped advisory lock taken INSIDE the
+  database boundary - pg_advisory_xact_lock(hashtext('voice.agent_quota:' ||
+  org)) - as frozen 6A section 17.3 requires. No API-layer lock is involved,
+  and none would have been sufficient here.
+
+
+==================================================================================
+3. CLONE CONCURRENCY - ONE SLOT, EXACTLY ONE WINNER
+==================================================================================
+
+  The clone path is a separate entry point into the same admission gate, so it
+  is proven separately rather than assumed to inherit case C's result.
+
+  D.0   clone source = 01a0a944-856e-7414-90ea-ea3222512137 (the case-B agent)
+  D.0b  hard_limit 3.0000 | counted 2 | slots_remaining = 1
+  D.1   both sessions released at barrier 2026-09-16 08:11:15.542197+00
+          RC_D1=0   RC_D2=0
+          session D1 woke at 2026-09-16 08:11:15.547303+00
+          session D2 woke at 2026-09-16 08:11:15.5473+00
+
+        Session D1 outcome:
+          agent_id 01a0a945-22dc-7204-a261-61beb9c45829
+
+        Session D2 outcome:
+          ERROR:  ACTIVE_AGENTS quota exceeded
+          DETAIL:  metric=ACTIVE_AGENTS; hard_limit=3.0000; active=3; requested=4
+          CONTEXT: ... PL/pgSQL function fn_clone_agent(uuid,uuid,uuid,uuid) line 54 at PERFORM
+
+  D.3   counted = 3, never 4
+
+  READ D.2 WITH CARE. The captured line is:
+
+          --- D.2 clones of far112-B1 (EXPECT: exactly 1 new row) ---
+           rows_named_b1
+          ---------------
+                       2
+
+  That 2 is NOT a second winner and NOT a failure. The probe counts every row
+  NAMED 'far112-B1', which includes the clone SOURCE created at B.2
+  (01a0a944-856e-...) as well as the single clone (01a0a945-22dc-...). My
+  probe header is wrong, not the migration. This is corroborated directly by
+  the D.4 inventory, which lists exactly two far112-B1 rows and no third:
+
+           name          | status | soft_deleted
+          ---------------+--------+--------------
+           far112-A1     | DRAFT  | t
+           far112-A2     | DRAFT  | t
+           far112-B1     | DRAFT  | f
+           far112-C-race | DRAFT  | f
+           far112-B1     | DRAFT  | f
+
+  The one-winner invariant for the clone path is carried by D.3 (counted = 3,
+  never 4) and by the single agent_id returned across the two sessions. It is
+  NOT carried by D.2. See DISCLOSURE 1.
+
+  CLONE PATH NOTE. fn_clone_agent calls the admission gate at its own line 54,
+  a different call site from fn_create_agent's line 23. Both reach the same
+  fn_assert_agent_quota_admission. There is one admission algorithm, not two.
+
+
+==================================================================================
+4. created_by ACTOR GUARD
+==================================================================================
+
+  E.0   effective ACTIVE_AGENTS limit raised to 20.0000 with counted = 3, so
+        that quota is demonstrably NOT the rejecting gate in this case
+  E.0b  agents_total_before = 5
+
+  E.1   created_by = non-member user b003 -> REJECTED:
+          ERROR:  fn_assert_agent_actor: created_by 00000000-0000-7000-8000-00000000b003
+                  is not a member of organization 00000000-0000-7000-8000-00000000a001
+          CONTEXT: ... fn_create_agent(uuid,uuid,text,text) line 16 at PERFORM
+
+  E.2   created_by = b002, a member of a DIFFERENT tenant (ORG2) -> REJECTED
+        with the same message against organization a001. Membership in some
+        organization is not membership in THIS organization.
+
+  E.3   created_by = NULL -> REJECTED:
+          ERROR:  fn_assert_agent_actor: created_by is required
+          CONTEXT: ... fn_assert_agent_actor(uuid,uuid) line 4 at RAISE
+
+  E.4   created_by = b001, a valid same-tenant member -> ACCEPTED,
+          agent_id 01a0a945-e5bd-79b9-b4ef-ef169fea25da
+
+  E.5   nonmember_rows 0 | othertenant_rows 0 | nullactor_rows 0 | accepted_rows 1
+  E.6   agents_total_after = 6, exactly one more than E.0b
+
+  E.7   the same non-member actor is rejected on the CLONE path as well:
+          CONTEXT: ... fn_clone_agent(uuid,uuid,uuid,uuid) line 17 at PERFORM
+
+  The actor guard fires at line 16 of fn_create_agent, BEFORE the quota gate
+  at line 23. An unauthorized actor cannot consume a quota slot even
+  transiently, and all three rejected requests wrote nothing.
+
+
+==================================================================================
+5. AGENT LIFECYCLE MUTATION GUARD
+==================================================================================
+
+  F.1   DRAFT -> PUBLISHED               ALLOWED   (UPDATE 1)
+  F.2   same-state PATCH while PUBLISHED ALLOWED   (UPDATE 1)
+  F.3   PUBLISHED -> DEPRECATED          ALLOWED   (UPDATE 1)
+
+  F.4   DEPRECATED -> DRAFT              REJECTED:
+          ERROR: voice.agents: illegal lifecycle transition DEPRECATED -> DRAFT
+                 (6E section 31.3 permits only DRAFT->PUBLISHED and
+                 PUBLISHED->DEPRECATED; DEPRECATED is terminal).
+                 agent id=01a0a945-e5bd-79b9-b4ef-ef169fea25da
+
+  F.5   DEPRECATED -> PUBLISHED          REJECTED, same terminal-state rule
+  F.8   DRAFT -> DEPRECATED (skipping PUBLISHED) REJECTED, same rule
+
+  F.6   organization_id ORG1 -> ORG2     REJECTED:
+          ERROR: voice.agents.organization_id is immutable after creation.
+                 No frozen contract defines an Agent ownership transfer.
+
+  F.7   soft-deleted row resurrection, deleted_at -> NULL  REJECTED:
+          ERROR: voice.agents: a soft-deleted agent cannot be restored;
+                 restoring it would re-enter the ACTIVE_AGENTS counted set
+                 without quota admission.
+
+  F.7 is the one that matters most for quota integrity. Un-deleting a row
+  would silently add an agent to the counted set with no admission check at
+  all - a quota bypass that never calls the quota function. It is refused.
+
+  F.9   final inventory shows nothing illegal was persisted: far112-E-ok is
+        DEPRECATED, every row is still owned by a001, and the two soft-deleted
+        case-A rows are still soft-deleted.
+  F.10  counted = 3 after the DEPRECATED transition. DEPRECATED does not
+        consume an ACTIVE_AGENTS slot.
+
+5.1 Why the lifecycle guard is stronger than an ACL - and the limit of that
+
+  F.11 re-ran the DEPRECATED -> DRAFT update as the TABLE OWNER and it was
+  still refused with the identical message:
+
+        ERROR: voice.agents: illegal lifecycle transition DEPRECATED -> DRAFT
+               ... agent id=01a0a945-e5bd-79b9-b4ef-ef169fea25da
+        CONTEXT: PL/pgSQL function voice.fn_agents_mutation_guard() line 21 at RAISE
+
+  S.10 confirms what this guard structurally is:
+
+        trg_agents_mutation_guard | CREATE TRIGGER trg_agents_mutation_guard
+                                    BEFORE UPDATE ON voice.agents FOR EACH ROW
+                                    EXECUTE FUNCTION voice.fn_agents_mutation_guard()
+        trg_agents_updated_at     | CREATE TRIGGER trg_agents_updated_at
+                                    BEFORE UPDATE ON voice.agents FOR EACH ROW
+                                    EXECUTE FUNCTION set_updated_at()
+
+  A BEFORE UPDATE trigger is not an ACL and not an RLS policy. Row level
+  security is bypassed outright by a superuser and by any role holding
+  BYPASSRLS; a table-level GRANT is irrelevant to the owner. The trigger is
+  bypassed by neither. That is why F.11's owner-level refusal is a real
+  result and not a restatement of F.4.
+
+  THE HONEST LIMIT OF THAT CLAIM. A trigger binds ordinary DML, including the
+  owner's ordinary DML. It does not bind someone who first issues
+  ALTER TABLE voice.agents DISABLE TRIGGER trg_agents_mutation_guard, or
+  SET session_replication_role = replica, or who drops the trigger. Those are
+  DDL and superuser/owner-level acts, and they are outside the application
+  guarantee. What F.11 establishes is that the lifecycle contract is enforced
+  in the data layer against all normal writes rather than only against
+  application-role writes - not that it is unbypassable by a determined owner.
+
+
+==================================================================================
+6. TARGETED 111 USAGE-QUOTA REGRESSION
+==================================================================================
+
+  112 CREATE OR REPLACEs billing.fn_platform_set_quota_override(), the same
+  function 111 hardened. That is the specific place where a capacity-domain
+  change could plausibly have regressed the usage domain, so the 111
+  properties are re-proven rather than presumed.
+
+  G.1   usage resolver still accepts the canonical metric:
+          ACTIVE_AGENTS | 18.0000 | 20.0000 | PLATFORM_OVERRIDE
+  G.2   the commercial BASE underneath is intact and is NOT what resolved:
+          ACTIVE_AGENTS | base 8.0000 | 10.0000
+        The override did not overwrite the baseline. This is the core
+        FAR-P1-05 property and it survives 112.
+  G.3   genuinely temporary override installed, expiring in 4 seconds:
+          01a0a946-9ef2-75e5-a56d-6da9c5b557b4
+  G.3b  while in force the override WINS: 33.0000 | 44.0000 | PLATFORM_OVERRIDE
+  G.3c  commercial base changed 8/10 -> 12/15 WHILE the override is active;
+        the resolver still returns 33/44. The base change is staged, not lost.
+
+  G.4 (clean re-run, s3_g4_out.txt) - expiry falls back to the CURRENT base:
+
+    G.4.0  current base: ACTIVE_AGENTS | 12.0000 | 15.0000
+    G.4.1  override 77/88 installed, expiring in 4 seconds:
+             01a0a947-37ae-797b-a623-23e6231bb5ff
+    G.4.2  while in force:
+             ACTIVE_AGENTS | 77.0000 | 88.0000 | PLATFORM_OVERRIDE |
+             expires_at 2026-09-16 08:13:35.946617+00
+    G.4.3  sleep past expiry in a transaction of its own;
+             now_after_sleep 2026-09-16 08:13:38.00639+00
+    G.4.4  resolve in a NEW transaction:
+             ACTIVE_AGENTS | 12.0000 | 15.0000 | BASE
+    G.4.5  the expired row is still present and still non-superseded:
+             01a0a947-37ae-... | 77.0000 | 88.0000 | not_superseded t | expired t
+
+  Expiry returns the organization to the CURRENT commercial baseline (12/15),
+  not to a snapshot of what the baseline was when the override was created
+  (8/10), and NOT to unlimited. That is precisely the defect FAR-P1-05
+  identified and FAR-OD-02 closed, still closed after 112.
+
+  G.4.6 records the window semantics that made the first attempt at this case
+  inconclusive:
+
+           now_is_transaction_timestamp | now_is_clock_timestamp
+          ------------------------------+------------------------
+           t                            | f
+
+  NOW() is transaction_timestamp(), not clock_timestamp(). The effective-window
+  predicate is therefore evaluated ONCE per transaction, at transaction start.
+  An expiry that falls during a long transaction becomes visible to the NEXT
+  transaction, not mid-statement. This is correct and intended behaviour, but
+  it must be stated, because a reader who assumes clock_timestamp() would
+  misread both the original case G.4 and any future test written the same way.
+  See DISCLOSURE 2.
+
+  G.4.7 demonstrates the identical window semantics on the CAPACITY resolver:
+          CONCURRENT_CALLS | (null) | (null) | PLATFORM_CAPACITY_OVERRIDE
+  The two domains share window semantics; they do not share vocabulary.
+
+  G.5   superseded usage overrides do not reactivate. Eight override rows
+        exist for the metric; seven are superseded (not_superseded = f) and
+        one is current. The resolver returns:
+          ACTIVE_AGENTS | 12.0000 | 15.0000 | BASE
+  G.5b  non_superseded_rows = 1. Expiry is a WINDOW test, not a deletion; the
+        expired row remains the single current row and simply stops applying.
+
+  G.6   NULL hard_limit remains a valid, EXPLICITLY-unlimited usage override:
+          01a0a946-b338-73bd-9318-1859050c9615
+          ACTIVE_AGENTS | (null) | (null) | explicitly_unlimited t | PLATFORM_OVERRIDE
+  G.6b  and the 110/111 admission guard honours it - a create succeeds past
+        the old ceiling: 01a0a946-b36a-7abd-8e6b-6ba665ac5af3, counted = 4.
+
+  G.6 is the usage-domain half of the distinction that FAR_112_02 section 10
+  draws for capacity: an EXISTING effective row with hard_limit IS NULL means
+  explicitly uncapped, and is a configured decision. It is a different state
+  from a resolver that returns zero rows. 112 preserves that distinction in
+  both domains.
+
+
+==================================================================================
+7. USAGE / CAPACITY DOMAIN SEPARATION (FAR-OD-03 OPTION B)
+==================================================================================
+
+  H.1   USAGE resolver REJECTS CONCURRENT_CALLS:
+          ERROR: fn_resolve_effective_quota: metric CONCURRENT_CALLS is outside
+                 the canonical 5H section 11.1 usage-dimension vocabulary.
+
+  H.2   CAPACITY resolver ACCEPTS CONCURRENT_CALLS:
+          CONCURRENT_CALLS | (null) | (null) | PLATFORM_CAPACITY_OVERRIDE
+
+  H.3   CAPACITY resolver REJECTS ACTIVE_AGENTS:
+          ERROR: fn_resolve_effective_capacity_quota: metric ACTIVE_AGENTS is
+                 outside the canonical capacity-quota vocabulary (FAR-OD-03).
+                 Usage dimensions resolve through billing.fn_resolve_effective_quota().
+
+  H.4   legacy AGENT_COUNT rejected by the USAGE resolver
+  H.4b  legacy AGENT_COUNT rejected by the CAPACITY resolver
+        Rejected by BOTH. The legacy name is not aliased into either
+        vocabulary, as the owner decision requires.
+
+  H.5   NULL metric rejected by the USAGE resolver
+  H.5b  NULL metric rejected by the CAPACITY resolver:
+          ERROR: fn_resolve_effective_capacity_quota: p_metric is required and
+                 must not be NULL.
+
+  H.6   the two vocabulary predicates are disjoint AND NULL-safe:
+
+           metric           | usage_vocab | capacity_vocab
+          ------------------+-------------+----------------
+           ACTIVE_AGENTS    | t           | f
+           CONCURRENT_CALLS | f           | t
+           AGENT_COUNT      | f           | f
+           (NULL)           | f           | f
+
+        The fourth row is the FAR-P2-08 fix observable. Before the COALESCE
+        remediation, p_metric = ANY(ARRAY[...]) returned NULL for a NULL
+        input, and a plpgsql IF NOT NULL took its false branch, so the guard
+        silently did not fire. Both predicates now return f, not NULL, for a
+        NULL metric, and both resolvers raise.
+
+  H.7   concurrent_calls_in_usage_store = 0
+  H.7b  active_agents_in_capacity_store = 0
+
+  No row has ever crossed between the two stores. The separation is not only
+  enforced at the function boundary; the stores themselves are clean.
+
+  The rejections above are the resolver layer. FAR_112_02 section 11 records
+  the other two layers - the table CHECK constraints chk_qo_metric_canonical
+  and chk_cqo_metric_canonical, which refuse a cross-domain row even to the
+  table owner, and the Platform Admin dispatcher, which routes by domain.
+  Domain separation is enforced at three independent layers, not one.
+
+
+==================================================================================
+8. FUNCTION AND TABLE PRIVILEGES, PUBLIC EXECUTE, BYPASSRLS
+==================================================================================
+
+  These are structural facts about the catalog, captured by s3_sec.sql. They
+  are quoted here because section 36 of the governing specification requires
+  them and because no earlier capture contained them: catalog.sql dumps table
+  grants but not role attributes and not function ACLs.
+
+8.1 EXECUTE ACLs on every function 112 created or replaced (S.3)
+
+    fn_is_canonical_capacity_quota_metric  SECURITY INVOKER
+      search_path=pg_catalog
+      postgres=X app_api=X app_worker=X app_readonly=X app_platform_admin=X
+
+    fn_is_canonical_usage_metric           SECURITY INVOKER
+      search_path=pg_catalog
+      postgres=X app_api=X app_worker=X app_readonly=X app_platform_admin=X
+
+    fn_platform_set_quota_override         SECURITY DEFINER
+      search_path=billing, organization, pg_catalog
+      postgres=X app_platform_admin=X
+
+    fn_resolve_effective_capacity_quota    SECURITY INVOKER
+      search_path=billing, organization, pg_catalog
+      postgres=X app_api=X app_worker=X app_readonly=X app_platform_admin=X
+
+    fn_resolve_effective_quota             SECURITY INVOKER
+      search_path=billing, organization, pg_catalog
+      postgres=X app_api=X app_worker=X app_readonly=X app_platform_admin=X
+
+  Exactly one of the five is SECURITY DEFINER, and it is the mutation path.
+  Both resolvers are SECURITY INVOKER, so a tenant reading its effective quota
+  reads through its own RLS policies and its own grants rather than borrowing
+  the definer's authority. Every function carries an explicit SET search_path.
+
+8.2 No PUBLIC EXECUTE anywhere (S.4)
+
+    fn_is_canonical_capacity_quota_metric | public_has_execute f
+    fn_is_canonical_usage_metric          | public_has_execute f
+    fn_platform_set_quota_override        | public_has_execute f
+    fn_resolve_effective_capacity_quota   | public_has_execute f
+    fn_resolve_effective_quota            | public_has_execute f
+
+  This is not incidental. PostgreSQL grants EXECUTE to PUBLIC on new functions
+  by default; every one of these had to be explicitly revoked. In 112_5H5.sql
+  the REVOKE ALL ... FROM PUBLIC / minimum-grant pairs are at lines 176/177,
+  214/215, 339/340, 475/476 and 736/737/738.
+
+8.3 The guarded setter is reachable by exactly one role (S.5)
+
+           rolname                     | can_execute
+          -----------------------------+-------------
+           app_api                     | f
+           app_billing_reconciler      | f
+           app_billing_webhook_ingress | f
+           app_migration               | f
+           app_platform_admin          | t
+           app_readonly                | f
+           app_voice_reconciler        | f
+           app_worker                  | f
+
+  app_api is f by explicit revocation, not by omission: 112_5H5.sql line 737
+  is REVOKE EXECUTE ON FUNCTION billing.fn_platform_set_quota_override(...)
+  FROM app_api. This is necessary because the function is CREATE OR REPLACEd
+  rather than newly created, and a replace preserves the pre-existing ACL.
+
+8.4 Tenant consumers can read capacity without Platform Admin privilege (S.6)
+
+           rolname                     | can_execute
+          -----------------------------+-------------
+           app_api                     | t
+           app_billing_reconciler      | f
+           app_billing_webhook_ingress | f
+           app_migration               | f
+           app_platform_admin          | t
+           app_readonly                | t
+           app_voice_reconciler        | f
+           app_worker                  | t
+
+  This directly satisfies the section 36 requirement that tenant consumers
+  must not have to acquire Platform Admin privilege merely to read their own
+  effective capacity quota. The read path and the write path are different
+  functions with different ACLs and different security models.
+
+8.5 No PUBLIC table privilege on any governed quota table (S.7)
+
+           relname                  | select | insert | update | delete
+          --------------------------+--------+--------+--------+--------
+           capacity_quota_overrides | f      | f      | f      | f
+           quota_configs            | f      | f      | f      | f
+           quota_overrides          | f      | f      | f      | f
+
+8.6 No app role holds ANY write privilege on the capacity store (S.9)
+
+           grantee | privilege_type
+          ---------+----------------
+          (0 rows)
+
+           app_role_write_grants_must_be_0
+          ---------------------------------
+                                          0
+
+  The guarded function is the only write path to billing.capacity_quota_overrides.
+  There is no fallback raw-DML route for any application role.
+
+8.7 BYPASSRLS - what 112 did and did not do (S.1, S.2)
+
+  S.1 reports every role in the cluster:
+
+           rolname                     | rolsuper | rolbypassrls | rolcanlogin
+          -----------------------------+----------+--------------+-------------
+           app_api                     | f        | f            | t
+           app_billing_reconciler      | f        | f            | t
+           app_billing_webhook_ingress | f        | f            | t
+           app_migration               | f        | t            | t
+           app_platform_admin          | f        | t            | t
+           app_readonly                | f        | f            | t
+           app_voice_reconciler        | f        | f            | t
+           app_worker                  | f        | f            | t
+           postgres                    | t        | t            | t
+
+  S.2 reports bypassrls_roles_total = 3 and a column I named
+  bypassrls_app_roles_must_be_0 = 2.
+
+  MY COLUMN LABEL IS WRONG AND THE DATA IS RIGHT. Two application roles do
+  hold BYPASSRLS. I traced their provenance across every frozen migration
+  rather than explain the number away:
+
+        001_5B.sql:41:    CREATE ROLE app_migration LOGIN BYPASSRLS;
+        001_5B.sql:44:    CREATE ROLE app_platform_admin LOGIN BYPASSRLS;
+
+  Both predate this reconciliation by 111 migrations. 112_5H5.sql contains no
+  CREATE ROLE, no ALTER ROLE, no BYPASSRLS and no SUPERUSER statement of any
+  kind; its only privilege statements are the REVOKE/GRANT pairs listed in 8.2.
+
+  The supportable claim is therefore:
+
+      112 ADDED NO NEW BYPASSRLS ROLE AND GRANTED BYPASSRLS TO NO ROLE.
+      The two application roles that hold it are pre-existing from 001_5B.
+
+  The claim "no application role holds BYPASSRLS" would be FALSE and is not
+  made here. See DISCLOSURE 3.
+
+  The operative consequence for this reconciliation: app_platform_admin can
+  see all rows in billing.capacity_quota_overrides regardless of RLS policy.
+  That is intended - it is the role that administers overrides across tenants -
+  and it is why the capacity store's protection against that role rests on
+  table privileges (S.9: zero write grants) rather than on RLS.
+
+
+==================================================================================
+9. ROW LEVEL SECURITY AND TENANT ISOLATION
+==================================================================================
+
+9.1 RLS is enabled AND forced on all three governed quota tables (S.8)
+
+           relname                  | rls_enabled | rls_forced
+          --------------------------+-------------+------------
+           capacity_quota_overrides | t           | t
+           quota_configs            | t           | t
+           quota_overrides          | t           | t
+
+  FORCE matters because these tables are owned by postgres and a table owner
+  is otherwise exempt from its own RLS policies. FORCE removes that exemption
+  for ordinary DML by the owner. It does NOT constrain a superuser, and it is
+  not claimed to. See section 11.
+
+9.2 Observed tenant behaviour (post112_e_out.txt, session established as)
+
+           session_user | is_platform_admin | tenant_ctx
+          --------------+-------------------+--------------------------------------
+           app_api      | f                 | 00000000-0000-7000-8000-00000000a001
+
+  Every R-case below ran under that identity: an ordinary tenant API role with
+  is_platform_admin() returning FALSE.
+
+  R1  the tenant reads its OWN effective CAPACITY quota with no Platform Admin
+      privilege:
+        CONCURRENT_CALLS | (null) | (null) | calls | PLATFORM_CAPACITY_OVERRIDE
+
+  R2  the same tenant role still reads its USAGE quota through the 111
+      resolver - no escalation, no regression:
+        ACTIVE_AGENTS | 28.0000 | 30.0000 | PLATFORM_OVERRIDE
+
+  R3  the tenant read model shows BOTH domains with ACTIVE / SUPERSEDED state:
+
+        quota_domain | metric           | soft    | hard     | state
+        -------------+------------------+---------+----------+------------
+        CAPACITY     | CONCURRENT_CALLS |         |          | ACTIVE
+        CAPACITY     | CONCURRENT_CALLS | 70.0000 | 80.0000  | SUPERSEDED
+        CAPACITY     | CONCURRENT_CALLS | 90.0000 | 100.0000 | SUPERSEDED
+        CAPACITY     | CONCURRENT_CALLS | 300.0000| 400.0000 | SUPERSEDED
+        CAPACITY     | CONCURRENT_CALLS | 200.0000| 250.0000 | SUPERSEDED
+        CAPACITY     | CONCURRENT_CALLS | 5.0000  | 8.0000   | SUPERSEDED
+        USAGE        | ACTIVE_AGENTS    | 28.0000 | 30.0000  | ACTIVE
+        USAGE        | ACTIVE_AGENTS    | 18.0000 | 20.0000  | SUPERSEDED
+
+      Exactly one ACTIVE row per (domain, metric). The history is visible and
+      is not mistaken for current state.
+
+  R4  no billing.quota_configs BASE row leaks into either override store:
+        base_rows 2 | base_leaked_into_usage 0 | base_leaked_into_capacity 0
+
+  R5  the tenant role cannot MUTATE capacity overrides by ANY raw path:
+        NOTICE: tenant INSERT raised [42501] -> permission denied for table capacity_quota_overrides
+        NOTICE: tenant UPDATE raised [42501] -> permission denied for table capacity_quota_overrides
+        NOTICE: tenant DELETE raised [42501] -> permission denied for table capacity_quota_overrides
+
+      All three verbs, not one. The refusal is 42501 at the privilege layer,
+      which fires before RLS is ever consulted.
+
+  R6  the tenant role cannot reach the guarded Platform Admin setter either:
+        NOTICE: tenant EXECUTE raised [42501] -> permission denied for function fn_platform_set_quota_override
+
+      R5 and R6 together close the loop: the tenant can neither write the
+      table directly nor borrow the definer function that can.
+
+  R7  RLS confines the tenant to its own organization's rows:
+           own_rows | other_tenant_rows_must_be_0
+          ----------+-----------------------------
+                  6 |                           0
+
+      Corroborated independently at FAR_112_02 section 3, case J, where org2
+      resolves its own 5/10 capacity and does not see org1's.
+
+
+==================================================================================
+10. GUARDED PLATFORM ADMIN MUTATION AND AUDIT ATOMICITY
+==================================================================================
+
+10.1 The single-current-row backstop is structural, not procedural (P8, P8b)
+
+  P8, re-run as the table OWNER so that the ACL is not what refuses:
+        NOTICE: second CURRENT row raised [23505] ->
+                duplicate key value violates unique constraint "uq_cqo_org_metric_current"
+
+  P8b, a SUPERSEDED historical row with the same (organization, metric):
+        NOTICE: superseded historical row accepted -> t (correct)
+
+  uq_cqo_org_metric_current is a PARTIAL unique index (WHERE superseded_at IS
+  NULL), so it permits unlimited history while permitting exactly one current
+  row. Even the owner, bypassing every function, cannot create a second
+  concurrent override. The setter's advisory-lock discipline is the primary
+  mechanism; this index is the backstop underneath it.
+
+  The first P8 attempt (post112_b_out.txt) returned 42501 permission denied
+  rather than 23505, because it ran as app_platform_admin, which holds no
+  INSERT. That attempt proved an ACL, not an index. It was re-run as owner to
+  reach the index. See DISCLOSURE 4.
+
+10.2 Audit shape across BOTH domains (P9)
+
+        action_kind        | actor_type     | resource_type  | quota_domain | metric           | outcome
+        -------------------+----------------+----------------+--------------+------------------+---------
+        QUOTA_OVERRIDE_SET | PLATFORM_ADMIN | QUOTA_OVERRIDE |              | ACTIVE_AGENTS    | SUCCESS
+        QUOTA_OVERRIDE_SET | PLATFORM_ADMIN | QUOTA_OVERRIDE | CAPACITY     | CONCURRENT_CALLS | SUCCESS
+        QUOTA_OVERRIDE_SET | PLATFORM_ADMIN | QUOTA_OVERRIDE | USAGE        | ACTIVE_AGENTS    | SUCCESS
+        QUOTA_OVERRIDE_SET | PLATFORM_ADMIN | QUOTA_OVERRIDE | CAPACITY     | CONCURRENT_CALLS | SUCCESS
+
+  action_kind is QUOTA_OVERRIDE_SET in both domains. resource_type is
+  QUOTA_OVERRIDE in both domains. The domain discriminator is carried in the
+  resource_snapshot jsonb payload, not in a new action_kind and not in a new
+  resource_type. Row 1 is a pre-112 row with no quota_domain key, which is the
+  expected shape for an override written before 112 existed.
+
+  This audit transition is FAR-P2-09 and it is a CONTROLLED AUDIT-CONTRACT
+  EXTENSION, not an unchanged shape. It is stated as such in FAR_112_02
+  section 14 and is not restated at length here.
+
+10.3 Every audited resource_id resolves in EXACTLY the domain it claims (P10)
+
+        claimed_domain | resource_id                          | in_usage | in_capacity | points_at_base
+        ---------------+--------------------------------------+----------+-------------+----------------
+                       | 01a0a932-92dc-724d-9919-191506e37ee6 | t        | f           | 0
+        CAPACITY       | 01a0a936-db18-7dc8-bddd-dde53115b39a | f        | t           | 0
+        USAGE          | 01a0a936-db1b-7b41-9c24-240b15710a63 | t        | f           | 0
+        CAPACITY       | 01a0a936-db1c-78e0-aee0-e061f850b1fa | f        | t           | 0
+
+  No audit row points at a billing.quota_configs base row, and no audit row
+  claims a domain whose store does not actually contain it. The audit trail
+  cannot be used to attribute a capacity change to the usage domain or the
+  reverse.
+
+10.4 The audit CHECK constraints are length-only (P11)
+
+        chk_ae_action_kind   | CHECK (length(action_kind)   >= 1 AND length(action_kind)   <= 200)
+        chk_ae_resource_type | CHECK (length(resource_type) >= 1 AND length(resource_type) <= 200)
+
+  072_5J constrains these columns by LENGTH, not by an enumerated domain.
+  'QUOTA_OVERRIDE' is therefore structurally permitted with no constraint
+  change, and FAR-P2-09 required no additional migration. This is a positive
+  catalog fact, not an inference from source.
+
+10.5 AUDIT ATOMICITY - the audit write is in the same transaction
+
+  This property had no captured negative-path evidence in any earlier run, so
+  a targeted probe was written and executed (s3_aud.sql / s3_aud_out.txt). It
+  performs no schema change and leaves no residue.
+
+  T.0  identity: session_user app_platform_admin, is_platform_admin = t
+
+  T.1  baseline:
+         audit_rows_before 13 | capacity_rows_before 7
+
+  T.2  the guarded setter called INSIDE an explicit transaction:
+         new_id 01a0a961-b58b-78a2-b656-56fa9a226b62
+         audit_rows_in_tx 14 | capacity_rows_in_tx 8
+
+       Both counters advance by exactly one, together.
+
+  T.2b the audit row for this still-UNCOMMITTED write is visible within the
+       same transaction, and its resource_id already resolves:
+         action_kind        | resource_type  | quota_domain | resource_id_resolves
+         -------------------+----------------+--------------+----------------------
+         QUOTA_OVERRIDE_SET | QUOTA_OVERRIDE | CAPACITY     | 1
+
+  T.3  after ROLLBACK:
+         audit_rows_after_rollback 13 | capacity_rows_after_rollback 7
+
+       BOTH are gone. This is the decisive observation. If the audit write
+       were autonomous - a dblink call, a separate connection, an out-of-band
+       emitter, or a deferred worker - the audit row would have SURVIVED the
+       rollback and the count would have stayed at 14, leaving a permanent
+       record of an override that does not exist. It did not survive. The
+       override row and its audit event share one transaction and one fate.
+
+  T.4  a REJECTED setter call writes NO audit row:
+         NOTICE: rejected call raised [P0001] ->
+           fn_platform_set_quota_override: metric AGENT_COUNT is outside both
+           governed quota vocabularies - the canonical 15-metric usage set
+           (5H section 11.1) and the canonical capacity set (FAR-OD-03).
+         audit_rows_after_rejected_call 13 | capacity_rows_after_rejected_call 7
+
+       The counts are unchanged. A refused administrative action does not
+       leave a SUCCESS audit event behind, and it does not leave a partial row.
+
+  T.5  the fixture's current capacity override for a001 is untouched by the
+       probe:
+         CONCURRENT_CALLS | (null) | (null) | calls | battery H: unlimited capacity override
+
+  Together, T.2/T.2b/T.3 prove atomicity in the write direction and T.4 proves
+  it in the failure direction. Neither an override without its audit event nor
+  an audit event without its override is reachable through the sanctioned path.
+
+  The first execution of this probe targeted far112_fresh, which carries the
+  schema but no fixture rows, and the setter correctly refused with
+  "organization ... not found" from its in-function existence validation. The
+  probe was re-pointed at far112_incr, which holds the fixtures. See
+  DISCLOSURE 5. That first failure is itself corroboration that the setter
+  validates organization EXISTENCE before writing anything - which is the
+  behaviour FAR_112_02 section 15.2 contrasts with the capacity RESOLVER,
+  which validates tenant CONTEXT only.
+
+
+==================================================================================
+11. THE EXACT SCOPED SECURITY GUARANTEE
+==================================================================================
+
+  This section states precisely what is and is not guaranteed. Imprecision
+  here was itself a finding (FAR-P3-04), so the wording is deliberate.
+
+11.1 What actually enforces the capacity-quota mutation contract
+
+  The contract is enforced by a combination of mechanisms, each independently
+  observed above:
+
+    (a) A guarded SECURITY DEFINER function as the sole sanctioned write path.
+        billing.fn_platform_set_quota_override is the only function permitted
+        to write billing.capacity_quota_overrides. S.3.
+
+    (b) An explicit, non-inheritable search_path on that function:
+        search_path=billing, organization, pg_catalog. A SECURITY DEFINER
+        function without this is vulnerable to search_path capture by its
+        caller. S.3.
+
+    (c) Minimum EXECUTE grants. Exactly one role - app_platform_admin - can
+        execute the setter, and app_api is explicitly REVOKEd because the
+        function is CREATE OR REPLACEd and a replace preserves the prior ACL.
+        S.5, R6, 112_5H5.sql:737.
+
+    (d) No PUBLIC EXECUTE on any function 112 created or replaced, and no
+        PUBLIC privilege of any kind on any governed quota table. S.4, S.7.
+
+    (e) No raw runtime DML path. No application role holds INSERT, UPDATE or
+        DELETE on the capacity store. The guarded function is not merely the
+        preferred path; it is the only one available to any app role.
+        S.9, R5.
+
+    (f) In-function validation before any write: organization existence,
+        actor identity, metric membership in the correct governed vocabulary,
+        reason length, limit ordering, and future expiry. Observed at T.4
+        (vocabulary), at the s3_aud first run (organization existence), and
+        across FAR_112_02 sections 11 and 12.
+
+    (g) Transactional atomicity of the row write and its audit event, proven
+        in both directions at T.2/T.2b/T.3 and T.4.
+
+    (h) A structural single-current-row backstop that binds even the table
+        owner: the partial unique index uq_cqo_org_metric_current, 23505 at
+        P8.
+
+    (i) Row level security, ENABLEd and FORCEd, for ordinary tenant read
+        isolation: a tenant sees only its own organization's rows. S.8, R7.
+
+    (j) For the Agent path specifically, a BEFORE UPDATE TRIGGER rather than
+        an ACL, so the lifecycle and anti-resurrection rules bind ordinary
+        DML by the table owner as well. F.11, S.10.
+
+11.2 The hardened Platform Admin predicate
+
+  S.11 captures organization.is_platform_admin() as it exists in the database:
+
+        CREATE OR REPLACE FUNCTION organization.is_platform_admin()
+         RETURNS boolean
+         LANGUAGE sql
+         STABLE
+        AS $function$
+          SELECT session_user = 'app_platform_admin'
+             AND COALESCE(current_setting('app.is_platform_admin', true), 'false') = 'true'
+        $function$
+
+  Two conditions are required together: the session must be CONNECTED AS
+  app_platform_admin, and the request-scoped GUC must be set. The session_user
+  half cannot be forged by setting a GUC, because session_user does not change
+  after SET ROLE. A session connected as postgres therefore CANNOT satisfy
+  this predicate and cannot pass the platform-admin RLS policy, regardless of
+  its superuser status.
+
+  That is a real, tested property and it is the correct thing to say. Note
+  also that this function carries no SET search_path clause of its own; it is
+  fully schema-qualified in its references and depends on no schema resolution.
+
+11.3 What is NOT claimed
+
+  The following statements are FALSE and are not made anywhere in this
+  reconciliation:
+
+    * "PostgreSQL superuser privilege cannot be bypassed."
+      It can. S.1 shows postgres with rolsuper = t. A superuser can disable
+      triggers, drop constraints, alter functions, read and write any table,
+      and set any GUC.
+
+    * "FORCE ROW LEVEL SECURITY binds a postgres-owned SECURITY DEFINER
+      function against superuser bypass."
+      It does not. FORCE removes the OWNER's exemption from RLS for ordinary
+      DML. It has no effect on a superuser, who bypasses RLS entirely and
+      unconditionally. This was the specific imprecision recorded as
+      FAR-P3-04.
+
+    * "No role can bypass RLS on the quota tables."
+      Two application roles hold BYPASSRLS (app_migration, app_platform_admin,
+      both from 001_5B.sql:41 and :44), and postgres holds it as a superuser.
+      S.1, S.2.
+
+    * "The lifecycle trigger is unbypassable."
+      It binds all ordinary DML including the owner's (F.11). It does not bind
+      ALTER TABLE ... DISABLE TRIGGER, SET session_replication_role = replica,
+      or DROP TRIGGER.
+
+11.4 The guarantee, stated exactly
+
+  Within the application's runtime trust boundary - that is, for every session
+  connecting as one of the eight non-superuser application roles listed at
+  S.1, which is how the application, its workers and its administrators
+  actually connect - the capacity-quota mutation contract is enforced by
+  mechanisms (a) through (j) of 11.1, and no such session can:
+
+      * write billing.capacity_quota_overrides other than through the guarded
+        function (S.9, R5),
+      * execute that guarded function without being app_platform_admin
+        (S.5, R6),
+      * create a second concurrent override for one (organization, metric)
+        (P8),
+      * write a cross-domain row into either override store (H.1-H.7b, and
+        the CHECK constraints at FAR_112_02 section 11),
+      * commit an override without its audit event, or leave an audit event
+        behind for a refused or rolled-back override (T.2b, T.3, T.4),
+      * read another tenant's override rows through the tenant read path
+        (R7),
+      * or, on the Agent path, effect an illegal lifecycle transition, a
+        tenant-ownership transfer, or a soft-delete resurrection (F.4-F.8).
+
+  DELIBERATE SUPERUSER OR TABLE-OWNER ACTION IS OUTSIDE THIS GUARANTEE. A
+  session with superuser privilege, or one holding the table owner role, can
+  disable triggers, drop constraints and indexes, replace function bodies, and
+  write any table directly. Nothing in migration 112 - and nothing available
+  at the PostgreSQL level - prevents that. Protection against that class of
+  action belongs to credential custody, connection policy, network
+  segmentation and infrastructure audit, not to this schema. This
+  reconciliation does not claim otherwise, and any downstream document that
+  states or implies otherwise should be corrected against this section.
+
+
+==================================================================================
+DISCLOSED HARNESS LIMITATIONS AND CORRECTIONS
+==================================================================================
+
+  DISCLOSURE 1 - case D.2 is mislabelled in the captured output.
+    The header reads "clones of far112-B1 (EXPECT: exactly 1 new row)" and the
+    result is rows_named_b1 = 2. The query counts every row NAMED far112-B1,
+    which includes the clone SOURCE created at B.2 as well as the single
+    clone. The probe's expectation statement is wrong; the migration is not.
+    The clone one-winner invariant is carried by D.3 (counted = 3, never 4),
+    by the single agent_id returned across the two racing sessions, and by the
+    D.4 inventory showing exactly two far112-B1 rows. Section 3 quotes D.2 in
+    full alongside this correction rather than transcribing it as though it
+    had returned 1.
+
+  DISCLOSURE 2 - case G.4 in s3_gh_out.txt is a single-snapshot artifact.
+    The original G.4 slept past the override expiry and then re-resolved, but
+    both statements were sent in one psql -c string and therefore ran in one
+    implicit transaction. Because NOW() is transaction_timestamp(), the
+    effective window was evaluated once at transaction start, before the
+    sleep, and the captured line still reads
+    33.0000 | 44.0000 | PLATFORM_OVERRIDE. That line does NOT show a failure
+    to expire and must not be read as one. The case was re-run with each
+    statement in its own transaction (s3_g4_out.txt), producing G.4.4
+    12.0000 | 15.0000 | BASE, and the underlying semantics were proven
+    directly at G.4.6 (now_is_transaction_timestamp t,
+    now_is_clock_timestamp f). Section 6 cites the re-run and G.5, not the
+    original G.4 line.
+
+  DISCLOSURE 3 - the S.2 column label asserts an expectation the data
+    contradicts.
+    I named the column bypassrls_app_roles_must_be_0 and it returned 2. The
+    label encodes an expectation I had not verified before writing the probe.
+    The data is correct: app_migration and app_platform_admin both hold
+    BYPASSRLS, from 001_5B.sql:41 and 001_5B.sql:44 respectively. Rather than
+    drop the column or re-run the probe with a friendlier label, the wrong
+    label is reproduced in section 8.7 next to the provenance grep, and the
+    claim actually made is narrowed to what is true: 112 added no new BYPASSRLS
+    role and granted BYPASSRLS to no role. 112_5H5.sql contains no role
+    statement of any kind.
+
+  DISCLOSURE 4 - the first P8 probe measured an ACL, not the index.
+    Attempt 1 (post112_b_out.txt) ran as app_platform_admin and returned
+    42501 permission denied for table capacity_quota_overrides. That is a
+    correct and useful result - it independently corroborates S.9 - but it
+    does not prove the partial unique index, because the statement never
+    reached it. P8 was re-run as the table owner (post112_c_out.txt) and
+    returned 23505 against uq_cqo_org_metric_current. Section 10.1 quotes the
+    owner re-run and records the first attempt.
+
+  DISCLOSURE 5 - the audit-atomicity probe was first pointed at the wrong
+    instance.
+    s3_aud.sql was initially executed against far112_fresh, which holds the
+    schema but no fixture rows (audit_rows_before 0, capacity_rows_before 0),
+    and the setter refused with "fn_platform_set_quota_override: organization
+    00000000-0000-7000-8000-00000000a001 not found." from its in-function
+    existence validation. All behavioural fixtures live in far112_incr. The
+    probe was re-pointed there and produced the T.1-T.5 results in section
+    10.5. The first run is retained in the record because its failure mode is
+    itself evidence of the organization-existence validation.
+
+  DISCLOSURE 6 - structural evidence and behavioural evidence come from
+    different instances.
+    S.1-S.11 were captured against far112_fresh; every behavioural case was
+    captured against far112_incr. Rather than assume the two agree, s3_sec.sql
+    was re-run unchanged against far112_incr and the outputs compared byte for
+    byte after trailing-whitespace normalisation. They are identical. This is
+    recorded as a disclosure rather than buried, because a reader is entitled
+    to know that the ACL table in section 8 and the tenant behaviour in
+    section 9 were not observed in the same database.
+
+  DISCLOSURE 7 - the fixture state is cumulative across the battery.
+    Cases A through H ran in sequence against one database and each case
+    inherits the state the previous case left. Absolute row counts and
+    override histories therefore reflect the whole battery, not the case being
+    read. Every case that depends on a starting condition establishes and
+    prints that condition first (A.0c counted = 0; C.0 slots_remaining = 1;
+    D.0b slots_remaining = 1; E.0b agents_total_before = 5; G.4.0 the current
+    base; T.1 the baseline counts). Counts should be read as deltas against
+    those printed baselines.
+
+  NOT A LIMITATION, BUT STATED FOR THE REVIEWER.
+    Case F.11 and case P8 were deliberately run as the TABLE OWNER, not as an
+    application role. This was not an oversight and not an attempt to make a
+    result look stronger. Both cases exist specifically to test mechanisms
+    that are claimed to bind the owner - a BEFORE UPDATE trigger and a partial
+    unique index - and running them as a role that would have been stopped
+    earlier by an ACL would have proven nothing about those mechanisms. The
+    scope and the limits of what owner-level binding means are stated in 5.1
+    and 11.3.
+
+
+==================================================================================
+RESULT SUMMARY
+==================================================================================
+
+   1. Targeted 110 regression, base hard admission ......................... PASS
+      Limit 2 admits two agents and refuses the third with SQLSTATE 53400;
+      counted stays at 2; the rejected request wrote no row. (A.1-A.5)
+
+   2. Targeted 110 regression, fractional limit ............................ PASS
+      1.5000 admits one agent and refuses the second; the limit is never
+      rounded and is still stored as 1.5000. (B.1-B.5)
+
+   3. Create concurrency, one slot, one winner ............................. PASS
+      Two real sessions released 96 microseconds apart; exactly one admitted;
+      counted 2, never 3. (C.1-C.3)
+
+   4. Clone concurrency, one slot, one winner .............................. PASS
+      Two real sessions; exactly one clone created; counted 3, never 4.
+      D.2's label is corrected in DISCLOSURE 1. (D.1-D.4)
+
+   5. created_by actor guard .............................................. PASS
+      Non-member, other-tenant and NULL actors all refused on both the create
+      and the clone path; the valid member accepted; total rows +1 exactly.
+      (E.1-E.7)
+
+   6. Agent lifecycle mutation guard ...................................... PASS
+      Legal transitions allowed; terminal-state violations, skip transitions,
+      tenant-ownership transfer and soft-delete resurrection all refused; the
+      guard binds the table owner. (F.1-F.11)
+
+   7. Targeted 111 usage-quota regression ................................. PASS
+      Override wins while in force, the commercial base underneath is intact,
+      a base change during an active override is staged, expiry falls back to
+      the CURRENT base and not to unlimited, superseded rows never reactivate,
+      and NULL hard_limit remains explicitly-uncapped. (G.1-G.6b, G.4.0-G.4.7)
+
+   8. USAGE / CAPACITY domain separation .................................. PASS
+      Each resolver accepts only its own vocabulary and rejects the other's;
+      the legacy name and NULL are rejected by both; the predicates are
+      disjoint and NULL-safe; neither store contains a foreign row.
+      (H.1-H.7b)
+
+   9. Function ACLs and search_path ....................................... PASS
+      One SECURITY DEFINER function (the mutation path) with an explicit
+      search_path; both resolvers SECURITY INVOKER. (S.3)
+
+  10. PUBLIC EXECUTE ...................................................... PASS
+      No PUBLIC EXECUTE on any of the five functions; no PUBLIC privilege on
+      any governed quota table. (S.4, S.7)
+
+  11. BYPASSRLS .......................................................... PASS
+      112 added no new BYPASSRLS role and granted BYPASSRLS to no role; it
+      contains no role statement at all. The two app roles holding it are
+      pre-existing from 001_5B.sql:41 and :44. The stronger claim "no app role
+      holds BYPASSRLS" is FALSE and is not made. (S.1, S.2, DISCLOSURE 3)
+
+  12. Row level security ................................................. PASS
+      ENABLEd and FORCEd on all three governed quota tables; the tenant sees
+      6 of its own rows and 0 belonging to another tenant. (S.8, R7)
+
+  13. Guarded Platform Admin capacity mutation ........................... PASS
+      Exactly one role can execute the setter; no app role holds any write
+      privilege on the capacity store; the partial unique index refuses a
+      second current row even to the owner. (S.5, S.9, P8, P8b)
+
+  14. Ordinary tenant cannot mutate capacity override rows ............... PASS
+      INSERT, UPDATE and DELETE all refused with 42501, and the guarded
+      function is equally unreachable. (R5, R6)
+
+  15. Usage tenant reads require no Platform Admin privilege ............. PASS
+      app_api with is_platform_admin() = f resolves its own usage quota.
+      (R2, S.6 companion grant on fn_resolve_effective_quota at S.3)
+
+  16. Capacity tenant reads require no Platform Admin privilege .......... PASS
+      The same role resolves its own capacity quota; EXECUTE on the capacity
+      resolver is held by app_api, app_worker, app_readonly and
+      app_platform_admin. (R1, S.6)
+
+  17. Audit atomicity .................................................... PASS
+      The override row and its audit event appear together inside one
+      transaction and BOTH disappear on rollback; a refused call writes
+      neither. The audit write is in-transaction, not autonomous.
+      (T.1-T.5)
+
+  18. Audit domain integrity ............................................. PASS
+      Every audited resource_id resolves in exactly the domain it claims and
+      none points at a base config row; the audit CHECK constraints are
+      length-only, so no constraint migration was required. (P9, P10, P11)
+
+  19. Fresh and incremental paths converge on security structure ......... PASS
+      s3_sec.sql re-run unchanged against both instances produced byte-
+      identical output. (s3_sec_out.txt vs s3_sec_incr_out.txt)
+
+  20. Scoped security guarantee stated precisely ......................... STATED
+      Section 11 enumerates the ten mechanisms that enforce the contract, the
+      exact boundary of the guarantee, and the four claims that would be FALSE
+      and are therefore not made - including the FAR-P3-04 FORCE RLS
+      imprecision and the impossibility-of-superuser-bypass claim.
+
+  This file records evidence. It does not approve, accept or freeze anything.
+  Those decisions belong to the independent reviewer.
+==================================================================================

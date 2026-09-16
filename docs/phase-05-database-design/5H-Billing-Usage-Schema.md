@@ -239,6 +239,28 @@ One `billing_periods` row per `(organization_id, subscription_id, period_start, 
 
 Stored as `TEXT` in `usage_events.metric`; validated at application layer against the enum. New metrics are new data rows, not schema migrations.
 
+> **RECONCILED (controlled amendment, `112_5H5`, 2026-09-16).** The sentence above — "New metrics
+> are new data rows, not schema migrations" — is the original historical §11.1 position and is
+> retained unedited as the record of what this document decided at the time. **It was not true of
+> the implemented system, and it is the assumption that produced defect `FAR-P1-06`.** From
+> `111_5H4` onward the canonical 15-metric vocabulary is enforced *in the database* by
+> `billing.fn_is_canonical_usage_metric(TEXT)`, which backs a table `CHECK` constraint and is
+> consulted by the Platform Admin write path and by the resolver. Adding a usage metric is
+> therefore a **migration**, not a data row: the function must be replaced, the affected tables
+> revalidated (PostgreSQL does not revalidate existing rows when a function backing a `CHECK` is
+> replaced), and the 6K reporting vocabulary, the Redis hot-tier key space and the nightly
+> reconciliation updated in step.
+>
+> The practical cost of the original assumption was `FAR-P1-06`. `CONCURRENT_CALLS` was treated by
+> 6D, 6H and 6K as a configurable per-organization limit on the strength of that sentence, but it
+> was representable nowhere in the database — not in this table, not in `quota_configs`, and not
+> through the Platform Admin override function, which rejected it. Migration `112_5H5` closes that
+> gap, and deliberately does **not** close it by adding a 16th row to the table above: see
+> §13 and the `112_5H5` controlled amendment at the end of this document.
+>
+> **The 15 metrics listed above are unchanged by `112_5H5`.** No metric was added, removed or
+> renamed, and no legacy name is aliased.
+
 ### 11.2 Usage Source Boundary
 
 | Source | Authoritative data | Billing receives |
@@ -299,6 +321,19 @@ plans → plan_versions → plan_prices (included_quantity, overage_rate per met
 > retained for 106-era history and are not read by the resolver. See
 > "Controlled Amendment — Final API Reconciliation (`111_5H4`, 2026-09-15)" at the end of this
 > document for the normative contract.
+
+> **EXTENDED (controlled amendment, `112_5H5`, 2026-09-16).** Everything above concerns
+> **USAGE / ACCOUNTING quotas** only. Owner decision **`FAR-OD-03` = Option B** establishes a
+> **second, parallel governed quota domain** — **CAPACITY / ENTITLEMENT quotas**, whose V1
+> vocabulary is `CONCURRENT_CALLS` alone. A capacity quota is an *instantaneous* gauge of occupied
+> capacity, not an accumulated total, and it therefore has its own override store
+> (`billing.capacity_quota_overrides`), its own resolver
+> (`billing.fn_resolve_effective_capacity_quota`) and its own admission semantics. It shares the
+> base commercial layer (`billing.quota_configs`) and the Platform Admin write path, and nothing
+> else. `CONCURRENT_CALLS` is **not** a 16th usage metric and must never appear in
+> `billing.quota_overrides`, `usage_events` or `usage_records`. See "Controlled Amendment — Final
+> API Reconciliation (`112_5H5`, 2026-09-16)" at the end of this document for the normative
+> contract.
 
 ---
 
@@ -2523,3 +2558,143 @@ validated.
 
 Validation evidence: `5K/validation/FINAL_API_RECONCILIATION_111_VALIDATION_REPORT.md` and the
 three `FAR_111_0*` transcripts.
+
+---
+
+## Controlled Amendment — Final API Reconciliation (`112_5H5`, 2026-09-16)
+
+This amendment closes `FAR-P1-06` and `FAR-P2-08`. It **extends** the `111_5H4` amendment above;
+it does not replace it. Nothing in the `111_5H4` amendment is withdrawn, and the canonical
+15-metric usage vocabulary of §11.1 is **unchanged**.
+
+### Owner decision `FAR-OD-03` = Option B — two governed quota domains, not one
+
+The platform governs **two** quota domains. They are related but not the same thing, and they must
+not be collapsed into one another.
+
+| | **USAGE / ACCOUNTING QUOTA** | **CAPACITY / ENTITLEMENT QUOTA** |
+|---|---|---|
+| Question it answers | "how much has this tenant consumed this period?" | "how much is this tenant occupying *right now*?" |
+| Quantity | accumulated total over a billing period | instantaneous gauge |
+| Vocabulary | the canonical **15** metrics of §11.1 | **`CONCURRENT_CALLS`** only (V1) |
+| Vocabulary predicate | `billing.fn_is_canonical_usage_metric(TEXT)` | `billing.fn_is_canonical_capacity_quota_metric(TEXT)` |
+| Base commercial layer | `billing.quota_configs` | `billing.quota_configs` *(shared)* |
+| Administrative overlay | `billing.quota_overrides` | `billing.capacity_quota_overrides` |
+| Resolver | `billing.fn_resolve_effective_quota` | `billing.fn_resolve_effective_capacity_quota` |
+| Raw record | `usage_events` → `usage_records` | **none** — a gauge has no event stream to bill from |
+| Movement | monotonically increases, resets at period boundary | goes **up and down**; every acquire must be released |
+| Hot tier | Redis `INCR` counter | Redis reservation set / occupancy structure (6K §54) |
+| On exceed | soft limit warns, hard limit blocks; bounded over-consumption is tolerated and billed as overage | hard admission refusal; over-admission is **not** tolerable and **not** billable |
+| Billing relationship | drives overage lines on the invoice | drives **nothing** on the invoice — it is an entitlement, not a consumption |
+
+**`CONCURRENT_CALLS` is not a 16th usage metric.** It must never appear in `billing.quota_overrides`,
+in `usage_events`, or in `usage_records`, and it is rejected by
+`billing.fn_is_canonical_usage_metric`. Symmetrically, none of the 15 usage metrics may appear in
+`billing.capacity_quota_overrides`. Both directions are enforced by table `CHECK` constraints
+(`chk_qo_metric_canonical`, `chk_cqo_metric_canonical`) that bind even the table owner, by the two
+resolvers, and by the Platform Admin dispatcher — three independent layers, live-verified disjoint.
+
+**Why the domains are separate rather than one table with sixteen names.** The two have
+incompatible arithmetic. A usage counter is monotonic, so a lost decrement is impossible and a
+crashed pod costs at most a small over-count that the nightly reconciliation corrects. A capacity
+gauge *must* decrement, so a lost release leaks a slot permanently and silently reduces the
+tenant's purchased entitlement until something reconciles it. A single `INCR`-shaped mechanism that
+is correct for the first is actively wrong for the second. Merging them would also make the
+overage model incoherent: over-consuming minutes produces an invoice line, whereas over-admitting a
+concurrent call produces a capacity incident, not revenue.
+
+### The base commercial limit stays where it is
+
+`billing.quota_configs` remains the single base commercial layer for **both** domains. It is seeded
+from `plan_prices` on subscription creation and changed by commercial events, exactly as §13
+describes, and `112_5H5` **adds no column to it and rewrites no row in it**. Only the
+*administrative overlay* is domain-specific. A tenant's purchased concurrent-call entitlement is
+therefore an ordinary part of its plan, not a separate commercial construct.
+
+### `billing.capacity_quota_overrides`
+
+Additive table, structurally parallel to `billing.quota_overrides` and governed the same way:
+
+- one row per administrative override; `billing.quota_configs` is never written by this path;
+- at most one non-superseded row per `(organization_id, metric)`, enforced structurally by the
+  partial unique index `uq_cqo_org_metric_current ... WHERE (superseded_at IS NULL)` — not by a
+  check-then-insert race;
+- `ENABLE` **and** `FORCE` row level security, with a tenant `SELECT` policy and a Platform Admin
+  policy;
+- `SELECT` granted to the reading application roles; **`INSERT` / `UPDATE` / `DELETE` granted to no
+  role at all**, so the guarded function is the only write path available to any application role;
+- supersession is atomic under one `pg_advisory_xact_lock` in one transaction, and the
+  `QUOTA_OVERRIDE_SET` audit event is written **in that same transaction** — rolling back the
+  override rolls back the audit row, and a refused call writes neither. A superseded override can
+  never reactivate.
+
+### `billing.fn_resolve_effective_capacity_quota(UUID, TEXT)`
+
+`SECURITY INVOKER`, over the caller's own RLS and grants: a tenant resolves its own effective
+capacity entitlement with **no** Platform Admin privilege, and cross-tenant reads are refused. Its
+window, supersession and fallback semantics are identical to the usage resolver's — an active
+non-superseded override wins (`source = 'PLATFORM_OVERRIDE'`), otherwise the **current** base row
+(`source = 'BASE'`), expiry is a read-time window test rather than a deletion, and on expiry the
+effective value falls back to the **current** base, never to a stale snapshot and never to
+unlimited.
+
+### Zero rows is *not* unlimited — the non-fail-open rule (normative)
+
+This is the single most important consumer-facing rule in this amendment, and it applies to the
+capacity domain with more force than to the usage domain, because a capacity quota is a **hard**
+admission contract.
+
+Two distinct outcomes must never be conflated:
+
+| Resolver outcome | Meaning | Consumer behaviour |
+|---|---|---|
+| A row is returned with `hard_limit IS NULL` | **Explicitly uncapped.** An operator configured this tenant to have no hard cap. | Admit. This is a decision, and it is recorded. |
+| **Zero rows returned** | **No configured capacity quota.** No base `billing.quota_configs` row exists and no active override exists. Nothing was decided; the configuration is absent or invalid. | **Refuse.** Fail closed. |
+
+> **NO CONFIGURED HARD CAPACITY QUOTA MUST NOT FAIL OPEN.**
+>
+> A `CONCURRENT_CALLS` resolution returning zero rows must **not** be read as "unlimited", must not
+> be defaulted to any numeric limit, and must not admit the call. It is a configuration fault, and
+> the correct response is to refuse admission and surface the fault.
+
+This is the same failure class as `FAR-P1-05`, where an expired override left "not found →
+unlimited" and a tenant silently became uncapped. The lesson is applied to the capacity domain
+pre-emptively rather than after an incident.
+
+**Public error mapping.** No new public error code is introduced for this. The platform already has
+an exact precedent for "a required configuration row is missing, so fail closed": 6H §11.2 refuses
+a campaign schedule with `503 DEPENDENCY_UNAVAILABLE` and
+`error.details.reason = "COMPLIANCE_POLICY_NOT_FOUND"` when an organization has no `ACTIVE`
+compliance policy, and 6D §27.1 records `DEPENDENCY_UNAVAILABLE` for that class as "Category B reuse,
+not a new code". The capacity case reuses that contract with its own `details.reason` discriminator.
+6K §54 owns the precise API-level mapping; the **invariant** above is normative here regardless of
+how any individual consumer surfaces it.
+
+### `FAR-P2-08` — NULL-safe vocabulary guard
+
+`billing.fn_is_canonical_usage_metric` previously tested `p_metric = ANY(ARRAY[...])`. Under SQL
+three-valued logic that expression evaluates to **NULL**, not FALSE, for a NULL input, and a
+PL/pgSQL `IF NOT <NULL>` takes its false branch — so the guard **silently did not fire** on a NULL
+metric. Both predicates now wrap the test in `COALESCE(..., FALSE)`, and both resolvers reject a
+NULL `p_metric` explicitly before any vocabulary test. Live-verified: both predicates return `f`,
+not NULL, for a NULL metric, and both resolvers raise.
+
+### Runtime semantics are owned by 6K, not by this document
+
+`112_5H5` establishes the **governed vocabulary, the entitlement store and the resolver**. It does
+not implement the capacity runtime. Reservation identity, idempotent acquire and release, atomic
+final-slot admission, release on failed call setup and on terminal call state, and stale/crash
+reconciliation are a single API contract owned by **6K §54**, which is the sole capacity authority
+for 6D (per-call admission) and 6H (campaign dispatch) alike. There is deliberately **no simple
+monotonic `INCR` contract** for `CONCURRENT_CALLS`.
+
+### Amendments to earlier statements in this document
+
+| Location | Original statement | Disposition |
+|---|---|---|
+| §11.1 | "New metrics are new data rows, not schema migrations." | Retained unedited, marked **RECONCILED**. Untrue of the implemented system since `111_5H4`, and the assumption that produced `FAR-P1-06`. |
+| §13 | The quota diagram and the base/override two-layer model. | Retained; marked **EXTENDED** — it describes the usage domain only. The capacity domain is parallel to it. |
+| §13 / `ODD-5H-04` | "OPEN DESIGN DECISION: mid-period quota override by admin." | Already **SUPERSEDED / RESOLVED** by `111_5H4`; unchanged by this amendment. |
+
+Validation evidence: `5K/validation/FINAL_API_RECONCILIATION_112_VALIDATION_REPORT.md` and the
+three `FAR_112_0*` transcripts.

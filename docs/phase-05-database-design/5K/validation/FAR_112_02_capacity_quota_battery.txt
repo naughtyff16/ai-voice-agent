@@ -1,0 +1,1009 @@
+==================================================================================
+FAR_112_02 - CAPACITY-QUOTA CATALOG, RESOLVER AND OVERRIDE SEMANTICS
+Final API Reconciliation - CAPACITY-QUOTA FINAL CLOSURE PASS
+Owner decision in force: FAR-OD-03 = OPTION B
+                         CONCURRENT_CALLS is a CAPACITY / ENTITLEMENT quota -
+                         instantaneous occupied capacity - and is NOT a 16th
+                         accumulated USAGE metric. The canonical 15-metric
+                         usage vocabulary of 5H section 11.1 is unchanged and
+                         CONCURRENT_CALLS was NOT added to it.
+==================================================================================
+
+SCOPE OF THIS FILE
+  Behavioural evidence for the capacity-quota domain introduced by migration
+  112_5H5: the capacity metric vocabulary, NULL safety of both catalog
+  helpers, base capacity resolution, temporary capacity overrides, expiry
+  fallback, base changes underneath an active override, permanent overrides,
+  supersession, non-reactivation of superseded rows, explicitly-uncapped
+  (NULL hard_limit) semantics, cross-domain rejection in both directions, the
+  Platform Admin dispatcher, the Platform Admin / tenant read model, the audit
+  resource contract, and the zero-row "no configured capacity quota" case.
+
+  Migration execution, head ownership, hashes and catalog convergence are in
+  FAR_112_01. Cross-domain security and the targeted 110/111 regressions are
+  in FAR_112_03.
+
+ENGINE ..... PostgreSQL 18.6 (Debian 18.6-1.pgdg12+2) on x86_64-pc-linux-gnu,
+             image pgvector/pgvector:pg18. Disposable containers created empty
+             for this pass. No shared, long-lived or production database was
+             used. The workstation's local psql client is 16.15 and too old
+             for catalog work against an 18.x server, so every statement below
+             was executed inside a container using that container's own
+             client.
+
+INSTANCE ... far112_incr, held at 111_5H4 for the pre-112 reproduction and
+             then upgraded to 112_5H5, so that identical probes could be
+             replayed across the 111/112 boundary against the SAME fixture
+             data. far112_fresh (001 -> 112 in one run) carries the
+             convergence proof in FAR_112_01.
+
+EVIDENCE RULE APPLIED HERE
+  Every result below is transcribed from a captured run. No result is
+  asserted from reading the SQL source. Where a probe FAILED, or where an
+  earlier probe was MISLABELLED, that is stated in place rather than removed -
+  see "DISCLOSED HARNESS LIMITATIONS AND CORRECTIONS" at the end, which is
+  part of the evidence, not an appendix to it.
+
+
+==================================================================================
+SECTION 1 - CAPACITY METRIC VOCABULARY
+==================================================================================
+
+  112_5H5 section 2 creates billing.fn_is_canonical_capacity_quota_metric(TEXT)
+  as the single IMMUTABLE definition of the capacity vocabulary, mirroring the
+  role billing.fn_is_canonical_usage_metric(TEXT) plays for the 15 usage
+  dimensions. V1 capacity vocabulary = CONCURRENT_CALLS only.
+
+  A2. capacity vocabulary = CONCURRENT_CALLS only
+
+        m         | is_capacity
+  ------------------+-------------
+   CONCURRENT_CALLS | t
+   ACTIVE_AGENTS    | f
+   CALL_MINUTES     | f
+   AGENT_COUNT      | f
+   concurrent_calls | f
+                    | f
+  (6 rows)
+
+  Readings, each of which is a separate governed rule:
+    * CONCURRENT_CALLS is the only accepted capacity metric.
+    * ACTIVE_AGENTS and CALL_MINUTES are canonical USAGE metrics and are
+      correctly NOT capacity metrics - the two vocabularies are disjoint, not
+      overlapping.
+    * AGENT_COUNT is the legacy 107_5B5 name. It is rejected here and, per
+      FAR_112_03, by the usage helper too. It is deliberately NOT aliased.
+    * 'concurrent_calls' lower-case is rejected. The vocabulary is
+      case-sensitive and exact; no free-text or normalised matching.
+    * The final blank row is the SQL NULL input. See section 2.
+
+  A3. the usage vocabulary is preserved at EXACTLY 15 and excludes
+      CONCURRENT_CALLS - the direct FAR-OD-03 Option B assertion
+
+   canonical_hits_of_15
+  ----------------------
+                     15
+  (1 row)
+
+   concurrent_calls_in_usage_vocab
+  ---------------------------------
+   f
+  (1 row)
+
+  All 15 canonical names of 5H section 11.1 still validate, and
+  CONCURRENT_CALLS does not. 112 added a capacity vocabulary; it did not add,
+  remove or rename a usage metric.
+
+  Source: post112_a_out.txt, blocks A2 and A3.
+
+
+==================================================================================
+SECTION 2 - NULL SAFETY OF BOTH CATALOG HELPERS  (FAR-P2-08 closure)
+==================================================================================
+
+  THE DEFECT. Before 112, the canonical-metric guard was written as
+
+      IF NOT billing.fn_is_canonical_usage_metric(p_metric) THEN RAISE ...
+
+  and the helper evaluated `p_metric = ANY(ARRAY[...])`. Under SQL
+  three-valued logic a NULL input makes that expression NULL, not FALSE;
+  `NOT NULL` is NULL; and a plpgsql IF on NULL takes the FALSE branch. The
+  guard therefore silently did not fire on NULL and execution fell through.
+
+  A. both helpers now return a real FALSE - not SQL NULL - for NULL input
+
+   usage_null | usage_is_sql_null | cap_null | cap_is_sql_null
+  ------------+-------------------+----------+-----------------
+   f          | f                 | f        | f
+  (1 row)
+
+  Both helpers return f (false), and neither return value is SQL NULL. The
+  COALESCE(..., FALSE) wrapper is what produces this.
+
+  A2 (NOTICEs from the same run). the plpgsql NOT-guard now FIRES
+
+   NOTICE:  plpgsql NOT-guard now FIRES for usage helper on NULL  -> t
+   NOTICE:  plpgsql NOT-guard now FIRES for capacity helper on NULL -> t
+
+  This is the assertion that matters. It is not enough that the helper
+  returns false; the calling `IF NOT ...` must actually enter its raising
+  branch. Both do.
+
+  B. both RESOLVERS reject NULL loudly, so there is no 0-row fail-open
+
+   NOTICE:  usage resolver(NULL)    raised [P0001] -> fn_resolve_effective_quota: metric <NULL> is outside the canonical 5H §11.1 usage-dimension vocabulary.
+   NOTICE:  capacity resolver(NULL) raised [P0001] -> fn_resolve_effective_capacity_quota: p_metric is required and must not be NULL.
+
+  Both raise. They raise with different messages because the capacity
+  resolver validates p_metric IS NULL explicitly before consulting the
+  vocabulary, which produces the more precise message; the usage resolver
+  reaches the vocabulary check with a NULL that the COALESCE now renders
+  FALSE. Both outcomes are correct and neither returns zero rows.
+
+  This distinction matters for section 15: a NULL metric is a CALLER DEFECT
+  and raises. Zero rows is a CONFIGURATION STATE and does not raise. They
+  must not be conflated by a consumer.
+
+  P1. the Platform Admin dispatcher also rejects NULL BY NAME
+
+   NOTICE:  NULL metric      raised [P0001] -> fn_platform_set_quota_override: p_metric is required and must not be NULL.
+
+  At head 111 this same probe produced a raw [23502] not-null violation from
+  the storage layer. It is now a named application-level error raised before
+  any write is attempted.
+
+  Source: post112_a_out.txt blocks A, A2, B; post112_b_out.txt block P1.
+
+
+==================================================================================
+SECTION 3 - BASE CAPACITY RESOLUTION
+==================================================================================
+
+  FAR-OD-03 Option B keeps the commercial baseline where it already lives.
+  The capacity resolver reads billing.quota_configs for the base; 112 did NOT
+  create a second pricing system.
+
+  D2. capacity BASE resolves from the existing billing.quota_configs row
+
+        metric      | soft_limit | hard_limit | unit_label | source | override_id
+  ------------------+------------+------------+------------+--------+-------------
+   CONCURRENT_CALLS |    45.0000 |    50.0000 | calls      | BASE   |
+  (1 row)
+
+  source = BASE, override_id IS NULL, unit_label = 'calls'. The limits are
+  NUMERIC(18,4) and are reported unrounded.
+
+  A (resolver battery). no override at all -> BASE
+
+   source | soft_limit | hard_limit | override_id
+  --------+------------+------------+-------------
+   BASE   |    45.0000 |    50.0000 |
+  (1 row)
+
+  J. per-organization isolation: org2 resolves its OWN base, unaffected by
+     any override belonging to org1
+
+   source | soft_limit | hard_limit
+  --------+------------+------------
+   BASE   |     5.0000 |    10.0000
+  (1 row)
+
+  Source: post112_a_out.txt block D2; post112_d_out.txt blocks A and J.
+
+
+==================================================================================
+SECTION 4 - TEMPORARY CAPACITY OVERRIDE
+==================================================================================
+
+  Each capacity override is its own row in billing.capacity_quota_overrides.
+  billing.quota_configs is never written by the override path, so the
+  commercial baseline is never destroyed in place - the 112 capacity analogue
+  of the FAR-P1-05 remediation 111 made for usage.
+
+  B (resolver battery). an active override wins over BASE
+
+             source           | soft_limit | hard_limit | permanent
+  ----------------------------+------------+------------+-----------
+   PLATFORM_CAPACITY_OVERRIDE |    70.0000 |    80.0000 | t
+  (1 row)
+
+  G. a LOWER override than the base IS honoured
+
+             source           | soft_limit | hard_limit
+  ----------------------------+------------+------------
+   PLATFORM_CAPACITY_OVERRIDE |     5.0000 |     8.0000
+  (1 row)
+
+  The base for this organization was 45/50. An override of 5/8 takes effect.
+  An override is admission control in both directions; the commercial base is
+  not a floor. For a capacity quota this is the operationally important
+  direction: it is how an operator throttles a tenant that is degrading
+  shared voice infrastructure.
+
+  F. a FUTURE effective_from is NOT yet active -> still BASE
+
+   source | soft_limit | hard_limit
+  --------+------------+------------
+   BASE   |    55.0000 |    60.0000
+  (1 row)
+
+  The row exists but effective_from > NOW(), so it does not resolve. A
+  scheduled future override does not leak into the present.
+
+  Source: post112_d_out.txt blocks B, F, G.
+
+
+==================================================================================
+SECTION 5 - EXPIRY FALLBACK
+==================================================================================
+
+  D (resolver battery). an EXPIRED override falls back to the CURRENT base -
+     never to unlimited, never to a stale snapshot
+
+   source | soft_limit | hard_limit | fail_open_unlimited
+  --------+------------+------------+---------------------
+   BASE   |    45.0000 |    50.0000 | f
+  (1 row)
+
+   rows_returned_must_be_1
+  -------------------------
+                         1
+  (1 row)
+
+  Both halves are required. source = BASE proves the fallback target, and
+  rows_returned = 1 proves the resolver did not simply go silent. An expired
+  capacity override degrades to the commercial baseline, which is a real
+  finite ceiling.
+
+  TIME SEMANTICS - REPORTED BECAUSE IT CHANGES THE CONTRACT.
+  The effective-window predicate uses NOW(), which in PostgreSQL is
+  transaction_timestamp(), not clock_timestamp(). It is therefore evaluated
+  once per transaction, at transaction start. Proven directly:
+
+   now_is_transaction_timestamp | now_is_clock_timestamp
+  ------------------------------+------------------------
+   t                            | f
+  (1 row)
+
+  The operative consequence: a reported capacity quota is STABLE for the
+  duration of a transaction, and an expiry becomes visible to the NEXT
+  transaction. This already matches the documented usage-domain behaviour at
+  6K:3579 and is now confirmed for capacity. A long-running transaction will
+  not observe an expiry mid-flight. For a reservation-based capacity contract
+  this is a feature, not a hazard - see 6K section 54 - but it must be stated,
+  because a consumer that assumed wall-clock evaluation inside a transaction
+  would be wrong.
+
+  The live expiry transition, executed with each statement in its OWN
+  transaction (see DISCLOSURE 1):
+
+   G.4.0  before      ACTIVE_AGENTS | 12.0000 | 15.0000 | BASE
+   G.4.1  override created 01a0a947-37ae-797b-a623-23e6231bb5ff
+   G.4.2  in force    PLATFORM_OVERRIDE 77.0000 / 88.0000,
+                      expires_at 2026-09-16 08:13:35.946617+00
+   G.4.3  after sleep now = 2026-09-16 08:13:38.00639+00   (past the expiry)
+   G.4.4  after       ACTIVE_AGENTS | 12.0000 | 15.0000 | BASE
+   G.4.5  the expired row is still present: not_superseded = t, expired = t
+
+  G.4.5 is the point most easily missed: the override row is NOT deleted and
+  NOT marked superseded. It simply falls outside its effective window. The
+  row remains auditable history.
+
+  E. a base changed WHILE the override was alive -> the NEW base takes over
+     at expiry (see section 6).
+
+  Source: post112_d_out.txt block D; s3_g4_out.txt blocks G.4.0 - G.4.6.
+
+
+==================================================================================
+SECTION 6 - BASE CHANGES UNDER AN ACTIVE OVERRIDE
+==================================================================================
+
+  E. the base was changed from 45/50 to 55/60 while an override was active.
+     After the override expired:
+
+   source | soft_limit | hard_limit
+  --------+------------+------------
+   BASE   |    55.0000 |    60.0000
+  (1 row)
+
+  The NEW base (55/60) takes over, not the base that was in force when the
+  override was created (45/50). This is the direct behavioural proof that the
+  base is NOT copied into the override row as a snapshot. A commercial
+  baseline changed during an override window - a plan upgrade, a contract
+  renegotiation - is the value that takes effect at expiry.
+
+  This is the capacity-domain mirror of the 111 usage-domain rule recorded at
+  111_5H4.py:70-73.
+
+  Source: post112_d_out.txt block E.
+
+
+==================================================================================
+SECTION 7 - PERMANENT OVERRIDE
+==================================================================================
+
+  B. an override with expires_at IS NULL is permanent-until-superseded
+
+             source           | soft_limit | hard_limit | permanent
+  ----------------------------+------------+------------+-----------
+   PLATFORM_CAPACITY_OVERRIDE |    70.0000 |    80.0000 | t
+  (1 row)
+
+  permanent = t is the computed expires_at IS NULL flag. Such a row never
+  falls out of its effective window; the only way it stops applying is
+  supersession by a later override (section 8).
+
+  NOTE ON TWO DIFFERENT NULLS. expires_at IS NULL means "no end date". It is
+  a different column and a different meaning from hard_limit IS NULL, which
+  means "explicitly uncapped" (section 10). A row can be one, the other,
+  both, or neither. They must not be conflated.
+
+  Source: post112_d_out.txt block B.
+
+
+==================================================================================
+SECTION 8 - SUPERSESSION
+==================================================================================
+
+  C (resolver battery). a second override supersedes the first
+
+             source           | soft_limit | hard_limit |             override_id
+  ----------------------------+------------+------------+--------------------------------------
+   PLATFORM_CAPACITY_OVERRIDE |    90.0000 |   100.0000 | 01a0aaaa-0000-7000-8000-00000000000c
+  (1 row)
+
+  P7 (dispatcher path). the same supersession through the guarded function
+
+                    id                  | soft_limit | hard_limit | is_current
+  --------------------------------------+------------+------------+------------
+   01a0a936-db18-7dc8-bddd-dde53115b39a |    70.0000 |    80.0000 | f
+   01a0a936-db1c-78e0-aee0-e061f850b1fa |    90.0000 |   100.0000 | t
+  (2 rows)
+
+   current_rows_must_be_1
+  ------------------------
+                        1
+  (1 row)
+
+  The older row is retained with is_current = f. History is preserved; it is
+  not overwritten and not deleted. Exactly one current row remains.
+
+  P8. the partial unique index is the STRUCTURAL backstop, tested as the
+      table OWNER so the ACL cannot be what fails
+
+   NOTICE:  second CURRENT row raised [23505] -> duplicate key value violates unique constraint "uq_cqo_org_metric_current"
+
+  P8b. a SUPERSEDED historical row is still permitted
+
+   NOTICE:  superseded historical row accepted -> t (correct)
+
+  Together these prove uq_cqo_org_metric_current is a PARTIAL unique index
+  over non-superseded rows, not a blanket unique constraint that would make
+  override history impossible. The single-current-row invariant survives even
+  a direct owner-level write that bypasses the guarded function entirely.
+
+  DISCLOSED: the first P8 attempt was run as app_platform_admin and hit the
+  ACL first - NOTICE: second current row raised [42501] -> permission denied
+  for table capacity_quota_overrides (post112_b_out.txt). That is a correct
+  result for that principal but it does NOT test the index, so the probe was
+  re-run as the table owner to reach the index. Both results are kept.
+
+  Source: post112_d_out.txt block C; post112_b_out.txt blocks P7, P8;
+          post112_c_out.txt blocks P8, P8b.
+
+
+==================================================================================
+SECTION 9 - NO REACTIVATION OF A SUPERSEDED OVERRIDE
+==================================================================================
+
+  C. after supersession, the resolver returns ONLY the new row
+     (90/100, override_id ...000c). The superseded 70/80 row does not
+     reappear.
+
+  P7. the superseded row persists in the store with is_current = f and is
+      not returned by the resolver.
+
+  R3 (read model). six CAPACITY rows exist for this organization, of which
+      exactly one is ACTIVE and five are SUPERSEDED. The resolver returns the
+      ACTIVE one only.
+
+  The invariant: a superseded override can never come back, including when
+  the row that superseded it later EXPIRES. Section 5 proves the expiry case
+  falls back to BASE - not to the previously superseded override. There is no
+  path by which an old override reactivates.
+
+  Source: post112_d_out.txt block C; post112_b_out.txt block P7;
+          post112_e_out.txt block R3.
+
+
+==================================================================================
+SECTION 10 - NULL hard_limit = EXPLICITLY UNCAPPED  (and what it is NOT)
+==================================================================================
+
+  H. a NULL hard_limit on an ACTIVE capacity override is REPORTED as a row,
+     not inferred from an empty result
+
+             source           | soft_limit | hard_limit | explicit_row
+  ----------------------------+------------+------------+--------------
+   PLATFORM_CAPACITY_OVERRIDE |            |            | t
+  (1 row)
+
+  explicit_row = t. A row EXISTS. Its hard_limit is SQL NULL. This is the
+  only state that authorises admission without a ceiling, and it is an
+  affirmative, auditable, Platform-Admin-authored decision recorded in a row
+  that names who set it and why.
+
+  THE DISTINCTION THIS SECTION EXISTS TO ESTABLISH - required explicitly by
+  Stage 3+ section 3, and carried into 5H, 6D, 6K and the Final
+  Reconciliation:
+
+      hard_limit IS NULL on an EXISTING effective row
+          = EXPLICITLY UNCAPPED. A configuration decision was made.
+            Admission proceeds without a ceiling.
+
+      the resolver returning ZERO ROWS
+          = CAPACITY CONFIGURATION ABSENT OR INVALID. No decision was made.
+            This is NOT "unlimited" and MUST NOT be read as unlimited.
+            See section 15.
+
+  Z.5. the discriminator a consumer must branch on, all three states in one
+       result set
+
+                  label                | row_present | hard_limit |           source
+   -------------------------------------+-------------+------------+----------------------------
+    A: active override, hard_limit NULL | t           |            | PLATFORM_CAPACITY_OVERRIDE
+    B: no base row, no override         | f           |            |
+    C: finite configured base           | t           |    10.0000 | BASE
+   (3 rows)
+
+  row_present separates {A, C} from B. hard_limit IS NULL separates A from C.
+  Note that the hard_limit COLUMN renders identically blank for A and for B -
+  which is exactly the trap. A consumer that reads only hard_limit, or that
+  applies COALESCE(hard_limit, 'infinity') to a result set, cannot tell them
+  apart: over a zero-row result set there is no row for COALESCE to act on at
+  all, and an `IF NOT FOUND THEN RETURN` consumer reads that as unlimited.
+  That is the fail-open this case exists to forbid.
+
+  Z.6. the SAME three-state distinction exists on the USAGE resolver
+
+             label           | row_present | hard_limit | source
+   --------------------------+-------------+------------+--------
+    usage org1 ACTIVE_AGENTS | t           |    15.0000 | BASE
+    usage org3 ACTIVE_AGENTS | f           |            |
+   (2 rows)
+
+  The rule is domain-symmetric. It is not a capacity special case, and it
+  matches the already-documented usage-domain statement at 6K:3570 that no
+  row is "not a synonym for unlimited; it is the absence of a configured
+  limit".
+
+  Source: post112_d_out.txt block H; s3_z_out.txt blocks Z.2 - Z.6.
+
+
+==================================================================================
+SECTION 11 - USAGE / CAPACITY DOMAIN REJECTION (BOTH DIRECTIONS)
+==================================================================================
+
+  The two domains must not silently collapse into one another. Rejection is
+  proven at three independent layers.
+
+  LAYER 1 - THE RESOLVERS.
+
+   NOTICE:  usage resolver(CONCURRENT_CALLS)  raised [P0001] -> fn_resolve_effective_quota: metric CONCURRENT_CALLS is outside the canonical 5H §11.1 usage-dimension vocabulary.
+
+   NOTICE:  capacity resolver(ACTIVE_AGENTS)  raised [P0001] -> fn_resolve_effective_capacity_quota: metric ACTIVE_AGENTS is outside the canonical capacity-quota vocabulary (FAR-OD-03). Usage dimensions resolve through billing.fn_resolve_effective_quota().
+
+  Each resolver rejects the other domain's metric, and the capacity
+  resolver's message names the correct function to use instead. Both RAISE
+  rather than returning zero rows, because zero rows from a metric the caller
+  believes is valid is precisely the fail-open condition.
+
+  LAYER 2 - THE STORAGE, tested as the table OWNER so that a CHECK
+  constraint, not an ACL, is what fails:
+
+   NOTICE:  quota_overrides <- CONCURRENT_CALLS raised [23514] -> new row for relation "quota_overrides" violates check constraint "chk_qo_metric_canonical"
+
+   NOTICE:  capacity_quota_overrides <- ACTIVE_AGENTS raised [23514] -> new row for relation "capacity_quota_overrides" violates check constraint "chk_cqo_metric_canonical"
+
+  Domain separation is STRUCTURAL. A CONCURRENT_CALLS row cannot be placed in
+  the usage override store, and an ACTIVE_AGENTS row cannot be placed in the
+  capacity override store, by ANY principal including the table owner. This
+  discharges the FAR-OD-03 instruction "Do NOT put CONCURRENT_CALLS rows into
+  billing.quota_overrides" as an enforced constraint rather than a convention.
+
+  LAYER 3 - THE DISPATCHER. See section 12 (P2, P4).
+
+  Source: post112_a_out.txt blocks D and F.
+
+
+==================================================================================
+SECTION 12 - PLATFORM ADMIN DISPATCHER
+==================================================================================
+
+  billing.fn_platform_set_quota_override() keeps its public 8-argument
+  signature and UUID return unchanged, so the 6M section 18 endpoint contract
+  is preserved. 112 makes it dispatch by governed quota domain. It remains ONE
+  route.
+
+  Session principal for this block:
+
+   set_config |    session_user    | is_platform_admin
+  ------------+--------------------+-------------------
+   true       | app_platform_admin | t
+  (1 row)
+
+  P2. an unknown metric is rejected in BOTH domains, with a message that
+      names both vocabularies
+
+   NOTICE:  NOT_A_METRIC     raised [P0001] -> fn_platform_set_quota_override: metric NOT_A_METRIC is outside both governed quota vocabularies — the canonical 15-metric usage set (5H §11.1) and the canonical capacity set (FAR-OD-03).
+
+  P3. CAPACITY dispatch - CONCURRENT_CALLS is now ACCEPTED
+      (this is FAR-P1-06 gate 2; at head 111 this call could not succeed,
+      because CONCURRENT_CALLS was not representable anywhere in the database)
+
+           capacity_override_id
+    --------------------------------------
+     01a0a936-db18-7dc8-bddd-dde53115b39a
+    (1 row)
+
+  P4. it landed in the CAPACITY store ONLY
+
+                store               | concurrent_calls_rows
+    ----------------------------------+-----------------------
+     billing.quota_overrides          |                     0
+     billing.capacity_quota_overrides |                     1
+    (2 rows)
+
+  P5. the capacity override then beats the quota_configs BASE
+
+        metric      | soft_limit | hard_limit | unit_label |           source           | has_override_id
+  ------------------+------------+------------+------------+----------------------------+-----------------
+   CONCURRENT_CALLS |    70.0000 |    80.0000 | calls      | PLATFORM_CAPACITY_OVERRIDE | t
+  (1 row)
+
+  P6. USAGE dispatch through the SAME function still routes to
+      billing.quota_overrides and supersedes the 111 row
+
+                    id                  |    metric     | soft_limit | hard_limit | is_current
+    --------------------------------------+---------------+------------+------------+------------
+     01a0a932-92dc-724d-9919-191506e37ee6 | ACTIVE_AGENTS |    18.0000 |    20.0000 | f
+     01a0a936-db1b-7b41-9c24-240b15710a63 | ACTIVE_AGENTS |    28.0000 |    30.0000 | t
+    (2 rows)
+
+  One endpoint, one function, two governed stores, dispatched by domain. No
+  usage row was written by the capacity call and no capacity row was written
+  by the usage call.
+
+  Z.16f. the dispatcher validates ORGANIZATION EXISTENCE on the write path.
+         An existing organization is accepted:
+
+           override_id
+    --------------------------------------
+     01a0a952-95a0-7983-b4f9-f933bbfa245a
+    (1 row)
+
+         A non-existent organization is rejected:
+
+    ERROR:  fn_platform_set_quota_override: organization 00000000-0000-7000-8000-00000000a003 not found.
+    CONTEXT:  PL/pgSQL function fn_platform_set_quota_override(uuid,uuid,text,numeric,numeric,text,timestamp with time zone,text) line 72 at RAISE
+
+  This asymmetry with the RESOLVER is material and is analysed in section 15.
+
+  Source: post112_b_out.txt blocks P1-P6; s3_z5_out.txt block Z.16f.
+
+
+==================================================================================
+SECTION 13 - PLATFORM ADMIN AND TENANT READ MODEL
+==================================================================================
+
+  Session principal for this block - deliberately NOT a Platform Admin:
+
+   session_user | is_platform_admin |              tenant_ctx
+  --------------+-------------------+--------------------------------------
+   app_api      | f                 | 00000000-0000-7000-8000-00000000a001
+  (1 row)
+
+  R1. a TENANT consumer reads its own effective CAPACITY quota with NO
+      Platform Admin privilege
+
+        metric      | soft_limit | hard_limit | unit_label |           source
+  ------------------+------------+------------+------------+----------------------------
+   CONCURRENT_CALLS |            |            | calls      | PLATFORM_CAPACITY_OVERRIDE
+  (1 row)
+
+  This discharges the section 36 requirement that "tenant consumers must not
+  gain Platform Admin privilege merely to read their effective capacity
+  quota". The resolver is SECURITY INVOKER over the existing RLS policies and
+  SELECT grants, so no privilege escalation is needed or granted.
+
+  R2. the SAME tenant role still reads its USAGE quota through the 111
+      resolver - no regression, no escalation
+
+      metric     | soft_limit | hard_limit |      source
+    ---------------+------------+------------+-------------------
+     ACTIVE_AGENTS |    28.0000 |    30.0000 | PLATFORM_OVERRIDE
+    (1 row)
+
+  R3. BOTH override domains are visible to the tenant with ACTIVE / EXPIRED /
+      SUPERSEDED state
+
+   quota_domain |                  id                  |      metric      | soft_limit | hard_limit |   state
+  --------------+--------------------------------------+------------------+------------+------------+------------
+   CAPACITY     | 01a0aaaa-0000-7000-8000-0000000000bb | CONCURRENT_CALLS |            |            | ACTIVE
+   CAPACITY     | 01a0aaaa-0000-7000-8000-00000000000b | CONCURRENT_CALLS |    70.0000 |    80.0000 | SUPERSEDED
+   CAPACITY     | 01a0aaaa-0000-7000-8000-00000000000c | CONCURRENT_CALLS |    90.0000 |   100.0000 | SUPERSEDED
+   CAPACITY     | 01a0aaaa-0000-7000-8000-00000000000d | CONCURRENT_CALLS |   300.0000 |   400.0000 | SUPERSEDED
+   CAPACITY     | 01a0aaaa-0000-7000-8000-00000000000f | CONCURRENT_CALLS |   200.0000 |   250.0000 | SUPERSEDED
+   CAPACITY     | 01a0aaaa-0000-7000-8000-0000000000aa | CONCURRENT_CALLS |     5.0000 |     8.0000 | SUPERSEDED
+   USAGE        | 01a0a936-db1b-7b41-9c24-240b15710a63 | ACTIVE_AGENTS    |    28.0000 |    30.0000 | ACTIVE
+   USAGE        | 01a0a932-92dc-724d-9919-191506e37ee6 | ACTIVE_AGENTS    |    18.0000 |    20.0000 | SUPERSEDED
+  (8 rows)
+
+  Exactly one ACTIVE row per (domain, metric). The read model reports the
+  quota_domain discriminator, so a 6M consumer can render both domains
+  through one endpoint without inferring the domain from the metric name.
+
+  R4. no billing.quota_configs BASE row leaks into either override store
+
+   base_rows | base_leaked_into_usage | base_leaked_into_capacity
+  -----------+------------------------+---------------------------
+           2 |                      0 |                         0
+  (1 row)
+
+  Two base rows exist and neither is reachable through an override store. The
+  base and the administrative overlay remain separate objects; the override
+  path never writes the commercial baseline.
+
+  R7. RLS - the tenant sees ONLY its own organization's capacity rows
+
+   own_rows | other_tenant_rows_must_be_0
+  ----------+-----------------------------
+          6 |                           0
+  (1 row)
+
+  Source: post112_e_out.txt blocks R1, R2, R3, R4, R7.
+
+
+==================================================================================
+SECTION 14 - AUDIT RESOURCE CONTRACT  (FAR-P2-09)
+==================================================================================
+
+  P9. the audit shape across BOTH domains
+
+      action_kind     |   actor_type   | resource_type  | quota_domain |      metric      | outcome
+  --------------------+----------------+----------------+--------------+------------------+---------
+   QUOTA_OVERRIDE_SET | PLATFORM_ADMIN | QUOTA_OVERRIDE |              | ACTIVE_AGENTS    | SUCCESS
+   QUOTA_OVERRIDE_SET | PLATFORM_ADMIN | QUOTA_OVERRIDE | CAPACITY     | CONCURRENT_CALLS | SUCCESS
+   QUOTA_OVERRIDE_SET | PLATFORM_ADMIN | QUOTA_OVERRIDE | USAGE        | ACTIVE_AGENTS    | SUCCESS
+   QUOTA_OVERRIDE_SET | PLATFORM_ADMIN | QUOTA_OVERRIDE | CAPACITY     | CONCURRENT_CALLS | SUCCESS
+  (4 rows)
+
+  Readings:
+    * action_kind remains QUOTA_OVERRIDE_SET for both domains. It did not
+      change and no domain-specific action kind was invented.
+    * resource_type is QUOTA_OVERRIDE for all 111+ rows, including the
+      capacity rows written by 112.
+    * quota_domain is a NEW discriminator carried in the audit payload. It is
+      blank on row 1 - the override created at head 111, BEFORE 112 existed.
+      This is the honest before/after boundary, visible in the data.
+
+  FAR-P2-09 IS A CONTROLLED AUDIT-CONTRACT EXTENSION, NOT AN UNCHANGED SHAPE.
+  Pre-111 rows carry resource_type = QUOTA_CONFIG; 111+ rows carry
+  resource_type = QUOTA_OVERRIDE; and 112+ rows additionally carry a
+  quota_domain discriminator that earlier rows do not have. A downstream
+  consumer that assumed QUOTA_CONFIG was the only resource_type for quota
+  administration, or that assumed quota_domain is always present, would be
+  wrong. This is recorded as an extension and is carried into the Event/Audit
+  ledger; it is NOT described as "unchanged in shape and literal".
+
+  P10. every audited resource_id resolves to a real override row in EXACTLY
+       the domain it claims
+
+   claimed_domain |             resource_id              | in_usage_store | in_capacity_store | points_at_base_config
+  ----------------+--------------------------------------+----------------+-------------------+-----------------------
+                  | 01a0a932-92dc-724d-9919-191506e37ee6 | t              | f                 |                     0
+   CAPACITY       | 01a0a936-db18-7dc8-bddd-dde53115b39a | f              | t                 |                     0
+   USAGE          | 01a0a936-db1b-7b41-9c24-240b15710a63 | t              | f                 |                     0
+   CAPACITY       | 01a0a936-db1c-78e0-aee0-e061f850b1fa | f              | t                 |                     0
+  (4 rows)
+
+  in_usage_store and in_capacity_store are mutually exclusive on every row,
+  and points_at_base_config = 0 everywhere: no audit event references a
+  billing.quota_configs row. The audit trail points at override rows, never
+  at the commercial baseline.
+
+  P11. no enum migration is required for the resource_type extension
+
+         conname        |                                    def
+  ----------------------+---------------------------------------------------------------------------
+   chk_ae_action_kind   | CHECK (((length(action_kind) >= 1) AND (length(action_kind) <= 200)))
+   chk_ae_resource_type | CHECK (((length(resource_type) >= 1) AND (length(resource_type) <= 200)))
+  (2 rows)
+
+  072_5J constrains both columns by LENGTH only. 'QUOTA_OVERRIDE' is
+  structurally permitted already, so FAR-P2-09 needs no migration beyond 112
+  and specifically does not need a migration 113.
+
+  DISCLOSED: the first P9 and P10 attempts failed with
+  `ERROR: column "metadata" does not exist` (post112_b_out.txt). The jsonb
+  column on audit.audit_events is resource_snapshot, not metadata. The probes
+  were corrected and re-run; the corrected run is what is transcribed above.
+  The failed attempts produced NO result and none is claimed from them.
+
+  Source: post112_c_out.txt blocks P9, P10, P11; failures in post112_b_out.txt.
+
+
+==================================================================================
+SECTION 15 - ZERO-ROW / NO-CONFIGURED-CAPACITY SEMANTICS
+                      (Stage 3+ section 3 - the NEW normative work)
+==================================================================================
+
+15.1  THE OBSERVED BEHAVIOUR
+
+  Z.7. zero rows is NOT an error at the SQL layer - the resolver returns
+       cleanly
+
+                outcome              | rows
+     -----------------------------------+------
+      resolver returned without raising |    0
+     (1 row)
+
+  Z.11f. AUTHORITATIVE. An organization that EXISTS and has NO configured
+         capacity quota of any kind:
+
+    org_exists | base_rows | override_rows
+   ------------+-----------+---------------
+    t          |         0 |             0
+   (1 row)
+
+    metric | soft_limit | hard_limit | source
+   --------+------------+------------+--------
+   (0 rows)
+
+    rows_returned_existing_org_no_config
+   --------------------------------------
+                                       0
+   (1 row)
+
+  Z.14f. the same result for an ordinary tenant principal reading its own
+         tenant context - this is not an artefact of the privileged session
+
+    rows_returned_tenant_context
+   ------------------------------
+                               0
+   (1 row)
+
+15.2  THE FINDING THAT MUST NOT BE SMOOTHED OVER
+
+  Z.15f. the RESOLVER conflates "configuration absent" with
+         "organization does not exist"
+
+                 state               | rows_returned
+   ----------------------------------+---------------
+    existing org, no capacity config |             0
+    non-existent organization        |             0
+   (2 rows)
+
+  The capacity resolver validates tenant CONTEXT; it does not validate
+  organization EXISTENCE. An existing-but-unconfigured organization and a
+  wholly non-existent organization are INDISTINGUISHABLE at the resolver's
+  return value - both are zero rows, and neither raises.
+
+  The guarded WRITE path DOES distinguish them (section 12, Z.16f): it
+  rejects a non-existent organization by name.
+
+  This asymmetry is reported, not smoothed over, and it STRENGTHENS the
+  fail-closed requirement rather than weakening it. Because the read path
+  cannot tell "you have no capacity configured" from "you do not exist", a
+  consumer has no basis whatsoever for treating zero rows as permission to
+  proceed. Neither of the two states it might be in is a state in which
+  unlimited concurrent calls were authorised.
+
+  Z.17f. zero rows was a CONFIGURATION STATE, not a defect. The same
+         organization, once configured through the guarded path, resolves
+         normally:
+
+        metric      | soft_limit | hard_limit |           source
+   ------------------+------------+------------+----------------------------
+    CONCURRENT_CALLS |     3.0000 |     7.0000 | PLATFORM_CAPACITY_OVERRIDE
+   (1 row)
+
+  Z.18f. the four distinguishable capacity states coexisting in one instance
+
+                             label                           | row_present | hard_limit |           source
+   -----------------------------------------------------------+-------------+------------+----------------------------
+    A: active override, hard_limit NULL = EXPLICITLY UNCAPPED | t           |            | PLATFORM_CAPACITY_OVERRIDE
+    B: finite configured BASE                                 | t           |    10.0000 | BASE
+    C: finite configured OVERRIDE                             | t           |     7.0000 | PLATFORM_CAPACITY_OVERRIDE
+    D: NO CONFIGURED CAPACITY QUOTA (zero rows)               | f           |            |
+   (4 rows)
+
+15.3  THE NORMATIVE INVARIANT
+
+  NO CONFIGURED HARD CAPACITY QUOTA MUST NOT FAIL OPEN.
+
+  For CONCURRENT_CALLS this is a HARD CAPACITY ADMISSION CONTRACT. Stated as
+  consumer rules:
+
+    (1) row_present = FALSE (resolver returned zero rows) means CAPACITY
+        CONFIGURATION ABSENT OR INVALID. It MUST NOT be described as
+        "unlimited" and MUST NOT admit a concurrent call.
+    (2) A row present with hard_limit IS NULL means EXPLICITLY UNCAPPED.
+        This, and only this, authorises admission without a ceiling.
+    (3) A row present with a finite hard_limit is the ceiling. It is never
+        rounded; NUMERIC(18,4) fractional limits are compared as stored.
+    (4) A NULL metric, or a metric outside the governed vocabulary, is a
+        CALLER DEFECT and raises. It is not a configuration state.
+
+  These are distinct outcomes and a consumer must branch on all four.
+
+15.4  WHERE THE FAIL-CLOSED DECISION LIVES
+
+  Z.7 establishes that the SQL layer returns cleanly on zero rows. The
+  resolver deliberately does not raise, because "this organization has no
+  configured capacity" is a legitimate, reportable configuration state that a
+  6M administrative read must be able to display without an exception.
+
+  The fail-closed decision therefore belongs to the CONSUMER contract - 6D
+  call admission, 6H campaign dispatch, and the 6K capacity authority that
+  both consume. That is precisely why Stage 3+ section 3 requires it written
+  down rather than left implicit, and it is written down in 6K section 54,
+  6D and 6H by this pass.
+
+15.5  NO NEW PUBLIC ERROR CODE WAS INVENTED
+
+  The existing contracts already cover this case and are REUSED:
+
+    * 6A section 24.2 already defines the error family
+      DEPENDENCY_UNAVAILABLE, mapped to 503 by 6A section 7.4 and 6A:148
+      ("Dependency failure surfaced honestly, not masked as 500").
+    * 6H:529 and 6H:1772 already establish the pattern for a missing
+      configuration hard stop: 503 DEPENDENCY_UNAVAILABLE carrying a
+      details.reason discriminator (there, COMPLIANCE_POLICY_NOT_FOUND),
+      described as "fail-closed, never a permissive default". The capacity
+      analogue takes a reason discriminator on the existing code rather than
+      a new top-level code.
+    * 6H:1189 already states the fail-closed rule for CONCURRENT_CALLS
+      verbatim: if the quota source "is unreachable when a pre-flight or
+      dispatch check needs it, the platform fails closed (treat as
+      quota-exhausted, DEFERRED, never ELIGIBLE by default)". The campaign
+      path therefore needs no synchronous client error at all - failing
+      closed means DEFERRED.
+    * 6K:3570 already states the "no row is not a synonym for unlimited"
+      rule for the USAGE domain. Capacity reuses the identical framing.
+
+  IMPLEMENTATION-READINESS, DISCLOSED AS DEFERRED, NOT AS CLOSED.
+  The exact public error mapping for the synchronous 6D call-admission path -
+  specifically the literal details.reason token - remains
+  implementation-specific and is carried as implementation-readiness in the
+  handoff ledger. The NORMATIVE INVARIANT above is NOT deferred: it is
+  binding now, in every consumer, regardless of how the reason token is
+  finally spelled.
+
+
+==================================================================================
+DISCLOSED HARNESS LIMITATIONS AND CORRECTIONS
+==================================================================================
+
+  These are reported as part of the evidence. None of them changes a PASS to
+  a FAIL, and none is omitted.
+
+  DISCLOSURE 1 - the original G.4 expiry probe was a single-snapshot
+  artefact, and its result was NOT used.
+    The original G.4 placed `SELECT pg_sleep(5);` and the resolver query in
+    one psql -c string. They therefore shared one implicit transaction and
+    one snapshot, so the resolver still reported the pre-expiry
+    PLATFORM_OVERRIDE 33/44 even though wall-clock time had passed the
+    expiry. That output is an artefact of the harness, not a behaviour of
+    112. The probe was re-run as s3_g4.sh with each statement in its own -c
+    (hence its own transaction), and the re-run is what section 5 cites.
+    The expiry-fallback assertion in this file rests on the G.4 RE-RUN and on
+    case G.5; the original G.4 line is cited nowhere.
+    The re-run additionally produced the root-cause proof at G.4.6
+    (now_is_transaction_timestamp = t, now_is_clock_timestamp = f), which is
+    why the time semantics are now stated as a contract in section 5 rather
+    than left as an incident.
+
+  DISCLOSURE 2 - Stage 2 case I was MISLABELLED.
+    post112_d_out.txt block I is labelled "org with NO capacity base row and
+    no override" and reports rows_for_org_without_any_config = 0. The
+    organization it used, ...a003, does not exist at all - confirmed by Z.1
+    (only two organizations are returned) and by the explicit probe
+    org3_exists = f. The measured VALUE is correct, but the LABEL claimed
+    more than the probe established: it measured a non-existent organization,
+    not an existing unconfigured one.
+    This is a reporting correction, NOT a defect in 112. It is corrected by
+    Z.11f in section 15, which proves the intended state on a genuinely
+    existing organization, and by Z.15f, which shows why the two cases were
+    confusable in the first place - the resolver returns zero rows for both.
+
+  DISCLOSURE 3 - three failed attempts to build the Z fixture, all reported.
+    Creating the "exists but unconfigured" organization required three
+    attempts. Each failure is preserved in the captured output:
+      s3_z2_out.txt  as app_platform_admin -> ERROR 42501 permission denied
+                     for table organizations. app_platform_admin holds SELECT
+                     only on organization.organizations; this is itself a
+                     correct and useful privilege finding.
+      s3_z3_out.txt  as postgres with id/name/slug/status -> NOT NULL
+                     violation on owner_user_id.
+      s3_z4_out.txt  as postgres, owner_user_id supplied -> NOT NULL
+                     violation on country_code.
+      s3_z5_out.txt  as postgres with every NOT NULL column that has no
+                     default (name, slug, owner_user_id, country_code,
+                     currency) -> INSERT 0 1. SUCCEEDED.
+    CONSEQUENCE, STATED PLAINLY: because the fixture did not exist during the
+    first three attempts, the Z.11 / Z.14 / Z.15 / Z.16 lines inside
+    s3_z2_out.txt, s3_z3_out.txt and s3_z4_out.txt were measuring the
+    NON-EXISTENT organization and are MISLABELLED in those files. They are
+    superseded by the Z.11f / Z.14f / Z.15f / Z.16f lines in s3_z5_out.txt,
+    and only the s3_z5_out.txt values are cited in section 15.
+
+  DISCLOSURE 4 - Z.18f's state D probe.
+    In Z.18f the "no configured capacity quota" row uses organization ...a003
+    (which does not exist), because by that point in the same run
+    organization ...a004 had been deliberately configured by Z.16f in order
+    to prove Z.17f. The existing-but-unconfigured case is therefore
+    established by Z.11f and Z.14f, not by the Z.18f row. Z.18f is presented
+    as the four-state coexistence summary it is, and the distinction is
+    exactly the one section 15.2 reports.
+
+  DISCLOSURE 5 - P8 first attempt hit the ACL, not the index.
+    Recorded in place in section 8. Both results are kept.
+
+  DISCLOSURE 6 - P9/P10 first attempts referenced a non-existent column.
+    Recorded in place in section 14. No result is claimed from the failed
+    attempts.
+
+  DISCLOSURE 7 - fixture state is mutated and cumulative.
+    far112_incr carries fixture mutations accumulated across Stage 2 and
+    Stage 3 (superseded overrides, an expired override, a created
+    organization). Probes are therefore order-dependent within a run and the
+    absolute values differ between blocks - for example the org1
+    CONCURRENT_CALLS base reads 45/50 in section 3 and 55/60 after the
+    section 6 base change. Each block states the values it observed. No block
+    is presented as an independent from-scratch measurement, and the
+    convergence proof that the SCHEMA is identical regardless of path is in
+    FAR_112_01, not here.
+
+  NOT A LIMITATION, BUT STATED FOR THE REVIEWER.
+    Case F.11 in FAR_112_03 shows an illegal UPDATE rejected even when run as
+    postgres - table owner and superuser - because the guard is a BEFORE
+    UPDATE trigger rather than an ACL or an RLS policy. That result is about
+    the 110 agent-mutation guard and is reported there. It is NOT generalised
+    into a claim that superuser privilege cannot be bypassed; see the
+    security wording in FAR_112_03.
+
+
+==================================================================================
+RESULT SUMMARY
+==================================================================================
+
+  1  capacity vocabulary ................................. PASS
+  2  NULL safety, both helpers and both resolvers ........ PASS  (FAR-P2-08)
+  3  base capacity resolution ............................ PASS
+  4  temporary capacity override ......................... PASS
+  5  expiry fallback to the CURRENT base ................. PASS  (re-run; see D1)
+  6  base changed under an active override ............... PASS
+  7  permanent override (expires_at IS NULL) ............. PASS
+  8  supersession ........................................ PASS
+  9  no reactivation of a superseded override ............ PASS
+ 10  NULL hard_limit = explicitly uncapped ............... PASS
+ 11  usage/capacity domain rejection, both directions .... PASS
+ 12  Platform Admin dispatcher ........................... PASS  (FAR-P1-06 gate 2)
+ 13  Platform Admin / tenant read model .................. PASS
+ 14  audit resource contract ............................. PASS  (FAR-P2-09,
+                                                                  recorded as a
+                                                                  controlled
+                                                                  extension)
+ 15  zero-row / no-configured-capacity semantics ......... PASS, with the
+                                                           resolver
+                                                           existence/configuration
+                                                           conflation DISCLOSED
+                                                           and the public error
+                                                           token carried as
+                                                           deferred
+                                                           implementation-readiness
+
+  This file records evidence. It does not approve, accept or freeze anything.
+  Those decisions belong to the independent reviewer.
