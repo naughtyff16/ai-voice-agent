@@ -287,6 +287,19 @@ plans → plan_versions → plan_prices (included_quantity, overage_rate per met
 
 **OPEN DESIGN DECISION**: mid-period quota override by admin (ad-hoc limit changes) — not defined in Phase 4F; excluded from V1 DDL; `quota_configs.override_reason` reserved for future use.
 
+> **SUPERSEDED (controlled amendment, `111_5H4`, 2026-09-15).** The statement above is the
+> original historical §13 position and is retained unedited as the record of what this document
+> decided at the time. It no longer describes the implemented system: owner decision **`FAR-OD-02`
+> = Option B** resolved this open decision, and migration `111_5H4` implements mid-period
+> platform-admin quota overrides as a **separate, additive layer** — `billing.quota_overrides` —
+> that never overwrites `quota_configs`. The diagram above therefore shows only the base layer;
+> the effective quota is resolved by `billing.fn_resolve_effective_quota(organization_id, metric)`,
+> **not** by reading `quota_configs` directly. `quota_configs.override_reason` and its sibling
+> override columns were **not** used for this and are now commented `LEGACY (111_5H4)`; they are
+> retained for 106-era history and are not read by the resolver. See
+> "Controlled Amendment — Final API Reconciliation (`111_5H4`, 2026-09-15)" at the end of this
+> document for the normative contract.
+
 ---
 
 ## 14. Credit Model
@@ -2257,7 +2270,7 @@ VALUES ('INR', 'INR', 1.000000, 'identity', '2024-01-01');
 | ODD-5H-01 | Custom billing intervals (weekly, quarterly) | Excluded from V1; `billing_cycle` CHECK allows extension |
 | ODD-5H-02 | Downgrade proration | Not defined in Phase 4F; excluded from V1; `billing_adjustments` can handle manual corrections |
 | ODD-5H-03 | Billing period reopening | Not defined in Phase 4F; excluded from V1 |
-| ODD-5H-04 | Mid-period quota override by admin | `quota_configs.override_reason` reserved; logic excluded from V1 |
+| ODD-5H-04 | Mid-period quota override by admin | **SUPERSEDED / RESOLVED (`111_5H4`, 2026-09-15)** by owner decision `FAR-OD-02` = Option B — implemented as the additive `billing.quota_overrides` layer, **not** via `quota_configs.override_reason`. Original disposition, retained as history: "`quota_configs.override_reason` reserved; logic excluded from V1". See the controlled amendment at the end of this document. |
 | ODD-5H-05 | Exact HSN/SAC code for platform services | Requires legal/tax review; seed comment provided but row not inserted |
 | ODD-5H-06 | Fiscal year boundary per organization | V1 hardcodes 1 April (India) at application layer; org-level config needed for global expansion |
 | ODD-5H-07 | GDPR retention periods for financial records | Architecture supports anonymization but exact retention years require legal review |
@@ -2399,3 +2412,114 @@ grant is untouched. Live-validated: direct-INSERT denial, function-path
 success, cross-tenant `invoice_id` rejection, invalid `adjustment_type`
 rejection — see `docs/phase-05-database-design/5L-Global-Database-Reconciliation/
 5L-Global-Database-Reconciliation.md`.
+
+---
+
+## Controlled Amendment — Final API Reconciliation (`111_5H4`, 2026-09-15)
+
+This amendment resolves this document's own §13 open design decision and `ODD-5H-04` (§31). Both
+original statements are left **unedited** above and marked superseded; this section is the
+normative contract.
+
+### Owner decision `FAR-OD-02` = Option B — true temporary overrides with baseline fallback
+
+Quota is **two layers**, never one:
+
+| Layer | Object | Owner | Lifetime |
+|---|---|---|---|
+| Commercial / base quota | `billing.quota_configs` | seeded from `plan_prices` on subscription creation; changed by commercial events | as long as the subscription says |
+| Temporary platform-admin override | `billing.quota_overrides` (new in `111_5H4`) | written only by `billing.fn_platform_set_quota_override(...)` | until `expires_at`, or until superseded, or permanent |
+
+**The override never overwrites the base.** Setting, superseding or expiring an override makes no
+change whatsoever to `billing.quota_configs`, and the base value is never copied into the override
+row. This is the defect `FAR-P1-05` closed: the `107_5B5`-era override mutated the single
+`UNIQUE (organization_id, metric)` row in `quota_configs`, so when it expired the only effective
+`hard_limit` was gone and resolution fell through to "not found → unlimited" — a fail-open.
+
+### Resolution contract (normative)
+
+`billing.fn_resolve_effective_quota(p_organization_id UUID, p_metric TEXT)` is the **only**
+supported way to obtain an effective quota. Consumers must not read `quota_configs` directly to
+decide admission or to report a limit.
+
+1. An **active, non-superseded** override (`superseded_at IS NULL` and not expired) wins, and the
+   result is reported with `source = 'PLATFORM_OVERRIDE'`.
+2. Otherwise the **current** base row wins, reported with `source = 'BASE'`.
+3. Otherwise **no row** is returned. "No row" means *no configured quota*, and callers must treat
+   it as such — it is **not** a synonym for unlimited.
+4. `expires_at IS NULL` means **permanent**, not expired.
+5. **Unlimited is `hard_limit IS NULL` on the effective result**, whichever layer produced it. 6K's
+   `overage_allowed` is exactly this condition.
+6. Expiry is **read-time**: the override is compared against `NOW()` when resolved. There is no
+   sweeper job and no background state change. Because `NOW()` is `transaction_timestamp()`, an
+   effective quota is stable for the duration of a transaction and an expiry becomes visible to the
+   **next** transaction.
+7. On expiry the effective quota falls back to the **current** base value — not to unlimited, and
+   not to a stale historical base captured when the override was created.
+
+Live-proven sequence: base `1000` → override `2000` (base row still reads `1000`) → base raised to
+`1200` while the override is active (effective still `2000`) → on expiry, effective **`1200`**.
+
+`billing.fn_resolve_effective_quota` is **SECURITY INVOKER**: RLS and tenant context bind the
+caller. `app_api`, `app_worker` and `app_readonly` resolve their own tenant's effective quota with
+**no** Platform Admin privilege, and cross-tenant reads are refused. Tenant isolation is not
+weakened to deliver this feature.
+
+### Metric vocabulary
+
+`billing.fn_is_canonical_usage_metric(TEXT)` is the single source of the canonical 15-metric
+vocabulary of §11.1, and backs the table `CHECK` `chk_qo_metric_canonical`:
+
+`CALL_MINUTES`, `AI_MINUTES`, `STT_SECONDS`, `TTS_CHARACTERS`, `LLM_PROMPT_TOKENS`,
+`LLM_COMPLETION_TOKENS`, `EMBEDDING_TOKENS`, `CAMPAIGN_CALLS`, `WORKFLOW_EXECUTIONS`,
+`TOOL_EXECUTIONS`, `KNOWLEDGE_RETRIEVALS`, `STORAGE_GB`, `API_REQUESTS`, `ACTIVE_AGENTS`,
+`ACTIVE_PHONE_NUMBERS`.
+
+No legacy alias is retained. `AGENT_COUNT` is **rejected**, not silently translated to
+`ACTIVE_AGENTS` — refused by the function (`P0001`) and independently by the table
+(`23514 / chk_qo_metric_canonical`). This closed `FAR-P1-04`, where the `107_5B5` override
+vocabulary and the canonical vocabulary — 15 metrics each — intersected in only **two** members.
+
+**Maintenance caveat.** PostgreSQL does not revalidate existing rows when a function backing a
+`CHECK` is replaced. Any future narrowing of this vocabulary must be accompanied by an explicit
+revalidation of `billing.quota_overrides`, not by a `CREATE OR REPLACE` of the function alone.
+
+### Write path, supersession and audit
+
+`billing.fn_platform_set_quota_override(...)` is the sole write path: **SECURITY DEFINER**, with
+`EXECUTE` granted to `app_platform_admin` only (`app_api`'s `107_5B5`-era grant is revoked), an
+explicit `search_path`, and validation of the acting admin, the organization's existence, the
+canonical metric, `soft_limit <= hard_limit`, reason length, and a **future** `expires_at`.
+`hard_limit` may be `NULL` (unlimited) and limits are `NUMERIC(18,4)` — fractional limits are
+supported and compared without rounding.
+
+Supersession is **atomic**: the prior current row is superseded and the new row inserted under one
+`pg_advisory_xact_lock` in one transaction, with `uq_qo_org_metric_current` — a partial unique
+index on `(organization_id, metric) WHERE superseded_at IS NULL` — enforcing "at most one current
+override" structurally rather than by a check-then-insert race. A superseded override can never
+reactivate. The **audit event is written in the same transaction** as the override row: rolling
+back the override rolls back the audit record, and a refused call writes neither.
+
+### Effect on ACTIVE_AGENTS admission and the lower-limit contract
+
+`voice.fn_assert_agent_quota_admission(UUID)` (from `110_5C2`) now resolves the **effective** quota
+through the resolver instead of reading `quota_configs`. Every `110_5C2` invariant is preserved and
+was re-verified live. `110_5C2` was not amended.
+
+When the effective limit drops below current usage — by expiry, by supersession, or by a
+deliberately lower override — the database closes **admission only**. New admissions raise `53400`;
+**no** Agent or phone number is deleted, deprecated, soft-deleted or otherwise mutated, and existing
+Agents keep working (a `DRAFT → PUBLISHED` transition was live-proven to succeed while the tenant
+was over limit). Reconciling usage down to a lower limit is a commercial decision surfaced through
+the API, never a database side effect.
+
+### Legacy columns
+
+`billing.quota_configs.override_reason`, `.effective_from`, `.expires_at` and `.updated_by` are
+**retained** (106-era history is not destroyed) and are now commented `LEGACY (111_5H4)`. The
+resolver does **not** read them. In particular, a `quota_configs.expires_at` lying in the past does
+**not** mean "the baseline disappeared" — the base row remains the fallback, which was explicitly
+validated.
+
+Validation evidence: `5K/validation/FINAL_API_RECONCILIATION_111_VALIDATION_REPORT.md` and the
+three `FAR_111_0*` transcripts.

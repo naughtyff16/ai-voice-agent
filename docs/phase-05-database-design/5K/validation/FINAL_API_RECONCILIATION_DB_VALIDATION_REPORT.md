@@ -16,6 +16,16 @@ All pre-amendment 110 hashes/transcripts are SUPERSEDED.
 **Status of this document:** canonical validation record for migration `110_5C2`. It does not
 supersede any Phase 6M document; Phase 6M is not reopened.
 
+> **SCOPE NOTICE — added by the `111_5H4` pass (controlled amendment, 2026-09-15).**
+> This document remains the canonical validation record **for migration `110_5C2`**, and its
+> historical statements are left unedited. Its repository-wide claims — "Migrations `001`–`109`
+> are untouched; no `111` exists" (§2) and its single-head statements — were true for that pass
+> and are **superseded** as a description of the current repository: migration `111_5H4` now
+> exists and is the single Alembic head, with `110_5C2` as its immediate parent. `110_5C2` was
+> **not** amended again. `FAR-OD-01` and every `110_5C2` guarantee recorded here remain in force
+> and were re-verified by the later pass (`FAR_111_03`, Battery E.10). Current record:
+> `FINAL_API_RECONCILIATION_111_VALIDATION_REPORT.md`.
+
 ---
 
 ## 1. Why a DB remediation was required
@@ -57,7 +67,7 @@ migration closes both edges (§2 rows 5–6).
 
 One additive migration, created under the authorisation granted for this closure pass only, and
 **amended in place** after the second independent review (no second migration was created).
-Migrations `001`–`109` are untouched; no `111` exists.
+Migrations `001`–`109` are untouched; no `111` exists. *(Scope-superseded by the `111_5H4` pass — see the SCOPE NOTICE above; the sentence is retained as the historical record of this pass.)*
 
 | # | Object | Kind | Purpose |
 |---|---|---|---|
@@ -136,7 +146,7 @@ the end of the pass. Alembic 1.19.1 / SQLAlchemy 2.0.52 / psycopg2 2.9.12.
 | §14 no new `app_platform_admin` write bypass | **PASS** — it *lost* INSERT and gained nothing | `FAR_DB_03` Part 1 §4 |
 | §14 RLS intact, no accidental `BYPASSRLS` | **PASS** — enabled + forced, policy unchanged, 0 new grants | `FAR_DB_03` Part 1 §5–6 |
 | §15 audit/outbox atomicity | **PASS** — 1/1/1 on commit, nothing on rollback, nothing on rejection | `FAR_DB_02` §15 |
-| `created_by` actor check (`FAR-P2-03`) | **PASS on the positive path** — every accepted create and clone passed `fn_assert_agent_actor`; the catalog confirms `SECURITY INVOKER` with no `EXECUTE` grant. **The negative non-member case is not separately transcribed**; it is verified by code inspection (`110_5C2.sql` lines 237–262, called at lines 297 and 367) | `FAR_DB_02` §2, §11, §13; `FAR_DB_03` Part 1 §1–§3 |
+| `created_by` actor check (`FAR-P2-03`) | **PASS on the positive path** — every accepted create and clone passed `fn_assert_agent_actor`; the catalog confirms `SECURITY INVOKER` with no `EXECUTE` grant. **The negative non-member case is not separately transcribed**; it is verified by code inspection (`110_5C2.sql` lines 237–262, called at lines 297 and 367) *(**SUPERSEDED AS A DESCRIPTION OF THE EVIDENCE SET** by the `111_5H4` pass, 2026-09-15 — the sentence is retained unedited because it was true for this pass. The negative case is now **directly transcribed**: `FAR_111_03_security_integration_battery.txt`, **Battery H, 7/7** — outsider non-member rejected `P0001`, other-tenant member rejected `P0001`, `NULL` actor rejected `P0001`, valid same-tenant member succeeds, the rejected attempts write **0** Agent rows, clone enforces the identical guard, and `app_api` cannot call the guard directly (`42501`). The guard itself was not changed and `110_5C2` was not amended again; only the evidence set changed. Tracked and closed as `FAR-P2-04` in `FINAL-API-RECONCILIATION.md` §13.)* | `FAR_DB_02` §2, §11, §13; `FAR_DB_03` Part 1 §1–§3 |
 | §30 `001`–`109` byte-identical | **PASS** — 218 files, 0 differences | `FAR_DB_01` §4 |
 
 **Concurrency was not simulated.** A controller session held the guarded function's own advisory

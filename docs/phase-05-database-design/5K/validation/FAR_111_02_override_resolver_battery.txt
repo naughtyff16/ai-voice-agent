@@ -1,0 +1,462 @@
+==================================================================================
+FAR_111_02 - CANONICAL VOCABULARY, BASELINE/OVERRIDE RESOLUTION, SUPERSESSION,
+             PLATFORM-ADMIN OVERRIDE MUTATION, AND THE ADMIN READ MODEL
+Final API Reconciliation - 111_5H4 CLOSURE PASS
+Owner decision in force: FAR-OD-02 = OPTION B
+Defects addressed:       FAR-P1-04, FAR-P1-05
+==================================================================================
+
+ENGINE ..... PostgreSQL 18.6 (Debian 18.6-1.pgdg12+2), disposable container
+             far_fresh (127.0.0.1:55441, db far_v2), built by
+             `alembic upgrade head` from base -> 111_5H4. Destroyed at the end
+             of the pass.
+CALLER ..... each case names its principal, and the principal is stated honestly.
+             Battery D runs as app_platform_admin (the real runtime admin
+             principal). Batteries A, B and C run as postgres, because they need
+             to plant fixtures directly in billing.quota_configs and
+             billing.quota_overrides, which NO application principal is allowed
+             to do (proven in FAR_111_03 Battery J: app_api gets 42501 on both
+             tables). In Battery B the session nevertheless sets app.tenant_id
+             and leaves app.is_platform_admin unset, so
+             organization.is_platform_admin() reads FALSE and the resolver's
+             TENANT code path - not the admin path - is what is exercised
+             (see B.PRE). The resolver being reachable by the real runtime
+             principals app_api / app_worker / app_readonly, and refused across
+             tenants, is proven separately in FAR_111_03 Battery J. Nothing here
+             relies on superuser to make a result come out right; superuser is
+             used only to create the starting conditions.
+METHOD ..... every line below is real captured output. Nothing is reconstructed,
+             predicted or paraphrased from the migration text.
+
+FIXTURES ... FAR Org A = 11111111-1111-7111-a111-00000000000a
+             FAR Org B = 22222222-2222-7222-a222-00000000000b
+             Platform admin actor A = aaaaaaaa-0000-7000-a000-000000000001
+
+TIME SEMANTICS
+  NOW() inside these functions is transaction_timestamp(). The effective quota is
+  therefore STABLE for the duration of a transaction, and an override that
+  expires mid-transaction becomes visible as expired to the NEXT transaction.
+  This is the intended read-time expiry semantic: expiry is evaluated when the
+  quota is read, and no background job, sweeper or cron is required to retire an
+  expired override.
+
+==================================================================================
+PART 1 - BATTERY A: CANONICAL USAGE-METRIC VOCABULARY (FAR-P1-04)
+==================================================================================
+
+FAR-P1-04 was the finding that 107_5B5's CREATE OR REPLACE of
+billing.fn_platform_set_quota_override used a metric vocabulary incompatible
+with the canonical 5H section 11.1 / 6K set. The set difference below was
+computed PROGRAMMATICALLY inside the database, not read off either document.
+
+-- A.1/A.2 all 15 canonical metrics are accepted by billing.fn_is_canonical_usage_metric()
+
+   canonical_metric    | accepted_by_111
+  ---------------------+-----------------
+   ACTIVE_AGENTS       | t      CAMPAIGN_CALLS        | t    STORAGE_GB          | t
+   ACTIVE_PHONE_NUMBERS| t      EMBEDDING_TOKENS      | t    STT_SECONDS         | t
+   AI_MINUTES          | t      KNOWLEDGE_RETRIEVALS  | t    TOOL_EXECUTIONS     | t
+   API_REQUESTS        | t      LLM_COMPLETION_TOKENS | t    TTS_CHARACTERS      | t
+   CALL_MINUTES        | t      LLM_PROMPT_TOKENS     | t    WORKFLOW_EXECUTIONS | t
+  (15 rows)
+
+   canonical_accepted | canonical_missing
+  --------------------+-------------------
+                   15 |                 0
+
+-- A.3 every 107_5B5 legacy metric, tested against the 111 vocabulary
+
+         legacy_107_metric       | still_accepted
+  -------------------------------+----------------
+   AGENT_COUNT                   | f
+   API_REQUEST_COUNT             | f
+   CALL_COUNT                    | f
+   CALL_MINUTES                  | t     <- also canonical
+   CONCURRENT_CALL_COUNT         | f
+   INTEGRATION_COUNT             | f
+   KNOWLEDGE_BASE_DOCUMENT_COUNT | f
+   LLM_TOKEN_COUNT               | f
+   RECORDING_STORAGE_GB          | f
+   SEAT_COUNT                    | f
+   SMS_COUNT                     | f
+   STORAGE_GB                    | t     <- also canonical
+   WEBHOOK_DELIVERY_COUNT        | f
+   WHATSAPP_MESSAGE_COUNT        | f
+   WORKFLOW_EXECUTION_COUNT      | f
+  (15 rows)
+
+-- A.4 the set arithmetic that proves FAR-P1-04 was a real incompatibility
+
+   legacy_107_size | canonical_5h_size | intersection | legacy_only | canonical_absent_from_107
+  -----------------+-------------------+--------------+-------------+---------------------------
+                15 |                15 |            2 |          13 |                        13
+
+  Two vocabularies of 15 metrics each overlapped in only 2 members. 13 metrics
+  the platform actually bills were unreachable through the 107 override
+  function, and 13 metrics the 107 function accepted are not billable
+  dimensions. That is the defect, demonstrated arithmetically.
+
+-- A.5 NO SILENT ALIASING
+
+   agent_count_accepted | active_agents_accepted
+  ----------------------+------------------------
+   f                    | t
+
+  AGENT_COUNT is rejected outright. It is NOT quietly translated to
+  ACTIVE_AGENTS. A caller still sending the legacy name receives an error, not a
+  silently redirected write.
+
+-- A.6 the table CHECK constraint enforces the same vocabulary
+
+  NOTICE: A.6 PASS: AGENT_COUNT rejected by CHECK, SQLSTATE=23514
+          MSG=new row for relation "quota_overrides" violates check constraint
+              "chk_qo_metric_canonical"
+
+-- A.7 the resolver enforces it too
+
+  NOTICE: A.7 PASS: resolver rejected AGENT_COUNT, SQLSTATE=P0001
+          MSG=fn_resolve_effective_quota: metric AGENT_COUNT is outside the
+              canonical 5H §11.1 usage-dimension vocabulary.
+
+  The vocabulary is therefore enforced at three independent layers: the mutation
+  function, the table constraint, and the resolver.
+
+  CAVEAT (recorded deliberately): chk_qo_metric_canonical calls
+  billing.fn_is_canonical_usage_metric(metric). A future CREATE OR REPLACE of
+  that function changes the meaning of the constraint for NEW rows without
+  revalidating rows already stored. Any future change to the canonical
+  vocabulary must therefore be accompanied by an explicit revalidation of
+  existing billing.quota_overrides rows.
+
+==================================================================================
+PART 2 - BATTERY B: EFFECTIVE-QUOTA RESOLUTION (FAR-OD-02 / FAR-P1-05)
+==================================================================================
+
+The contract under test (FAR-OD-02 Option B):
+
+  Layer 1  COMMERCIAL / BASE QUOTA        billing.quota_configs
+  Layer 2  TEMPORARY PLATFORM OVERRIDE    billing.quota_overrides
+
+  Resolution = the active, non-superseded override IF one exists,
+               ELSE the CURRENT commercial baseline.
+  The override NEVER overwrites the baseline. On expiry the effective quota
+  falls back to the CURRENT baseline - not to unlimited, and not to a stale
+  historical baseline value.
+
+-- B.PRE the resolver is entered through its TENANT path, not its admin path
+
+              tenant_ctx              | is_platform_admin
+   -----------------------------------+-------------------
+    11111111-1111-7111-a111-00000000000a | f
+
+  app.tenant_id is set to FAR Org A and organization.is_platform_admin() reads
+  f, so every resolver call below is evaluated under the tenant branch. (The
+  fixture DELETE/UPDATE/INSERT statements around them are superuser harness
+  setup - see the CALLER note above.)
+
+CASE B1 - base present, no override
+    metric    | soft_limit | hard_limit | unit_label | source | override_id
+  ------------+------------+------------+------------+--------+-------------
+   CALL_MINUTES|  800.0000 |  1000.0000 | minutes    | BASE   |
+  => source=BASE, hard_limit=1000. PASS.
+
+CASE B2 - active temporary override (hard 2000, expires +7d)
+   CALL_MINUTES| 1600.0000 |  2000.0000 | minutes    | PLATFORM_OVERRIDE | 01a0a5a6-8eae-...
+   effective_from 2026-09-15 15:19:11.277371+00  expires_at 2026-09-22 15:19:11.277371+00
+  => the override wins while active. PASS.
+
+CASE B3 - THE BASE ROW WAS NOT OVERWRITTEN
+    metric     | base_soft | base_hard
+   ------------+-----------+-----------
+    CALL_MINUTES| 800.0000 | 1000.0000
+  => billing.quota_configs still reads 800/1000 while the effective quota is
+     2000. The override is a separate layer, not a mutation of the baseline.
+     This is the structural difference from the pre-111 behaviour. PASS.
+
+CASE B4 - THE BASELINE STAYS LIVE UNDER AN ACTIVE OVERRIDE
+  The commercial baseline was changed to 1000/1200 WHILE the override was active.
+        what        | soft_limit | hard_limit
+   -----------------+------------+------------
+    base_after_change| 1000.0000 |  1200.0000
+  Effective quota during the override:
+   CALL_MINUTES| 1600.0000 |  2000.0000 | PLATFORM_OVERRIDE
+  => the override still wins (2000) and the new baseline is recorded (1200).
+     PASS.
+
+CASE B5 - EXPIRY FALLS BACK TO THE *CURRENT* BASELINE  [FAR-P1-05 CLOSED]
+  The override window was backdated so the override is expired.
+    metric    | soft_limit | hard_limit | unit_label | source | override_id
+  ------------+------------+------------+------------+--------+-------------
+   CALL_MINUTES| 1000.0000 |  1200.0000 | minutes    | BASE   |
+  => 1200, the CURRENT baseline set in B4. NOT 1000 (the stale historical
+     baseline from B1-B3) and NOT unlimited (the pre-111 fail-open defect).
+     This is the exact regression FAR-P1-05 described, and it does not occur.
+     PASS.
+
+CASE B5b - expired override history is RETAINED, not deleted
+    metric    | hard_limit | started | expired | not_superseded
+  ------------+------------+---------+---------+----------------
+   CALL_MINUTES| 2000.0000 | t       | t       | t
+  => the row still exists, still non-superseded, simply outside its window. An
+     expired override is a historical fact, not a deletion. PASS.
+
+CASE B6 - PERMANENT override (expires_at IS NULL)
+   CALL_MINUTES| 2400.0000 |  3000.0000 | minutes | PLATFORM_OVERRIDE | expires_at (null)
+  => expires_at IS NULL means permanent: the override applies indefinitely until
+     explicitly superseded. PASS.
+
+CASE B7 - override with NULL hard_limit over a FINITE base
+    metric    | soft_limit | hard_limit |      source       | overage_allowed
+  ------------+------------+------------+-------------------+-----------------
+   CALL_MINUTES|           |            | PLATFORM_OVERRIDE | t
+  => a NULL effective hard_limit is the representation of "unlimited", and
+     overage_allowed is derived as (effective hard_limit IS NULL). A temporary
+     uncapping grant is expressible. PASS.
+
+CASE B7b - after the uncapped override expires, the FINITE base returns
+   CALL_MINUTES| 1000.0000 |  1200.0000 | BASE | overage_allowed = f
+  => fail-CLOSED. An expired "unlimited" grant does not leave the tenant
+     permanently uncapped. PASS.
+
+CASE B8 - base with NULL hard_limit and no override (API_REQUESTS)
+   API_REQUESTS|            |            | BASE | overage_allowed = t
+  => an unlimited COMMERCIAL baseline is still expressible and is reported as
+     BASE, not as an override. PASS.
+
+CASE B9 - no base and no override (TTS_CHARACTERS)
+    rows_returned
+   ---------------
+                0
+  => the resolver returns ZERO ROWS. It does not invent an unlimited quota and
+     does not invent a zero quota. The caller must decide what "unconfigured"
+     means; the database does not guess. PASS.
+
+CASE B10 - no base but an ACTIVE override (a pilot grant with no commercial plan)
+   TTS_CHARACTERS| 400000.0000 | 500000.0000 | characters | PLATFORM_OVERRIDE
+  => an override does not require a pre-existing baseline row. PASS.
+
+CASE B10b - that override expires with NO base underneath
+    rows_returned
+   ---------------
+                0
+  => back to zero rows. Expiry of an override without a baseline does NOT
+     fabricate a historical base value. No production-data fiction. PASS.
+
+CASE B11 - FAR-P1-05 REGRESSION GUARD ON THE LEGACY COLUMN
+  billing.quota_configs.expires_at was set to a window entirely in the PAST:
+        what      |        effective_from         |          expires_at           | legacy_window_is_past
+   ---------------+-------------------------------+-------------------------------+-----------------------
+    legacy_window | 2026-08-16 15:19:11.287536+00 | 2026-09-05 15:19:11.287536+00 | t
+  Effective quota:
+   CALL_MINUTES| 1000.0000 |  1200.0000 | minutes | BASE
+  => the resolver DELIBERATELY IGNORES quota_configs.expires_at. Reading that
+     legacy column as "the commercial baseline has disappeared" is precisely the
+     fail-open defect FAR-P1-05. The baseline is always the fallback layer,
+     whether that legacy column is NULL or in the past. PASS.
+
+CASE B12 - fractional NUMERIC(18,4) limits survive end to end
+     metric   | soft_limit | hard_limit |      source
+   -----------+------------+------------+-------------------
+    STORAGE_GB|     1.2500 |     1.5000 | PLATFORM_OVERRIDE
+  => no integer truncation anywhere in the path. PASS.
+
+CASE B13 - NULL organization_id is rejected
+  NOTICE: B13 PASS: SQLSTATE=P0001
+          MSG=fn_resolve_effective_quota: p_organization_id is required.
+
+  EIGHT-CASE SUMMARY REQUIRED BY THE COVERAGE MATRIX
+    1. base only, no override .................... B1   PASS (BASE)
+    2. active override over a base ............... B2   PASS (PLATFORM_OVERRIDE)
+    3. base changes while override active ........ B4   PASS (override still wins)
+    4. override expired, base present ............ B5   PASS (CURRENT base, 1200)
+    5. permanent override (expires_at NULL) ...... B6   PASS
+    6. override with NULL hard_limit ............. B7   PASS (unlimited while active)
+    7. no base, active override .................. B10  PASS
+    8. no base, no override ...................... B9   PASS (zero rows)
+   plus: expired uncapped override falls back finite (B7b), unlimited BASE (B8),
+         expired override with no base (B10b), legacy expires_at ignored (B11),
+         fractional limits (B12).
+
+==================================================================================
+PART 3 - BATTERY D: THE PLATFORM-ADMIN OVERRIDE MUTATION FUNCTION
+==================================================================================
+
+billing.fn_platform_set_quota_override(p_organization_id, p_admin_user_id,
+  p_metric, p_soft_limit, p_hard_limit, p_reason, p_expires_at, p_unit_label)
+  SECURITY DEFINER, search_path = billing, organization, pg_catalog.
+
+-- D.PRE / D.1 HOLDING THE ROLE IS NOT ENOUGH
+
+    session_user    |    current_user    | is_platform_admin_before_guc
+  ------------------+--------------------+------------------------------
+   app_platform_admin| app_platform_admin| f
+
+  NOTICE: D.1 PASS: SQLSTATE=P0001
+          MSG=fn_platform_set_quota_override: caller is not authorized.
+
+  organization.is_platform_admin() requires BOTH session_user =
+  'app_platform_admin' AND current_setting('app.is_platform_admin') = 'true'.
+  Connecting as the role alone is refused. (SET ROLE does not satisfy it either,
+  because it changes current_user, not session_user.)
+
+    session_user    | is_platform_admin_after_guc
+  ------------------+-----------------------------
+   app_platform_admin| t
+
+-- D.2 .. D.13 VALIDATION SURFACE (all executed, all messages verbatim)
+
+  D.2  null org ........ fn_platform_set_quota_override: p_organization_id is required.
+  D.3  null admin ...... fn_platform_set_quota_override: p_admin_user_id is required.
+  D.4  legacy metric ... fn_platform_set_quota_override: metric AGENT_COUNT is outside the
+                         canonical 5H §11.1 usage-dimension vocabulary.
+  D.5  reason < 10 ..... fn_platform_set_quota_override: p_reason must be between 10 and 2000 characters.
+  D.6  reason > 2000 ... fn_platform_set_quota_override: p_reason must be between 10 and 2000 characters.
+  D.7  past expiry ..... fn_platform_set_quota_override: p_expires_at must be in the future.
+  D.8  soft < 0 ........ fn_platform_set_quota_override: p_soft_limit must be NULL or >= 0.
+  D.9  hard < 0 ........ fn_platform_set_quota_override: p_hard_limit must be NULL or >= 0.
+  D.10 soft > hard ..... fn_platform_set_quota_override: p_soft_limit must be <= p_hard_limit.
+  D.11 unknown org ..... fn_platform_set_quota_override: organization
+                         99999999-9999-7999-a999-999999999999 not found.
+  D.12 NULL hard_limit ACCEPTED    -> override_id=01a0a5a7-8cf0-7008-a2df-df7d9ef2bc24
+  D.13 fractional limits ACCEPTED  -> override_id=01a0a5a7-8cf2-7ff6-b274-749d3c2b6db6
+
+  D.2/D.3/D.5/D.6/D.7/D.10/D.11 are the validations that had been LOST when
+  107_5B5 replaced the 106 function; they are restored. D.12 and D.13 confirm
+  that the two forbidden over-restrictions were NOT imposed: hard_limit may be
+  NULL, and limits are not integer-only.
+
+-- D.14 canonical unit-label derivation when p_unit_label is omitted
+
+     metric    | soft_limit | hard_limit | unit_label |              created_by
+   ------------+------------+------------+------------+--------------------------------------
+    API_REQUESTS|           |            | requests   | aaaaaaaa-0000-7000-a000-000000000001
+    STORAGE_GB  |    1.2500 |     1.5000 | GB-months  | aaaaaaaa-0000-7000-a000-000000000001
+
+-- D.15 an explicit p_unit_label wins over the derived default
+
+         metric        | unit_label
+   --------------------+------------
+    KNOWLEDGE_RETRIEVALS| lookups
+
+  UNIT-LABEL RECONCILIATION NOTE: the derived defaults follow 5H/6K
+  (KNOWLEDGE_RETRIEVALS = 'queries', STORAGE_GB = 'GB-months', ACTIVE_AGENTS and
+  ACTIVE_PHONE_NUMBERS = 'count'). D.15 shows the caller may override the label
+  ('lookups'), so the column is descriptive metadata for display, not a second
+  source of truth for the metric's identity. The metric name is the identity.
+
+-- D.16 SUPERSESSION: three successive overrides on (ORG A, CAMPAIGN_CALLS)
+
+    hard_limit |               reason               | is_current | window_still_open
+   ------------+------------------------------------+------------+-------------------
+      100.0000 | D16 first campaign-calls override  | f          | t
+      200.0000 | D16 second campaign-calls override | f          | t
+      300.0000 | D16 third campaign-calls override  | t          | t
+
+    current_rows | history_rows
+   --------------+--------------
+               1 |            3
+
+-- D.16c the resolver sees ONLY the newest override
+
+      metric     | hard_limit |      source
+   --------------+------------+-------------------
+    CAMPAIGN_CALLS|  300.0000 | PLATFORM_OVERRIDE
+
+-- D.17 NON-REACTIVATION
+
+    hard_limit | superseded | window_still_open
+   ------------+------------+-------------------
+      100.0000 | t          | t
+      200.0000 | t          | t
+
+  Both superseded rows still have FUTURE expires_at values. Their windows are
+  open. They can never become effective again, because supersession - not the
+  time window - is what retires them. An old override can never reactivate.
+
+-- D.18 (recorded honestly) the direct-INSERT backstop attempt as
+        app_platform_admin returned:
+          SQLSTATE=42501  permission denied for table quota_overrides
+        That is CORRECT ACL evidence - the Platform Admin principal holds SELECT
+        only and must go through the SECURITY DEFINER function - but it means
+        D.18 did not actually exercise the unique index. The index itself is
+        therefore proven separately in Battery C as the table owner.
+        (A stray `DELETE FROM billing.quota_overrides WHERE 1=0` in the same
+        script likewise returned 42501; it is harmless and is further ACL
+        evidence.)
+
+==================================================================================
+PART 4 - BATTERY C: SUPERSESSION STRUCTURAL BACKSTOP (as postgres / table owner)
+==================================================================================
+
+Run as the table owner precisely because no application principal can reach the
+table directly; this proves the constraint exists in the schema rather than only
+in the function's logic.
+
+-- C.1 starting state (written by Battery D): 100 (superseded), 200 (superseded), 300 (current)
+
+-- C.2 a SECOND current row is rejected by the partial unique index
+  NOTICE: C.2 PASS: SQLSTATE=23505
+          MSG=duplicate key value violates unique constraint "uq_qo_org_metric_current"
+
+-- C.3 a SUPERSEDED historical row may be inserted freely
+  NOTICE: C.3 PASS: historical (superseded) rows are not blocked by the partial index
+  => history is unconstrained; only the CURRENT row is unique.
+
+-- C.4 NON-REACTIVATION IS STRUCTURAL: clearing superseded_at on an old row fails
+  NOTICE: C.4 PASS: SQLSTATE=23505
+          MSG=duplicate key value violates unique constraint "uq_qo_org_metric_current"
+  => reactivating an old override would create a second current row, which the
+     index forbids. This holds even against the table owner.
+
+-- C.5 state after C.2-C.4 is unchanged
+    current_rows | history_rows
+   --------------+--------------
+               1 |            3
+
+-- C.6 supersede + insert is ONE ATOMIC UNIT
+  A transaction superseded the current row and was then forced to abort:
+    ERROR: C6 forced abort after supersede: new row for relation "quota_overrides"
+           violates check constraint "chk_qo_metric_canonical"
+    ROLLBACK
+  Result afterwards:
+    current_rows = 1
+    after_hard_limit = 300.0000   source = PLATFORM_OVERRIDE
+  => the previously current override is still current. There is no window in
+     which an organization has zero current overrides because a supersession
+     half-completed, and there is no check-then-insert race: supersede and
+     insert commit together or not at all.
+
+==================================================================================
+PART 5 - billing.quota_configs IS NOT OVERLOADED; LEGACY COLUMNS ARE MARKED
+==================================================================================
+
+111 adds no column to billing.quota_configs and drops none - in particular the
+106-era override columns are retained, because dropping them would destroy
+historical audit readability. They are instead documented as LEGACY (live
+col_description output):
+
+  override_reason : LEGACY (111_5H4). Reason text of the last pre-111 in-place
+                    override. Retained for audit readability; not read by
+                    billing.fn_resolve_effective_quota(). Override reasons are
+                    now billing.quota_overrides.reason.
+  effective_from  : LEGACY as override metadata (111_5H4). Kept as the row's own
+                    start marker, but the commercial baseline does not expire and
+                    the resolver applies no effective-window filter to this table.
+                    Override windows are now billing.quota_overrides.effective_from
+                    / .expires_at.
+  expires_at      : LEGACY (111_5H4). Expiry of the last pre-111 in-place
+                    override. billing.fn_resolve_effective_quota() deliberately
+                    IGNORES this column: interpreting it as "the base quota
+                    disappears" is exactly the fail-open defect FAR-P1-05. NULL or
+                    past, the base row is always the fallback layer.
+  updated_by      : LEGACY (111_5H4). Platform admin who last set a pre-111
+                    in-place override. Retained for audit readability; new
+                    override attribution is billing.quota_overrides.created_by.
+
+No pricing field was added to billing.quota_overrides. Quota and price remain
+separate concerns.
+
+NOTE ON THE ADMIN READ MODEL
+  The ACTIVE / EXPIRED / SUPERSEDED read model that a Platform Admin GET must
+  expose (Battery I), and the tenant-side isolation of the same rows (Battery J),
+  are evidenced in FAR_111_03_security_integration_battery.txt.

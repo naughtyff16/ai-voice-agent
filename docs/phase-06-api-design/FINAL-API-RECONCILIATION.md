@@ -10,11 +10,11 @@
 |---|---|
 | Document | `FINAL-API-RECONCILIATION.md` |
 | Phase | Final API Reconciliation (post-6A–6M) |
-| Depends on | All 13 Phase 6 API design documents (6A–6M), as they stand after this pass's controlled source edits (§12), **plus** the two Phase 5 documents amended by the authorized database remediation (`5C-Voice-Schema.md`, `5K/MIGRATION_MANIFEST.md`) |
-| Scope | API-contract reconciliation **plus one authorized additive database remediation**. The owner's Option-B decision could not be implemented legally under frozen 6A §17.3 by the API layer alone (§10.1), so the DB-conformant closure directive authorized exactly **one** new migration, `110_5C2`; after the second independent review (P0 = 0, P1 = 2, P2 = 1) that same migration was **amended in place** by the micro-remediation (§13) — no second migration was created. No application code, no OpenAPI document. Migrations `001`–`109` and their Alembic wrappers are **byte-identical to `HEAD`** (§16). Live PostgreSQL 18.6 and Alembic validation was executed against **disposable** databases only (§16). |
+| Depends on | All 13 Phase 6 API design documents (6A–6M), as they stand after this pass's controlled source edits (§12), **plus** the **three** Phase 5 documents amended by the authorized database remediations (`5C-Voice-Schema.md`, `5H-Billing-Usage-Schema.md`, `5K/MIGRATION_MANIFEST.md`) — `5H-Billing-Usage-Schema.md` added by the `FAR-OD-02` billing / quota-override closure (§10A, §12.1) |
+| Scope | API-contract reconciliation **plus one authorized additive database remediation**. The owner's Option-B decision could not be implemented legally under frozen 6A §17.3 by the API layer alone (§10.1), so the DB-conformant closure directive authorized exactly **one** new migration, `110_5C2`; after the second independent review (P0 = 0, P1 = 2, P2 = 1) that same migration was **amended in place** by the micro-remediation (§13) — no second migration was created. No application code, no OpenAPI document. Migrations `001`–`109` and their Alembic wrappers are **byte-identical to `HEAD`** (§16). Live PostgreSQL 18.6 and Alembic validation was executed against **disposable** databases only (§16). **Extended by the billing / quota-override closure:** owner decision `FAR-OD-02` = Option B authorized exactly **one** further additive migration, `111_5H4` (`down_revision = '110_5C2'`), closing `FAR-P1-04` and `FAR-P1-05`. `110_5C2` was **not** amended again and no migration `112` exists; as of that pass the byte-identity statement reads **`001`–`110`** (§16.3). |
 | Method | Independent, reproducible **dual** route extraction (semantic-normalized **and** literal) over the full body text of all 13 documents: **1,640 raw route occurrences → 598 unique literal Method+Path → 448 unique semantic Method+Path → 55 cross-document semantic collision groups** (32 of which carry more than one literal spelling). See §1. |
-| Owner decision of record | **`FAR-OD-01` = OPTION B** — hard synchronous Agent-count quota enforcement on `POST /api/v1/agents`. Applied in full (§10). Closes `DEP-6E-20`. |
-| Forbidden artifacts (per governing task) | `API-MASTER-INDEX.md`, `AUTHORIZATION-MATRIX.md`, `ERROR-CATALOG.md`, `API-VERSIONING-STRATEGY.md` — **none created.** No implementation code, no OpenAPI document. Exactly one additive migration (`110_5C2`) was created under the explicit authorization of the DB-conformant closure directive, and amended in place by the micro-remediation (§12.1); **no migration `111` exists** (§16). |
+| Owner decision of record | **`FAR-OD-01` = OPTION B** — hard synchronous Agent-count quota enforcement on `POST /api/v1/agents`. Applied in full (§10). Closes `DEP-6E-20`.<br>**`FAR-OD-02` = OPTION B** — true temporary Platform-Admin quota overrides with live commercial-baseline fallback; an override never overwrites the base, and expiry falls back to the **current** base, not to unlimited. Applied in full (§10A). Closes `FAR-P1-04`, `FAR-P1-05`, `FAR-P2-04`, `FAR-P2-05`. |
+| Forbidden artifacts (per governing task) | `API-MASTER-INDEX.md`, `AUTHORIZATION-MATRIX.md`, `ERROR-CATALOG.md`, `API-VERSIONING-STRATEGY.md` — **none created.** No implementation code, no OpenAPI document. Exactly one additive migration (`110_5C2`) was created under the explicit authorization of the DB-conformant closure directive, and amended in place by the micro-remediation (§12.1); ~~**no migration `111` exists** (§16)~~ — *superseded by the `FAR-OD-02` closure, which authorized exactly one further additive migration:* **`111_5H4` now exists** and is the single Alembic head, `110_5C2` is its parent, and **no migration `112` exists** (§14.1, §16.3). |
 | Date | 2026-09-15 |
 | Result | **See §15.** |
 
@@ -462,6 +462,161 @@ No OpenAPI document is generated here (out of scope). What a generator will need
 
 ---
 
+## 10A. `FAR-OD-02` = OPTION B — Temporary Quota Overrides With Live Baseline Fallback
+
+Owner decision **`FAR-OD-02` = Option B**: a Platform Admin quota override is a **true temporary
+grant**. It does not edit, replace or consume the commercial quota it overrides. The commercial
+quota stays live underneath it and is what the tenant returns to. This section is the contract of
+record; it is carried by migration **`111_5H4`** and live-validated in §16.3.
+
+### 10A.1 The two persistence layers, and the one resolver
+
+| Concern | Where it lives | Who may write it |
+|---|---|---|
+| **Commercial / base quota** — the quota the tenant is entitled to under its plan or agreement | `billing.quota_configs` | The existing commercial/billing path. Unchanged by this pass |
+| **Temporary admin override** — a time-boxed grant layered on top | `billing.quota_overrides` (**new**, additive, created by `111_5H4`) | Platform Admin only, through `billing.fn_platform_set_quota_override(...)`. No application role holds `INSERT` / `UPDATE` / `DELETE` on the table |
+| **Effective quota** — what any consumer must actually enforce and report | Nothing. It is **computed**, never stored | `billing.fn_resolve_effective_quota(organization_id, metric)` — the single resolver |
+
+**The override never overwrites the base.** Setting, superseding or expiring an override makes no
+change whatsoever to `billing.quota_configs`. The two layers are separate rows in separate tables,
+and this is the whole point of Option B: Option A (overwrite-in-place) would have destroyed the
+commercial value the tenant returns to, which is exactly the defect recorded as `FAR-P1-05`.
+
+### 10A.2 Resolution order — normative
+
+`billing.fn_resolve_effective_quota(p_organization_id UUID, p_metric TEXT)` resolves, in order:
+
+1. **An active, non-superseded Platform Admin override** — `superseded_at IS NULL` and not expired.
+   Source reported as `PLATFORM_OVERRIDE`.
+2. **Otherwise the CURRENT commercial/base quota** row in `billing.quota_configs`. Source reported
+   as `BASE`.
+3. **Otherwise no configured quota.** This is *not* "unlimited". It is the absence of a
+   configuration, and every consumer must treat it as such under its own contract.
+
+The resolver is `SECURITY INVOKER`, `STABLE`, with `SET search_path = billing, organization,
+pg_catalog`. It requires **no** administrative privilege: `app_api`, `app_worker` and
+`app_readonly` all resolve effective quota directly (§16.3, Battery J).
+
+### 10A.3 The lifecycle rules that make "temporary" mean temporary
+
+| Rule | Normative statement |
+|---|---|
+| **Expiry falls back to the CURRENT base** | When an override expires, the effective quota becomes the **current** value of `billing.quota_configs` — **not** a stale historical base captured when the override was written, **not** the previous superseded override, and **not** unlimited. If the base was changed while the override was active, the **new** base is what takes effect at expiry (Battery B4/B5: base raised 1000 → 1200 under an active override of 2000; at expiry the effective quota is **1200**) |
+| **Expiry is read-time** | Evaluated against `NOW()` = `transaction_timestamp()`. There is no sweeper job and no background state mutation. An effective quota is therefore stable within a transaction, and an expiry becomes visible to the **next** transaction |
+| **A permanent override is `expires_at IS NULL`** | `NULL` here means *permanent until superseded*. It does **not** mean expired, and it does not mean unlimited |
+| **A superseded override never reactivates** | Supersession is one-way and terminal. The previous current row is stamped `superseded_at` and the replacement inserted under one advisory lock in one transaction. No later expiry, deletion or edit can bring a superseded row back into effect |
+| **`hard_limit IS NULL` means unlimited** | On the **effective** result, a `NULL` `hard_limit` is unlimited, and that is exactly what `overage_allowed` reports. This is a property of the resolved value, not a restriction on what may be stored — `hard_limit` is deliberately left nullable and limits are `NUMERIC(18,4)`, compared **as stored** and never rounded |
+| **The audit record is transactional** | The `QUOTA_OVERRIDE_SET` row in `audit.audit_events` is written inside the **same** transaction as the override row. A rolled-back override leaves no audit trace, and an audited override always exists |
+
+Structural guarantee: the partial unique index
+`uq_qo_org_metric_current ON billing.quota_overrides (organization_id, metric) WHERE superseded_at IS NULL`
+makes a second *current* row for the same `(organization, metric)` impossible — `23505` — rather
+than merely discouraged.
+
+### 10A.4 Metric vocabulary — canonical, and not aliased
+
+The override layer is constrained to the **canonical 15-metric 5H §11.1 vocabulary**:
+
+`CALL_MINUTES`, `AI_MINUTES`, `STT_SECONDS`, `TTS_CHARACTERS`, `LLM_PROMPT_TOKENS`,
+`LLM_COMPLETION_TOKENS`, `EMBEDDING_TOKENS`, `CAMPAIGN_CALLS`, `WORKFLOW_EXECUTIONS`,
+`TOOL_EXECUTIONS`, `KNOWLEDGE_RETRIEVALS`, `STORAGE_GB`, `API_REQUESTS`, **`ACTIVE_AGENTS`**,
+`ACTIVE_PHONE_NUMBERS`.
+
+All 15 are accepted; **0** are missing. Enforcement is at two independent layers — the function
+layer (`P0001`) and the table layer (`23514 / chk_qo_metric_canonical`) — so the constraint does
+not depend on callers going through the function.
+
+**`AGENT_COUNT` is rejected, not aliased.** The legacy name evaluates **false** against
+`billing.fn_is_canonical_usage_metric()`; `ACTIVE_AGENTS` evaluates **true**. No silent
+translation layer was introduced, as the governing directive required. A caller using the legacy
+vocabulary gets an error, not a quiet remapping to a different metric.
+
+Scope boundary, stated plainly: this canonical constraint binds the **override** layer.
+`billing.quota_configs.metric` remains plain `TEXT NOT NULL` with no CHECK (`052_5H.sql:7`), and
+this pass did **not** retro-constrain it — that would not be additive, and no owner decision
+authorized it.
+
+### 10A.5 Every consumer reads the resolver — no second source of truth
+
+| Consumer | Contract |
+|---|---|
+| **`ACTIVE_AGENTS` admission** (`POST /agents`, `POST /agents/{agent_id}/clone`) | `voice.fn_assert_agent_quota_admission()` continues to use the concurrency-safe database guard established by `110_5C2` — the advisory lock, the canonical counted set `{DRAFT, PUBLISHED} ∧ deleted_at IS NULL`, and the `(active + 1) > hard_limit` comparison. **`111_5H4` changes only the quota SOURCE**, from a direct `billing.quota_configs` read to `billing.fn_resolve_effective_quota()`. The clone path reads the **same** resolver as the create path |
+| **Tenant `GET /billing/quotas`** (6K §53) | Reports **effective** values — the override when one is active, the base otherwise — with the source labelled. A tenant never has to hold Platform Admin privilege to learn its own effective quota, and tenant isolation is unchanged (RLS **FORCED**; Battery J proves isolation in both directions) |
+| **Platform Admin `GET`** (6M §66.3) | Lists override **history and states** — `ACTIVE`, `EXPIRED`, `SUPERSEDED` — as actual rows, superseding §18's older `quota_configs`-only read model. It is a read model over `billing.quota_overrides`, not a second authority |
+| **Any Redis / cache / snapshot layer** | Must derive from the **same effective semantics**. A cache may store the resolved value; it may not invent a different resolution order, and it may not treat "no configured quota" as unlimited. The database is the authority; caches are projections of it |
+
+**No client controls quota or pricing authority.** The override write path is Platform-Admin-only
+and `SECURITY DEFINER`; `app_api` holds **no** `EXECUTE` on it (the 107-era grant is gone).
+
+### 10A.6 The lower-limit contract is non-destructive
+
+When the effective limit drops below current usage — by expiry, by supersession, or by a
+deliberately lower override — the database **closes admission only**:
+
+- New `ACTIVE_AGENTS` admissions are refused with `53400`.
+- **No existing Agent is deleted, deprecated or soft-deleted.** Measured: `auto_deprecated = 0`,
+  `soft_deleted_rows = 0`.
+- Publishing remains **count-neutral** — an existing Agent may still transition
+  `DRAFT → PUBLISHED` while the tenant is over limit, because publishing does not add a row to
+  the counted set.
+- The state is fully recoverable: a new override re-opens admission without touching customer data.
+
+The database never destroys, deprecates or mutates customer Agents or phone numbers to make a
+quota true. Reconciling usage down to a lower limit is a product/commercial decision surfaced
+through the API, not a database side effect.
+
+### 10A.7 Why `FAR-P1-04` and `FAR-P1-05` were genuine P1 findings
+
+Both were **reproduced from the committed sources** before `111_5H4` was written. Neither is a
+reviewer assertion, and neither is cosmetic.
+
+**`FAR-P1-04` — metric-vocabulary regression (P1, not P2).** `107_5B5` issued a
+`CREATE OR REPLACE` of `billing.fn_platform_set_quota_override()` carrying a hard-coded legacy
+metric list. Set arithmetic against the **live** function, not against documentation, showed:
+
+```
+legacy_107_size = 15 | canonical_5h_size = 15 | intersection = 2
+legacy_only = 13     | canonical_absent_from_107 = 13
+```
+
+Only `CALL_MINUTES` and `STORAGE_GB` were reachable through both vocabularies. **Thirteen of the
+fifteen canonical metrics — `ACTIVE_AGENTS` among them — could not be overridden at all.** This is
+P1 because the owner decision `FAR-OD-01` depends on `ACTIVE_AGENTS` being an overridable quota:
+the executed schema silently could not express the metric the entire Option-B enforcement contract
+is built on. A documentation-only divergence would have been P2; an enforcement path that cannot
+name its own metric is a defect in the contract itself.
+
+**`FAR-P1-05` — base-quota overwrite and fail-open on expiry (P1).** Two compounding defects in
+the pre-`111` behaviour:
+
+1. `106`/`107` wrote overrides by `INSERT … ON CONFLICT ON CONSTRAINT uq_qc_org_metric DO UPDATE
+   SET soft_limit = …, hard_limit = …` — that is, an "override" **overwrote the commercial base
+   row in place**. The value the tenant was entitled to was destroyed, with no record of what it
+   had been. There was nothing to fall back to.
+2. `110_5C2`'s admission guard read `IF NOT FOUND OR v_hard_limit IS NULL THEN RETURN; END IF;` —
+   a **fail-open**. An expired or absent quota configuration therefore resolved to *unlimited*
+   rather than to the commercial limit.
+
+Together these mean an expiring temporary grant did not return the tenant to its plan limit; it
+left the tenant either at the overwritten value permanently or at **no limit at all**. That is a
+revenue-affecting enforcement failure in the default direction — the system failed *open*, granting
+more than was sold — which is why it is P1 and why it could not be closed by documentation. The
+fix is structural: a separate override table, a resolver that reads the live base, and no
+fail-open branch.
+
+Both are closed by `111_5H4` and proven in §16.3.
+
+### 10A.8 Carrier, and what was deliberately not done
+
+| Statement | Detail |
+|---|---|
+| **`111_5H4` is the carrier** | One additive migration. `down_revision = '110_5C2'`. It adds `billing.fn_is_canonical_usage_metric()`, the `billing.quota_overrides` table, `billing.fn_resolve_effective_quota()`, a `CREATE OR REPLACE` of `billing.fn_platform_set_quota_override()` **at the same public signature**, a `CREATE OR REPLACE` of `voice.fn_assert_agent_quota_admission()`, and documentation-only `COMMENT ON COLUMN` statements marking the `106`-era override columns legacy |
+| **`110_5C2` is unchanged** | This pass did **not** amend `110_5C2` again. Its five functions, its trigger and its privilege posture are intact and are re-proven by the fresh and incremental legs in §16.3 |
+| **No migration `112` exists** | Exactly one further migration was authorized and exactly one was created. `111_5H4` is the single Alembic head |
+| **Nothing was dropped** | No table, column, constraint, index or policy was dropped or altered destructively; no RLS was weakened; **no new `BYPASSRLS`** — the inventory remains `app_migration`, `app_platform_admin`, `postgres`, all pre-existing |
+
+---
+
 ## 11. Future / Release-Train Register
 
 Non-blocking items disclosed by their owning documents, carried forward rather than silently dropped or silently promoted into V1.
@@ -514,7 +669,31 @@ The DB-conformant closure directive authorized **exactly one** new additive migr
 | 15 | `…/validation/FAR_DB_02_quota_concurrency_battery.txt` | Evidence 2 — §2 fractional-limit battery (9/9), §11 live two-process concurrency battery (cases A, B, E, K, L), §7 UPDATE / reactivation battery (30/30), §13 sequential quota / tenant / clone battery, §15 atomicity (rewritten in place) |
 | 16 | `…/validation/FAR_DB_03_privilege_rls_bypass_battery.txt` | Evidence 3 — `pg_proc` / `pg_trigger` / role-grant / table-privilege inspection, raw-INSERT bypass attempts as every runtime role, and the Part 2b superuser guard battery (rewritten in place) |
 
-**Total: 16 change groups — 7 Phase 6 documents/groups, 4 Phase 5 artifacts (the authorized remediation), 5 reconciliation/evidence artifacts.** Migrations `001`–`109` and their Alembic wrappers are **byte-identical to `HEAD`** (§16); no migration `111` exists; no existing normative statement was deleted — the two corrected claims (6E §43.10, 6K §52.6) are struck **in place with an explicit correction**, not removed silently. The micro-remediation additionally amended 6E §43.4a / §43.4b / §43.10a and 6K §52.3a; those edits sit inside the existing 6E and 6K groups, so the total stays 16. Evidence is capped at one report plus three compact files, rewritten in place by the micro-remediation with no new evidence file: **no evidence sprawl.**
+*Measurement as at the `110_5C2` micro-remediation pass. It is **superseded for the current total** by §12.3 below, which recomputes the register from the actual working tree and reaches **23 change groups**. The original sentence is preserved unedited rather than overwritten:* **Total: 16 change groups — 7 Phase 6 documents/groups, 4 Phase 5 artifacts (the authorized remediation), 5 reconciliation/evidence artifacts.** Migrations `001`–`109` and their Alembic wrappers are **byte-identical to `HEAD`** (§16); no migration `111` exists *(true as at the `110_5C2` pass; **superseded** — migration `111_5H4` was subsequently created under the `FAR-OD-02` authorization, see §10A, §12.3, §14.1 and §16.3)*; no existing normative statement was deleted — the two corrected claims (6E §43.10, 6K §52.6) are struck **in place with an explicit correction**, not removed silently. The micro-remediation additionally amended 6E §43.4a / §43.4b / §43.10a and 6K §52.3a; those edits sit inside the existing 6E and 6K groups, so the total stays 16. Evidence is capped at one report plus three compact files, rewritten in place by the micro-remediation with no new evidence file: **no evidence sprawl.** *(Scope: that cap describes the `110_5C2` evidence set. The `111_5H4` pass added one report plus three further compact files of its own — §12.3 rows 20–23 — and rewrote none of the `110` evidence except to add scope notices. The current repository therefore holds two reports and six evidence files in total, which remains a capped, per-pass set and not per-statement log sprawl.)*
+
+### 12.3 Post-`111_5H4` additions to the change register (`FAR-OD-02` closure)
+
+The rows above were compiled at the `110_5C2` micro-remediation. This subsection recomputes the register from the **actual current working tree** rather than carrying the earlier total forward.
+
+**Committed history vs. current working tree.** Rows 8, 9 and 10 (`110_5C2.sql`, `110_5C2.py`, `5C-Voice-Schema.md`) are **committed** — they landed at commit `5038bbc` and therefore no longer appear in `git status`. They remain register rows because the register records what each pass changed, not what is currently uncommitted. Every row below is **uncommitted working-tree state** as reported by `git diff --name-status` and `git status --short` at the close of this pass.
+
+**Re-edited files fold into their existing rows.** The `111_5H4` pass amended seven files that the register already carries. Following the precedent §12.2 set for the micro-remediation ("those edits sit inside the existing 6E and 6K groups"), these add **no** new group: `6E-AI-Agent-APIs.md` → row 1 (new §43.12); `6K-Billing-Usage-APIs.md` → row 2 (new §53); `6M-Admin-Platform-APIs.md` → rows 4 and 7 (§18, §28 correction, §66, `FR-TEN-005`); `5K/MIGRATION_MANIFEST.md` → row 11 (new Row 111 block + Row 110 scope markers); this document → row 12 (§0, §10A, §12.3, §13, §14.1, §15, §16.3, §17); `FINAL_API_RECONCILIATION_DB_VALIDATION_REPORT.md` → row 13 (scope notices); `FAR_DB_01_migration_and_integrity.txt` → row 14 (scope notice).
+
+| # | File | Nature | Why | Architecture Changed? |
+|---|---|---|---|---|
+| 17 | `docs/phase-05-database-design/5H-Billing-Usage-Schema.md` | **Modified** — additive amendment, `§13` scope-marked and `ODD-5H-04` resolved | 5H is the owning Phase 5 document for billing/quota schema. `FAR-OD-02` = Option B introduces a second persistence layer (`billing.quota_overrides`) and an effective-quota resolver, which must be recorded in the owning schema document, and it settles the open design decision `ODD-5H-04` | **YES** (documentation of rows 18–19) |
+| 18 | `docs/phase-05-database-design/5K/migrations/111_5H4.sql` | **NEW file** — 44,726 bytes, 836 lines, `sha256 5fe2bc96…f4c048` | The single additive migration authorized to carry `FAR-OD-02` = Option B: `billing.quota_overrides` (RLS enabled **and** forced), `billing.fn_is_canonical_usage_metric`, `billing.fn_resolve_effective_quota`, `billing.fn_platform_set_quota_override`, a `CREATE OR REPLACE` of `voice.fn_assert_agent_quota_admission` to read the resolver, and `COMMENT`-only `LEGACY (111_5H4)` marking of the `quota_configs` override columns | **YES — this is the database architecture change.** Additive only: one table, three new functions, one function replaced, no table/column/constraint/index/policy dropped, no RLS weakened, **no new `BYPASSRLS`** |
+| 19 | `docs/phase-05-database-design/5K/alembic/versions/111_5H4.py` | **NEW file** — 9,227 bytes, 161 lines, `sha256 78b3fda4…7e70ea` | Alembic wrapper: `revision = '111_5H4'`, `down_revision = '110_5C2'`, `run_frozen_sql('111_5H4.sql')`, `downgrade()` raises `NotImplementedError` per the repository's existing forward-only policy | **YES** (same change, wrapper) |
+| 20 | `…/5K/validation/FINAL_API_RECONCILIATION_111_VALIDATION_REPORT.md` | **NEW file** | Live PostgreSQL 18.6 validation report for migration `111_5H4`. It does not replace the `110` report (row 13); the two stand side by side as per-pass records | **NO** (evidence) |
+| 21 | `…/5K/validation/FAR_111_01_migration_integrity.txt` | **NEW file** | Evidence 1 — fresh `001 → 111_5H4`, incremental `… → 110_5C2 → 111_5H4`, single head `111_5H4`, object-dump convergence between the two legs, `001`–`110` frozen-history integrity | **NO** (evidence) |
+| 22 | `…/5K/validation/FAR_111_02_override_resolver_battery.txt` | **NEW file** | Evidence 2 — Batteries A, B, C, D, F: canonical metric vocabulary, effective-quota resolution and fallback, supersession, permanent overrides, fractional and `NULL` limits | **NO** (evidence) |
+| 23 | `…/5K/validation/FAR_111_03_security_integration_battery.txt` | **NEW file** | Evidence 3 — Batteries E, G, H, I, J: ACL/RLS/privilege posture, Platform-Admin write path, the `created_by` negative battery that closes `FAR-P2-04`, `ACTIVE_AGENTS` admission against the resolver, and audit atomicity | **NO** (evidence) |
+
+**Recomputed total: 23 change groups** — 16 carried forward from §12–§12.2 plus 7 added here: 1 Phase 5 schema document (row 17), the authorized `111_5H4` SQL + Alembic pair (rows 18–19), and 4 reconciliation/evidence artifacts (rows 20–23). By phase: **7 Phase 6 documents/groups, 7 Phase 5 artifacts, 9 reconciliation/evidence artifacts.**
+
+**Working-tree reconciliation.** `git status --short` reports exactly **8 modified** and **6 untracked** files — 14 paths, which is fewer than 23 because rows 3, 5, 6, 8, 9 and 10 are committed history and rows 4 and 7 are two register groups inside one file (`6M`). No file appears in the working tree that is not accounted for by a row above: **zero unexpected files.** Migrations `001`–`110` and their Alembic wrappers remain **byte-identical to `HEAD`** (§16.3); `110_5C2` was **not** amended again by this pass.
+
+---
 
 ---
 
@@ -528,12 +707,28 @@ The DB-conformant closure directive authorized **exactly one** new additive migr
 | `FAR-P1-01` | **P1** | **Reclassified from `FAR-P3-02`.** Issuing `SELECT pg_advisory_xact_lock(...)` from the API/service/repository layer **directly conflicts with frozen 6A §17.3**, which permits application-level locking only inside a Phase 5 `SECURITY DEFINER` function or via the Campaign Redis `SETNX` pattern. This is not a cosmetic deviation: the Option-B design could only work by contradicting a frozen document, which makes it a P1 design defect, not a P3 disclosure | 6A was **not** weakened to legalise the old design. The serialization was moved behind a database boundary by migration **`110_5C2`**: `voice.fn_assert_agent_quota_admission()` takes the transaction-scoped lock inside the database, `voice.fn_create_agent()` / `voice.fn_clone_agent()` are `SECURITY DEFINER` and are the **sole** insert paths (raw `INSERT ON voice.agents` revoked from `app_api`, `app_worker`, `app_platform_admin`). 6E §43.4/§43.8 and 6K §52.4 now state the API layer takes no lock of its own | **CLOSED BY MIGRATION `110_5C2`** |
 | `FAR-P1-02` | **P1** | **Raised by the second independent review.** The pre-amendment admission test `v_active >= v_hard_limit` compared an integer count against `billing.quota_configs.hard_limit NUMERIC(18,4)`. With a fractional limit such as `1.5` and one active Agent, `1 >= 1.5` is false, so a second Agent was admitted and the committed count (2) exceeded the stored limit | `110_5C2` **amended in place**: admission rejects when `(v_active + 1) > v_hard_limit` — the post-insert count is compared against the limit **as stored**, never rounded. Normative text: 6E §43.4b, 6K §52.3a. Live evidence: `FAR_DB_02` §2 fractional battery **9/9**, and concurrent fractional cases K (`1.5`) and L (`2.5`) in `FAR_DB_02` §11 | **CLOSED BY AMENDED `110_5C2`** |
 | `FAR-P1-03` | **P1** | **Raised by the second independent review.** Revoking raw `INSERT` closed only one edge of the counted set. `UPDATE` on `voice.agents` is legitimately retained for the 6E lifecycle (PATCH, publish, deprecate, soft-delete), so a raw `UPDATE` could put a row back into `{DRAFT, PUBLISHED} ∧ deleted_at IS NULL` without admission: `DEPRECATED → DRAFT/PUBLISHED`, clearing `deleted_at`, or moving `organization_id` into another tenant under a `BYPASSRLS` role | `110_5C2` **amended in place** with `voice.fn_agents_mutation_guard()` and the `BEFORE UPDATE … FOR EACH ROW` trigger `trg_agents_mutation_guard` (no `WHEN` clause, no role test): `organization_id` is immutable; `deleted_at` cannot be cleared; the only permitted status changes are `DRAFT→PUBLISHED` and `PUBLISHED→DEPRECATED` (`DEPRECATED` is terminal); same-state updates pass. Normative text: 6E §43.4a. Live evidence: `FAR_DB_02` §7 **30/30** (ten cases × `app_api`, `app_worker`, `app_platform_admin`; active count unchanged after every rejection) and `FAR_DB_03` Part 2b (the trigger binds the superuser) | **CLOSED BY AMENDED `110_5C2`** |
-| `FAR-P2-03` | P2 | **Raised by the second independent review.** `fn_create_agent` / `fn_clone_agent` accepted `p_created_by` with no database-side cross-check, so a `SECURITY DEFINER` path could stamp an arbitrary user id as an Agent's creator | `110_5C2` **amended in place** with `voice.fn_assert_agent_actor(UUID, UUID)` (`SECURITY INVOKER`, no `EXECUTE` grant to any role), called by both endpoint functions before admission. It raises `P0001` when `p_created_by` is `NULL` or has no `organization.memberships` row in the same tenant. It is a consistency check, not authentication — `app_api` remains the trusted principal boundary (6E §43.10a). No public DTO change. Verified by code (`110_5C2.sql` lines 237–262; called at line 297 in create and line 367 in clone), by catalog (`FAR_DB_03` Part 1 §1–§3), and on the positive path (every accepted create and clone in `FAR_DB_02` passed it). **The negative non-member case is not separately transcribed** | **CLOSED BY AMENDED `110_5C2`** |
+| `FAR-P2-03` | P2 | **Raised by the second independent review.** `fn_create_agent` / `fn_clone_agent` accepted `p_created_by` with no database-side cross-check, so a `SECURITY DEFINER` path could stamp an arbitrary user id as an Agent's creator | `110_5C2` **amended in place** with `voice.fn_assert_agent_actor(UUID, UUID)` (`SECURITY INVOKER`, no `EXECUTE` grant to any role), called by both endpoint functions before admission. It raises `P0001` when `p_created_by` is `NULL` or has no `organization.memberships` row in the same tenant. It is a consistency check, not authentication — `app_api` remains the trusted principal boundary (6E §43.10a). No public DTO change. Verified by code (`110_5C2.sql` lines 237–262; called at line 297 in create and line 367 in clone), by catalog (`FAR_DB_03` Part 1 §1–§3), and on the positive path (every accepted create and clone in `FAR_DB_02` passed it). **The negative non-member case is not separately transcribed.** ***AMENDED BY THE `111_5H4` PASS:*** *that sentence was true when written and is preserved unedited, but it is now **stale as a description of the evidence set**. The negative case **is** directly transcribed — `FAR_111_03_security_integration_battery.txt`, **Battery H**, cases H.0–H.7 (**7/7**): an outsider non-member is refused `P0001`, an other-tenant member is refused `P0001`, a `NULL` actor is refused `P0001`, a real member succeeds as the control, the three rejected attempts wrote **0** Agent rows, the clone path enforces the same guard, and `app_api` holds no `EXECUTE` on `fn_assert_agent_actor` (`42501`). This closure is tracked as its own ticket, `FAR-P2-04` below.* | **CLOSED BY AMENDED `110_5C2`**; *negative-evidence gap closed separately by `FAR-P2-04`* |
 | `FAR-P3-02` | P3 → superseded | Original (mis-severity) registration of the same advisory-lock deviation as a non-blocking P3 disclosure with a deferred removal path (`FR-DB-001`) | **Misclassified.** Superseded in full by `FAR-P1-01` above; `FR-DB-001` removed from §11 because `110_5C2` implements exactly that remediation. Not carried forward as future debt | **CLOSED — superseded by `FAR-P1-01`** |
 | `FAR-P3-03` | P3 | 6M's `{id}` parameter convention on its normative platform-admin endpoint inventory diverges from frozen 6A's resource-specific naming and from the owning documents' own declarations | **Closed at source, not deferred to a later index document.** Option A applied (§3.3): 6A's resource-specific naming is canonical; 6M normalized — 95 literals changed, 0 remain; §25 inventory (42 rows) and §27.2 matrix (42 rows) unchanged in content; labelled disclosure note added at source | **CLOSED** |
 | `DB-BLOCKER-FINAL-API-001` | **Blocker** | The executed schema supplied a serialization *primitive* but **no compliant enforcement path**: with raw `INSERT ON voice.agents` available to `app_api` and no guarded function, a hard, synchronous, server-authoritative `ACTIVE_AGENTS` admission could not be structurally enforced without the API layer taking its own lock. Affects `POST /api/v1/agents` and `POST /api/v1/agents/{agent_id}/clone` | **RAISED** in this pass (an earlier revision of this document wrongly recorded it as NOT RAISED — corrected in §10.1). Resolved by the single authorized additive migration `110_5C2`, live-validated on PostgreSQL 18.6 against disposable databases: fresh `001 → 110`, incremental `109 → 110`, one head, fractional battery 9/9, concurrency battery (cases A, B, E, K, L), UPDATE / reactivation battery 30/30, sequential quota / tenant / clone battery, privilege / RLS-bypass battery including the superuser guard check — all re-run against the amended `110_5C2` (§16) | **RESOLVED BY MIGRATION `110_5C2`** (amended in place) |
+| `FAR-P1-04` | **P1** | **Raised by the `111_5H4` pass.** The quota-metric vocabulary had diverged between layers. The legacy `107` allow-list and the canonical 15-metric Phase-5H vocabulary share only **2** members; **13** are legacy-only and **13** canonical metrics are absent from `107` (set arithmetic transcribed in the `111` validation report §3 and restated in §10A.7). Critically, `ACTIVE_AGENTS` was **not** in the legacy allow-list — so the very metric that `FAR-OD-01` = Option B made synchronously enforceable could not be expressed as a quota override at all. This is P1, not cosmetic: `FAR-OD-02` is unimplementable on a vocabulary that cannot name its own subject | `111_5H4` establishes the canonical 15-metric vocabulary as the single override vocabulary, enforced at **two independent layers** — `billing.fn_is_canonical_usage_metric` (raising `P0001`) and the table CHECK `chk_qo_metric_canonical` (raising `23514`). Canonical metrics missing from the override layer = **0**. `ACTIVE_AGENTS` is accepted; **`AGENT_COUNT` is rejected, not aliased** — no legacy alias was introduced (§10A.4). Scope boundary stated explicitly: `billing.quota_configs.metric` remains plain `TEXT` with no CHECK (`052_5H.sql:7`) and was deliberately **not** retro-constrained, because narrowing the committed commercial/base layer is outside this pass's authorization. Live evidence: `FAR_111_02` Battery A | **CLOSED BY MIGRATION `111_5H4`** |
+| `FAR-P1-05` | **P1** | **Raised by the `111_5H4` pass.** Two compounding defects in the pre-`111` override design. (a) *Overwrite-in-place:* migrations `106` / `107` applied a quota override as `INSERT … ON CONFLICT ON CONSTRAINT uq_qc_org_metric DO UPDATE SET soft_limit = …, hard_limit = …`, which **destroys the commercial baseline**. After a temporary override expired there was nothing to fall back to, because the sold value had been overwritten by the override value. (b) *Fail-open:* `110_5C2`'s admission guard read `IF NOT FOUND OR v_hard_limit IS NULL THEN RETURN; END IF;` — so a missing or `NULL`-limit configuration **admitted without limit**. Combined, the system failed **open**, granting more than was sold | Resolved by `FAR-OD-02` = **Option B** (§10A): base and override become **two separate persistence layers** — the override never writes to `billing.quota_configs` — and the effective value is **computed, never stored**, by `billing.fn_resolve_effective_quota(organization_id, metric)`. On expiry the effective value falls back to the **CURRENT** base, not to a stale historical base and not to unlimited. Live evidence: `FAR_111_02` Battery B — B1 base `1000`; B2 override `2000` wins with source `PLATFORM_OVERRIDE`; **B4** the base is raised to `1200` *while the override is active* and the effective value is still `2000`; **B5** after expiry the effective value is **`1200`** with source `BASE` — the current base, proving the fallback is live and not a snapshot | **CLOSED BY MIGRATION `111_5H4`** |
+| `FAR-P2-04` | P2 | **The `created_by` non-member negative-evidence gap.** The `110_5C2` master ledger closed `FAR-P2-03` on code inspection, catalog inspection and the positive path, and disclosed plainly that the **negative** non-member case had not been separately transcribed. That disclosure was honest but left the guard's rejection behaviour proven only by reading the function body, not by executing it | **Closed by direct transcript.** `FAR_111_03_security_integration_battery.txt`, **Battery H**, **7/7**: H.0 establishes the roster (the outsider has `outsider_membership_rows = 0`); H.1 an outsider non-member is **refused `P0001`**; H.2 an other-tenant member is **refused `P0001`**; H.3 a `NULL` actor is **refused `P0001`**; H.4 a valid same-tenant member **succeeds** (control, agent `01a0a5ab-…`); H.5 confirms H.1–H.3 created **no Agent row**; H.6 the **clone** path applies the same actor guard; H.7 `app_api` **cannot** call `fn_assert_agent_actor` directly (`42501`). The guard itself was not modified — only the evidence set changed, so `110_5C2` needed no amendment | **CLOSED BY EVIDENCE (`FAR_111_03` Battery H)** |
+| `FAR-P2-05` | P2 | **Overbroad privileged/superuser security wording.** Earlier text asserted, in effect, that there was "no privileged escape hatch". Stated absolutely that claim is **false for PostgreSQL**: a superuser or the table owner can always issue `ALTER TABLE … DISABLE TRIGGER`, `CREATE OR REPLACE FUNCTION` or direct DDL. Publishing an unbounded claim would misrepresent the guarantee to the independent reviewer | **Closed by adopting a precise, scoped security statement** in place of the absolute one, verbatim wherever the claim appears: *"Under normal SQL execution with the defined triggers/functions/ACLs enabled, the tested runtime principals and tested privileged session cannot bypass the application invariant; deliberate superuser DDL or trigger-disabling actions are outside the application guarantee."* Adopted in `5K/MIGRATION_MANIFEST.md` (Row 110 narrative, where the absolute phrase was removed), in the `111` validation report §6, and in §17 of this document. Live evidence for the in-scope half: `FAR_111_03` Batteries E, G, I, J | **CLOSED BY SCOPED RESTATEMENT** |
+| `FAR-OD-02` | **Owner decision** | Temporary quota overrides needed an authoritative persistence and fallback model. Option A (overwrite the base in place) is what `106`/`107` did and is the defect behind `FAR-P1-05`; Option B keeps the commercial baseline intact and computes the effective value | Owner decided **`FAR-OD-02` = Option B — temporary quota overrides with live baseline fallback.** Applied in full: recorded normatively in §10A (all sixteen contract points), carried by migration `111_5H4`, documented at source in 5H, 6E §43.12, 6K §53 and 6M §18/§66, and live-validated (§16.3) | **DECIDED AND APPLIED — no residual decision** |
 
-**FAR-P0 = 0. Open FAR-P1 = 0** (`FAR-P1-01` closed by migration `110_5C2`; `FAR-P1-02` and `FAR-P1-03` closed by amended `110_5C2`; none deferred). **Open FAR-P2 = 0** (`FAR-P2-01` and `FAR-P2-02` closed; `FAR-P2-03` closed by amended `110_5C2`). **Open FAR-P3 = 0. Unresolved owner decisions = 0. Open blockers = 0.** No item in this ledger is carried forward as future debt, and no item is left for a later document to settle.
+**Ledger arithmetic — computed from the rows above, not asserted.** The table holds **15** rows: 5 P1, 5 P2, 3 P3, 1 blocker, 1 owner decision.
+
+| Class | Raised | Closed / resolved / superseded | **Open** |
+|---|---|---|---|
+| **FAR-P0** | 0 | 0 | **0** |
+| **FAR-P1** | 5 — `FAR-P1-01`, `-02`, `-03`, `-04`, `-05` | 5 — `-01` by `110_5C2`; `-02`, `-03` by amended `110_5C2`; `-04`, `-05` by `111_5H4` | **0** |
+| **FAR-P2** | 5 — `FAR-P2-01`, `-02`, `-03`, `-04`, `-05` | 5 — `-01`, `-02` closed at source; `-03` by amended `110_5C2`; `-04` by `FAR_111_03` Battery H; `-05` by scoped restatement | **0** |
+| **FAR-P3** | 3 — `FAR-P3-01`, `-02`, `-03` | 3 — `-01` resolved (no route collision); `-02` superseded by `FAR-P1-01`; `-03` closed at source | **0** |
+| **Database blockers** | 1 — `DB-BLOCKER-FINAL-API-001` | 1 — resolved by `110_5C2` (amended in place) | **0** |
+| **Owner decisions** | 2 — `FAR-OD-01`, `FAR-OD-02` | 2 — both decided **Option B** and both applied in full (§10, §10A) | **0 unresolved** |
+
+**FAR-P0 = 0. Open FAR-P1 = 0. Open FAR-P2 = 0. Open FAR-P3 = 0. Unresolved owner decisions = 0. Open database blockers = 0.** No item in this ledger is carried forward as future debt, none is deferred to a later document to settle, and every row names the specific artifact and live evidence that closes it. Each `0` above is the result of the row-by-row tally in the table, not a bare declaration. No item in this ledger is carried forward as future debt, and no item is left for a later document to settle.
 
 **Disclosure — second independent review.** An earlier revision of this document declared READY FOR INDEPENDENT REVIEW with this ledger ending at `DB-BLOCKER-FINAL-API-001`. A second independent review of that revision found **P0 = 0, P1 = 2, P2 = 1**: `FAR-P1-02` (a fractional `hard_limit` admitted one Agent too many), `FAR-P1-03` (a raw `UPDATE` could re-enter the counted set) and `FAR-P2-03` (`created_by` was trusted without a tenant cross-check). It also judged the earlier claim that the quota was "structurally un-bypassable" overstated, because that claim rested on the `INSERT` revoke alone. All three findings were remediated by amending `110_5C2` **in place** (no migration `111`) and re-validated live on disposable PostgreSQL 18.6 databases. They are recorded as their own rows above rather than folded silently into the earlier rows. All pre-amendment `110_5C2` hashes and transcripts are **SUPERSEDED** (§16.1).
 
@@ -565,11 +760,16 @@ No document in the corpus reports an unresolved P0/P1 blocker of its own. Docume
 
 | Question | Answer |
 |---|---|
-| What is the **current project migration head**? | **`110_5C2`** — the single Alembic head after this pass (`down_revision = '109_5B7'`). |
+| What is the **current project migration head**? | **`111_5H4`** — the single Alembic head, created by this pass's `FAR-OD-02` closure (`down_revision = '110_5C2'`). *Historical note: this row previously answered `110_5C2`. That answer was correct as at the `110_5C2` micro-remediation and is superseded here, not erased — `110_5C2` was the head from that pass until `111_5H4` was created.* |
+| What is `110_5C2`'s standing now? | **The immediate parent of `111_5H4`**, and the carrier of the FAR Agent/Voice hard-quota admission remediation (`FAR-P1-01`, `-02`, `-03`, `FAR-P2-03`, `DB-BLOCKER-FINAL-API-001`). It is **no longer the project head**. It was **not amended again** by the `111_5H4` pass and is byte-identical to its post-micro-remediation state: SQL `3d5b2273…a9e26`, 27,979 B; Alembic `8885326e…76104`, 10,659 B (§16.3). |
+| What does `111_5H4` own? | The **`FAR-OD-02` billing-quota-override closure** (Phase 5H.4 by content, this reconciliation pass by provenance): `billing.quota_overrides`, `billing.fn_is_canonical_usage_metric`, `billing.fn_resolve_effective_quota`, `billing.fn_platform_set_quota_override`, and a `CREATE OR REPLACE` of `voice.fn_assert_agent_quota_admission` so that admission reads the effective resolver (§10A, §16.3). |
 | What was **Phase 6M's** head? | **`109_5B7`**, and it remains Phase 6M's frozen head **historically**. Phase 6M's own statements that no migration followed `109_5B7` were true within Phase 6M and are preserved as scope-clarified, not falsified (§12 row 11). |
 | Did **Phase 6M create migration 110**? | **No.** `110_5C2` was created by this FINAL API RECONCILIATION DB-conformant closure pass, under the explicit one-migration authorization in the governing directive, to resolve `DB-BLOCKER-FINAL-API-001`. It belongs to Phase 5C.2 by content and to this reconciliation pass by provenance. |
 | Is Phase 6M reopened? | **No.** 6M's only change this pass is literal path-parameter normalization (§3.3), which alters no route, role, error or SRS mapping. |
-| Does a migration `111` exist? | **No.** Exactly one new migration was authorized and exactly one was created; the micro-remediation **amended `110_5C2` in place** rather than creating `111` (§16). |
+| Does a migration `111` exist? | **Yes — `111_5H4`.** *This row previously answered "No", which was true as at the `110_5C2` micro-remediation: that pass deliberately amended `110_5C2` in place rather than creating `111`. The answer is superseded, and the chronology is preserved rather than rewritten.* `111_5H4` was created subsequently, under the separate `FAR-OD-02` authorization, as the carrier for the temporary-quota-override architecture. |
+| Does a migration `112` exist? | **No.** `find` over `5K/migrations` and `5K/alembic/versions` returns **0** files matching `^112` in either directory. No further migration was created or authorized by this pass (§16.3). |
+| Is Phase 6M reopened by `111_5H4`? | **No.** `109_5B7` remains Phase 6M's frozen head as a matter of project history, and remains untouched (SQL `a761239d…b0cf3`, Python `d60f497b…fb9602`). 6M's document changes in this pass are additive/corrective API text (§18, §28, §66, `FR-TEN-005`) and reopen no route, role, error or SRS mapping. |
+| What is the full head chain? | `…` → **`109_5B7`** (historical Phase 6M head) → **`110_5C2`** (FAR Agent-quota admission remediation) → **`111_5H4`** (**current project head**, FAR `FAR-OD-02` billing-quota-override closure). One linear chain, one head, no branch, no merge point, **no `112`**. |
 
 ---
 
@@ -608,8 +808,8 @@ No document in the corpus reports an unresolved P0/P1 blocker of its own. Docume
 | 29 | Historical PostgreSQL 16 evidence preserved; PostgreSQL 18 baseline stated | ✅ (§8) |
 | 30 | No live `TBD`, `UNKNOWN` or pending-owner-decision entry anywhere in this document (the phrases occur only in §4, §13 and this row, each describing a closed or historical state) | ✅ |
 | 31 | Zero FAR-P0, zero **open** FAR-P1 (including `FAR-P1-02` and `FAR-P1-03`, raised by the second independent review), zero unresolved owner decisions | ✅ (§13) |
-| 32 | Migrations `001`–`109` and their Alembic wrappers **byte-identical to `HEAD`**; no earlier Phase 5 history rewritten | ✅ — 218 files compared, **0 differences** (§16.1) |
-| 33 | Exactly **one** new migration created (`110_5C2`, amended in place by the micro-remediation); **no migration `111`** exists | ✅ — 110 SQL files and 110 Alembic `.py` files present, `111` count = 0 (§16.1) |
+| 32 | Migrations `001`–`109` and their Alembic wrappers **byte-identical to `HEAD`**; no earlier Phase 5 history rewritten | ✅ — 218 files compared, **0 differences** (§16.1). ***Superseded by row 85***, which re-measures the same property across `001`–`110` after `111_5H4`: **220 files, 0 differences** (§16.3) |
+| 33 | Exactly **one** new migration created (`110_5C2`, amended in place by the micro-remediation); **no migration `111`** exists | ✅ *as measured at the `110_5C2` pass* — 110 SQL files and 110 Alembic `.py` files present, `111` count = 0 (§16.1). ***Superseded by rows 86–89***: migration `111_5H4` was subsequently created under the `FAR-OD-02` authorization, so the current inventory is **111** SQL / **111** Alembic with a single head `111_5H4` and **no `112`** (§16.3) |
 | 34 | `FAR-P1-01` reclassified from P3 and **CLOSED BY MIGRATION `110_5C2`**; 6A §17.3 satisfied **without an exception**; 6A not weakened | ✅ (§10.1, §10.4, §13) |
 | 35 | API/service/repository layer executes **no** `SELECT pg_advisory_xact_lock(...)` on the Agent-creation path | ✅ (§10.4, 6E §43.4, 6K §52.4) |
 | 36 | Hard quota enforced at the database boundary on the `INSERT` edge: raw `INSERT ON voice.agents` revoked from every application role; guarded functions are the sole insert path | ✅ — live raw-INSERT battery denied for **all 8 runtime roles** (§16.2). The `UPDATE` re-entry edge is closed separately by `trg_agents_mutation_guard` (rows 55–57) |
@@ -621,34 +821,79 @@ No document in the corpus reports an unresolved P0/P1 blocker of its own. Docume
 | 42 | Concurrency proven with **real concurrent processes**, not sequential statements | ✅ — two workers confirmed simultaneously blocked inside the function via `pg_locks` before the key was released (§16.1) |
 | 43 | Agent row + `AGENT_CREATED` audit + `agent.created` outbox atomic in one transaction; rejection and rollback emit neither; no second event mechanism introduced | ✅ — 1/1/1 on commit, 0/0/0 on rollback and on rejection (§16.1) |
 | 44 | Alembic wrapper follows the repository's existing forward-only policy; no destructive downgrade invented | ✅ — `downgrade()` raises `NotImplementedError` (§12.1 row 9) |
-| 45 | Among pre-existing Phase 5 documents only `5C-Voice-Schema.md` and `5K/MIGRATION_MANIFEST.md` amended; the only other Phase 5 files touched are the authorized `110_5C2` SQL + Alembic pair, its validation report and its three evidence files; Phase-6M statements scope-clarified, not falsified; Phase 6M **not reopened**; `109_5B7` remains Phase 6M's historical head while `110_5C2` is the project head | ✅ (§12.1, §14.1) |
+| 45 | Among pre-existing Phase 5 documents only `5C-Voice-Schema.md` and `5K/MIGRATION_MANIFEST.md` amended; the only other Phase 5 files touched are the authorized `110_5C2` SQL + Alembic pair, its validation report and its three evidence files; Phase-6M statements scope-clarified, not falsified; Phase 6M **not reopened**; `109_5B7` remains Phase 6M's historical head while `110_5C2` is the project head | ✅ *as at that pass* (§12.1, §14.1). ***Superseded by row 61 and §14.1***: the `111_5H4` pass additionally amended `5H-Billing-Usage-Schema.md` and added the `111_5H4` SQL + Alembic pair, its validation report and its three evidence files. `109_5B7` is still Phase 6M's historical head and Phase 6M is still **not** reopened, but the **project head is now `111_5H4`** |
 | 46 | Canonical permission string is `agent:write` everywhere; `agent:create` / `agents:write` appear nowhere as live strings | ✅ — verified against the 5B catalog (68 permissions; `agent:` = `read, write, publish, delete`) (§4, §10.9) |
 | 47 | `FAR-P3-03` **closed at source**, not left as an open ticket for the API Master Index | ✅ (§3.3, §13) |
-| 48 | Evidence capped at one report + three compact files; no per-statement execution-log sprawl; the micro-remediation rewrote those four files **in place** and created no new evidence file | ✅ (§12.2, §16) |
+| 48 | Evidence capped at one report + three compact files; no per-statement execution-log sprawl; the micro-remediation rewrote those four files **in place** and created no new evidence file | ✅ *for the `110_5C2` evidence set* (§12.2, §16). ***Superseded by row 91***: the `111_5H4` pass added its own capped set — one report plus three compact files (`FAR_111_01/02/03`) — and rewrote none of the `110` evidence except to add scope notices. The repository now holds **two reports and six evidence files**, one capped set per pass; still no per-statement execution-log sprawl (§12.3) |
 | 49 | Supporting ledgers expanded to the required coverage — Auth Contradiction (17 rows), Error Semantic (16), DTO / Contract (16), Event / Audit / Outbox (16, with an explicit five-class vocabulary), Handoff Closure (8) — each adjudicating **conflicts**, not enumerating a corpus-wide matrix or catalog | ✅ (§4–§7, §9) |
 | 50 | The accepted **55-row** Endpoint Collision Ledger was **not** redone, and no global Authorization Matrix or Error Catalog was created in place of the ledgers | ✅ — §2.1 carries the same 55 groups this pass inherited; §4 and §5 each state the scope boundary explicitly |
 | 51 | No forbidden artifact created (`API-MASTER-INDEX.md`, `AUTHORIZATION-MATRIX.md`, `ERROR-CATALOG.md`, `API-VERSIONING-STRATEGY.md`), no implementation code, no OpenAPI document | ✅ — `find` count = **0** (§16.1) |
-| 52 | No extraction helper, `__pycache__`, `*.pyc` or `*.pyo` inside the repository; disposable validation containers destroyed | ✅ (§16.1) |
+| 52 | No extraction helper, `__pycache__`, `*.pyc` or `*.pyo` inside the repository; disposable validation containers destroyed | ✅ (§16.1). ***Re-verified after `111_5H4`*** — see row 96: the `111` containers `far_fresh` / `far_incr` are also destroyed and the repository is still free of cache and temporary-script artifacts (§16.3) |
 | 53 | This document self-declares no APPROVED / FROZEN status for itself or any Phase 6 document | ✅ (§0, §14) |
 | 54 | Fractional `hard_limit` (`NUMERIC(18,4)`) enforced as stored: admission rejects when `(active + 1) > hard_limit`; `FAR-P1-02` closed | ✅ — `FAR_DB_02` §2 **9/9**: limit 1.5 with 0 active admitted; 1.5 with 1 rejected `53400`; 0.5 with 0 rejected; 2 with 1 admitted; 2 with 2 rejected; clone at 1.5 with 1 rejected; clone at 2 with 1 admitted; no quota row admitted; `NULL` limit admitted. Concurrent fractional cases K (1.5) and L (2.5) also pass (§16.2) |
 | 55 | Raw `UPDATE` cannot re-enter the counted set: `DEPRECATED` is terminal (→`DRAFT` and →`PUBLISHED` rejected), `organization_id` is immutable, `deleted_at` cannot be cleared (no resurrection), `DRAFT→DEPRECATED` rejected; `FAR-P1-03` closed | ✅ — `FAR_DB_02` §7 cases A, B, F, G, I rejected `P0001` for `app_api`, `app_worker` and `app_platform_admin` (`BYPASSRLS`); active count unchanged after every rejection (§16.2) |
 | 56 | Legitimate lifecycle still works with `UPDATE` retained: `DRAFT→PUBLISHED`, `PUBLISHED→DEPRECATED`, same-state PATCH, soft-delete; raw `INSERT` still denied | ✅ — `FAR_DB_02` §7 cases C, D, E, H applied and J denied `42501`, **30/30** across the three writing roles; `FAR_DB_03` Part 1 §7 (§16.2) |
 | 57 | The guard trigger binds every principal, `BYPASSRLS` roles and the superuser included (no `WHEN` clause, no role test) | ✅ — `FAR_DB_03` Part 1 §1b (enabled, `ROW`, `BEFORE UPDATE`) and Part 2b: as superuser, P2b-1…P2b-3 rejected `P0001` and P2b-4 `DRAFT→PUBLISHED` applied (§16.2) |
-| 58 | `created_by` trust boundary: `fn_assert_agent_actor` rejects a `NULL` or non-member `created_by` in the same tenant; no public DTO change; `FAR-P2-03` closed | ✅ — code (`110_5C2.sql` lines 237–262; called at line 297 in create and line 367 in clone, before admission), catalog (`FAR_DB_03` Part 1 §1–§3: `SECURITY INVOKER`, no `EXECUTE` for any role), and the positive path exercised by every accepted create and clone. **The negative non-member case is not separately transcribed** (disclosed in §13 and §17) |
+| 58 | `created_by` trust boundary: `fn_assert_agent_actor` rejects a `NULL` or non-member `created_by` in the same tenant; no public DTO change; `FAR-P2-03` closed | ✅ — code (`110_5C2.sql` lines 237–262; called at line 297 in create and line 367 in clone, before admission), catalog (`FAR_DB_03` Part 1 §1–§3: `SECURITY INVOKER`, no `EXECUTE` for any role), and the positive path exercised by every accepted create and clone. **The negative non-member case is not separately transcribed** (disclosed in §13 and §17). ***Superseded by row 82***: the negative case **is** now directly transcribed — `FAR_111_03` **Battery H, 7/7** — and the gap is tracked and closed as `FAR-P2-04`. The disclosure is retained here as the historical record of what the `110_5C2` pass could and could not prove |
 | 59 | Amended `110_5C2` contains exactly five functions and one trigger; its final identity is recorded and the pre-amendment identity is marked SUPERSEDED | ✅ — `FAR_DB_03` Part 1 §1 (5 functions, 2 `SECURITY DEFINER`, 4 with a pinned `search_path`) and §1b (1 trigger); SQL `3d5b2273…a9e26`, 27,979 B; Alembic `8885326e…76104`, 10,659 B (§16, §16.1) |
 | 60 | The second independent review's findings (P0 = 0, P1 = 2, P2 = 1) are disclosed, not hidden, and each is shown remediated | ✅ (§13 disclosure, §17) |
+| **61** | **`FAR-OD-02` = Option B applied in full** — temporary quota overrides with live baseline fallback, recorded normatively with all sixteen contract points | ✅ (§10A, §13, §17; 5H, 6E §43.12, 6K §53, 6M §18/§66) |
+| 62 | Canonical quota-metric vocabulary is the **15-metric** Phase-5H set, enforced at two independent layers (`fn_is_canonical_usage_metric` → `P0001`; `chk_qo_metric_canonical` → `23514`) | ✅ — `FAR_111_02` Battery A (§10A.4) |
+| 63 | Canonical metrics **missing** from the override vocabulary = **0** | ✅ — all 15 accepted; set difference empty (§10A.4) |
+| 64 | Legacy metric names are **rejected**, not silently accepted | ✅ — `23514 / chk_qo_metric_canonical` at the table layer and `P0001` at the function layer (`FAR_111_02` Battery A) |
+| 65 | `ACTIVE_AGENTS` is a valid, overridable metric — the defect behind `FAR-P1-04` is closed | ✅ — accepted by both layers; exercised end-to-end in `FAR_111_03` Battery I |
+| 66 | **`AGENT_COUNT` is rejected, not aliased** — no legacy alias was introduced anywhere | ✅ — rejected identically to any other non-canonical string; zero alias mappings exist (§10A.4) |
+| 67 | Base and override are **separate persistence layers**; an override **never** overwrites the base | ✅ — base `billing.quota_configs` untouched by `fn_platform_set_quota_override`; override rows live only in `billing.quota_overrides` (§10A.1, `FAR_111_02` Battery B4) |
+| 68 | An active, non-superseded override **wins** over the base | ✅ — `FAR_111_02` B2: base `1000`, override `2000`, effective **`2000`**, source `PLATFORM_OVERRIDE` |
+| 69 | On expiry the effective value falls back to the **CURRENT** base — not a stale historical base, not the previous superseded override, not unlimited | ✅ — `FAR_111_02` B5: effective **`1200`**, source `BASE` (§10A.3) |
+| 70 | A base change made **while an override is active** does not disturb the override, and takes effect once the override ends | ✅ — `FAR_111_02` B4: base raised `1000 → 1200` mid-override, effective still **`2000`**; then B5 yields **`1200`** |
+| 71 | A **permanent** override is expressed as `expires_at IS NULL` and remains effective until superseded | ✅ — `FAR_111_02` Battery D; `chk_qo_expires_after_start` permits `NULL` and rejects `expires_at <= effective_from` |
+| 72 | `hard_limit IS NULL` means **unlimited** on the effective result and is reported as such; it is not coerced to a number and no integer-only restriction is imposed | ✅ — `NUMERIC(18,4)` throughout, compared **as stored**; `FAR_111_02` Battery F |
+| 73 | A **superseded** override never reactivates — supersession is one-way and terminal | ✅ — `superseded_at` set under one advisory lock; partial unique index `uq_qo_org_metric_current` structurally permits at most one current row per `(organization_id, metric)`, second insert `23505` (`FAR_111_02` Battery C) |
+| 74 | The Platform-Admin override **write** path is secure: `SECURITY DEFINER`, `EXECUTE` to `app_platform_admin` only, `REVOKE ALL … FROM PUBLIC`, and no application role holds `INSERT`/`UPDATE`/`DELETE` on `billing.quota_overrides` | ✅ — `FAR_111_03` Batteries E and G; `42501` for every other principal |
+| 75 | The Platform-Admin **read** model reflects actual override state (ACTIVE / EXPIRED / SUPERSEDED history) and is a read model, **not** a second quota authority | ✅ — 6M §66.3; `FAR_111_03` Battery G |
+| 76 | The tenant-facing `GET /billing/quotas` reports **effective** values with a source label, under FORCED RLS, and requires **no** Platform-Admin privilege | ✅ — 6K §53; resolver is `SECURITY INVOKER` and callable by `app_api` / `app_worker` / `app_readonly` (`FAR_111_03` Battery J) |
+| 77 | `ACTIVE_AGENTS` admission on `POST /agents` reads the **effective resolver**; `110_5C2`'s concurrency-safe database guard is retained and only the quota **source** changed | ✅ — `CREATE OR REPLACE voice.fn_assert_agent_quota_admission`; advisory lock, counted set and `53400` unchanged (`FAR_111_03` Battery I) |
+| 78 | `POST /agents/{agent_id}/clone` reads the **same** resolver — no second code path, no divergent limit | ✅ — `FAR_111_03` Battery I clone cases |
+| 79 | Lowering a limit below current usage is **non-destructive**: existing Agents remain, `auto_deprecated = 0`, `soft_deleted_rows = 0`, publish stays count-neutral, and only new create/clone is refused `53400` until admission would satisfy the limit | ✅ — `FAR_111_02` / `FAR_111_03` lower-limit cases (§10A.6). The database never deletes, deprecates or mutates customer Agents or phone numbers to make a quota true |
+| 80 | Fractional-limit arithmetic is preserved end-to-end through the resolver: `(active + 1) > hard_limit`, compared as stored, never rounded | ✅ — `FAR_111_02` Battery F; `FAR-P1-02`'s fix survives the `111` replacement |
+| 81 | Create/clone **concurrency** remains safe after the source change — the advisory lock still serializes admission | ✅ — `pg_advisory_xact_lock(hashtext('voice.agent_quota:' \|\| org))` retained verbatim; override writes take their own key `billing.quota_override:<org>:<metric>` (`FAR_111_03` Battery I) |
+| 82 | The `created_by` **negative** case is **directly transcribed**, not inferred from code | ✅ — `FAR_111_03` **Battery H, 7/7**: non-member `P0001`, other-tenant member `P0001`, `NULL` actor `P0001`, valid member succeeds, 0 rows written by the rejected attempts, clone enforces the same guard, `app_api` denied `EXECUTE` (`42501`). Closes `FAR-P2-04` and supersedes row 58 |
+| 83 | ACL / RLS / security posture: `billing.quota_overrides` has RLS **enabled and forced**; `PUBLIC` holds no `EXECUTE` on any new function; **no new `BYPASSRLS` role**; no existing policy weakened or dropped | ✅ — `FAR_111_03` Batteries E, G, J; `BYPASSRLS` remains only `app_migration`, `app_platform_admin` and `postgres`, all pre-existing |
+| 84 | The override audit write (`QUOTA_OVERRIDE_SET` into `audit.audit_events.action_kind`) is **atomic with** the override creation/supersession — same transaction, nothing on rollback | ✅ — `FAR_111_03` Battery K.10c–K.10e |
+| 85 | Migrations `001`–`110` and their Alembic wrappers **byte-identical to `HEAD`**; `110_5C2` **not** amended again by this pass | ✅ — **220 files compared, 0 differences**; 0 present in the working tree but absent from `HEAD` (§16.3). Supersedes row 32 |
+| 86 | Frozen SQL migration count | ✅ — **111** files in `5K/migrations` (`001` … `111_5H4`) (§16.3) |
+| 87 | Alembic revision count | ✅ — **111** files in `5K/alembic/versions` (§16.3) |
+| 88 | Exactly **one** Alembic head, and it is `111_5H4` | ✅ — `alembic heads` → `111_5H4 (head)`; `down_revision = '110_5C2'`; linear chain, no branch, no merge point (§16.3) |
+| 89 | **No migration `112`** exists | ✅ — `^112` count = **0** in both `5K/migrations` and `5K/alembic/versions` (§16.3) |
+| 90 | `111_5H4` identity recorded exactly | ✅ — SQL `5fe2bc96431236d637dbe2558c0c78d13ab17b7cce647aac3e61db2ac2f4c048`, **44,726 B**, 836 lines; Alembic `78b3fda47b22e9e5ef55b66ce4815a415578351a5e786f6977355cdd067e70ea`, **9,227 B**, 161 lines (§16.3) |
+| 91 | Evidence set for this pass is capped at one report plus three compact files, and no `110` evidence file was rewritten except to add a scope notice | ✅ — `FAR_111_01`, `FAR_111_02`, `FAR_111_03` + `FINAL_API_RECONCILIATION_111_VALIDATION_REPORT.md` (§12.3 rows 20–23). Supersedes row 48 |
+| 92 | **No unresolved ticket** in the issue ledger: open P0 / P1 / P2 / P3 = **0 / 0 / 0 / 0**, computed from a 15-row tally rather than declared | ✅ (§13 arithmetic table) |
+| 93 | **No owner decision left unresolved** — `FAR-OD-01` = Option B and `FAR-OD-02` = Option B, both applied in full | ✅ (§10, §10A, §13, §17) |
+| 94 | **No database blocker open** — `DB-BLOCKER-FINAL-API-001` resolved; this pass raised no new blocker and no new `OWNER DECISION REQUIRED` item | ✅ (§13) |
+| 95 | **No forbidden next-phase artifact** created: no `API-MASTER-INDEX.md`, `AUTHORIZATION-MATRIX.md`, `ERROR-CATALOG.md` or `API-VERSIONING-STRATEGY.md`; no implementation-readiness artifact, no FastAPI/application code, no frontend code, no OpenAPI output | ✅ — `find` count = **0** (§16.3) |
+| 96 | Repository hygiene at close: no `__pycache__`, `*.pyc` or `*.pyo`; no temporary validation script or SQL file inside the repository (the harness stays in the session scratchpad); the disposable containers `far_fresh` and `far_incr` destroyed and **no unrelated container touched** | ✅ (§16.3). Re-verifies row 52 at the `111` state |
+| 97 | This pass declares **no** phase, document or migration APPROVED or FROZEN — including `111_5H4` itself; that determination belongs to the independent reviewer | ✅ (§0, §14, §17; `5K/MIGRATION_MANIFEST.md` Row 111 closing statement) |
 
 ---
 
 ## 16. Verification Evidence
 
+> **SCOPE — THIS TABLE AND §16.1 / §16.2 ARE THE `110_5C2` CLOSURE RECORD (historical).**
+> The table below, the `git status` transcript in §16.1 and the battery summaries in §16.2 were
+> captured by the `110_5C2` micro-remediation pass and were **true and correct for that pass**.
+> They are retained unedited as evidence of what that pass could and could not prove. They are
+> **superseded as a description of the CURRENT repository** — its inventory, its head, its hashes
+> and its container state are recorded in **§16.3**, which governs wherever the two differ.
+> Individual superseded rows are marked inline below.
+
 | Check | Command | Result |
 |---|---|---|
-| Migrations `001`–`109` byte-identical to `HEAD` | `git show HEAD:<path> \| cmp -s - <path>` over every `≤109` SQL + Alembic file | **218 files, 0 differences** |
-| Exactly one new migration (amended in place); no `111` | `ls …/5K/migrations/*.sql \| wc -l`; `ls …/5K/alembic/versions/*.py \| wc -l`; `ls …/migrations …/alembic/versions \| grep -c '^111'` | **110** SQL, **110** Alembic; `111` count = **0** |
+| Migrations `001`–`109` byte-identical to `HEAD` | `git show HEAD:<path> \| cmp -s - <path>` over every `≤109` SQL + Alembic file | **218 files, 0 differences** — ***superseded by §16.3 item 9***: the current measurement covers migrations `001`–`110` and is **220 files, 0 differences** |
+| Exactly one new migration (amended in place); no `111` | `ls …/5K/migrations/*.sql \| wc -l`; `ls …/5K/alembic/versions/*.py \| wc -l`; `ls …/migrations …/alembic/versions \| grep -c '^111'` | **110** SQL, **110** Alembic; `111` count = **0** — ***superseded by §16.3 items 6–8***: migration `111_5H4` was subsequently created under the `FAR-OD-02` authorization, so the current inventory is **111** SQL, **111** Alembic, and the count that is now **0** is `^112` |
 | `110_5C2` identity (amended) | `sha256sum`, `stat -c %s` | SQL `3d5b2273…a9e26`, 27,979 B; Alembic `8885326e…76104`, 10,659 B. Pre-amendment `3b76d835…` / `735366af…` are **SUPERSEDED** |
 | Historical `109_5B7` unchanged | `sha256sum` vs the Phase-6M freeze record | SQL `a761239d…b0cf3`, Python `d60f497b…fb9602` — **match** |
-| Single Alembic head | `alembic heads` (disposable DB) | `110_5C2 (head)` |
+| Single Alembic head | `alembic heads` (disposable DB) | `110_5C2 (head)` — ***superseded by §16.3 item 5***: still exactly one head, now `111_5H4`, with `110_5C2` as its immediate parent |
 | Fresh + incremental legs | `alembic upgrade head` on two disposable PG18 containers | exit 0 / exit 0 |
 | Fractional-limit battery | `FAR_DB_02` §2, nine cases on `NUMERIC(18,4)` limits | **9/9 PASS** |
 | Live concurrency battery | `FAR_DB_02` §11, cases A, B, E, K, L — two real worker processes + `pg_locks` observation | **PASS** — 2 workers simultaneously blocked in every case; limit respected in every case |
@@ -659,7 +904,7 @@ No document in the corpus reports an unresolved P0/P1 blocker of its own. Docume
 | Guard binds the superuser | `FAR_DB_03` Part 2b | **PASS** — 3 re-entry attempts rejected `P0001`; legitimate publish applied |
 | No forbidden artifact | `find docs -name 'API-MASTER-INDEX.md' -o -name 'AUTHORIZATION-MATRIX.md' -o -name 'ERROR-CATALOG.md' -o -name 'API-VERSIONING-STRATEGY.md' \| wc -l` | **0** |
 | No stray build artifacts | `find docs -name '__pycache__' -o -name '*.pyc' -o -name '*.pyo' \| wc -l` | **0** |
-| Disposable containers destroyed | `docker ps -a \| grep far-pg18` | **none** |
+| Disposable containers destroyed | `docker ps -a \| grep far-pg18` | **none** — ***re-verified after `111_5H4`***, see §16.3 item 21: the two containers of the later pass (`far_fresh`, `far_incr`) were likewise destroyed, and no unrelated container was touched |
 | Working-tree scope | `git status --short` | *(recorded at §16.1)* |
 
 ### 16.1 Verification run (actual output, 2026-09-15)
@@ -746,15 +991,146 @@ The route-extraction helper and its JSON output live only under the session scra
 
 ---
 
+### 16.3 Post-`111_5H4` Final Billing / Quota Override Validation
+
+*This subsection is the **current** inventory and validation record for the repository. Where it and the*
+*§16 table above disagree, §16.3 governs and the table stands as the historical `110_5C2` record.*
+Every value below is captured output from `FINAL_API_RECONCILIATION_111_VALIDATION_REPORT.md`,
+`FAR_111_01_migration_integrity.txt`, `FAR_111_02_override_resolver_battery.txt` and
+`FAR_111_03_security_integration_battery.txt`. Nothing here is inferred.
+
+1. **Engine.** PostgreSQL **18.6** (Debian 18.6-1.pgdg12+2) on x86_64, image `pgvector/pgvector:pg18`
+   — the pgvector image is required because `034_5F.sql` creates the `vector` extension. Disposable
+   throwaway databases only; no project or customer data at any point.
+2. **Fresh leg.** `001 → 111_5H4` applied to an empty database — **PASS**, exit 0, reaching head
+   `111_5H4`.
+3. **Incremental leg.** `… → 109_5B7 → 110_5C2 → 111_5H4` applied as discrete steps — **PASS**,
+   exit 0, same head. `110_5C2`'s five functions, its trigger and its privilege posture are re-proven
+   intact by this leg.
+4. **Chain convergence.** `diff objects_fresh.txt objects_incr.txt` produced **no output** — the two
+   catalogs are **identical, 113 lines each**. The fresh and incremental paths are indistinguishable.
+5. **Single head.** `alembic heads` returns exactly one revision: **`111_5H4`**, with
+   `down_revision = '110_5C2'`. One linear chain, no branch, no merge point.
+6. **SQL migration count.** **111** files in `5K/migrations`.
+7. **Alembic revision count.** **111** files in `5K/alembic/versions`.
+8. **No migration `112`.** Files matching `^112` in either directory: **0**. The next step after this
+   pass is independent review, not another migration.
+9. **Frozen history.** Every tracked file at or below `110` compared byte-for-byte against
+   `git show HEAD:<path>`: **220 files compared, 0 differences, 0 present-but-absent-in-`HEAD`**.
+   Migrations `001`–`110` and their Alembic wrappers are byte-identical to `HEAD`, and **`110_5C2`
+   was NOT amended again by this pass**.
+10. **Historical Phase 6M head `109_5B7`, reconfirmed unchanged.** SQL
+    `a761239d…b0cf3` (53,473 B); Python `d60f497b…fb9602` (4,949 B). Phase 6M is **not** reopened.
+11. **Immediate parent `110_5C2`, reconfirmed unchanged.** SQL `3d5b2273…a9e26` (27,979 B, 544 lines);
+    Alembic `8885326e…76104` (10,659 B, 194 lines) — identical to the values §16 recorded for the
+    amended `110_5C2`.
+12. **Current head `111_5H4`, identity.** SQL
+    `5fe2bc96431236d637dbe2558c0c78d13ab17b7cce647aac3e61db2ac2f4c048` (44,726 B, 836 lines);
+    Alembic `78b3fda47b22e9e5ef55b66ce4815a415578351a5e786f6977355cdd067e70ea` (9,227 B, 161 lines).
+13. **Evidence files of this pass (three).** `FAR_111_01_migration_integrity.txt` (220 lines,
+    12,366 B) — chains, head, object-dump equality; `FAR_111_02_override_resolver_battery.txt`
+    (462 lines, 24,245 B) — Batteries A, B, C, D, F; `FAR_111_03_security_integration_battery.txt`
+    (688 lines, 38,532 B) — Batteries E, G, H, I, J plus catalog/ACL/RLS and audit atomicity.
+14. **Report of this pass.** `FINAL_API_RECONCILIATION_111_VALIDATION_REPORT.md` (239 lines,
+    14,931 B), carrying the ten-battery coverage table, the acceptance gate, the artifact checksums
+    and the disclosed caveats. **No placeholder remains in it**: the deferred-value marker that an
+    earlier revision carried while container destruction was still pending has been replaced with
+    the actual final cleanup statement, and a repository-wide search for that marker token now
+    returns **zero occurrences**.
+15. **Security posture.** Exactly **one** `SECURITY DEFINER` routine (the admin mutation path
+    `fn_platform_set_quota_override`); every other routine is `SECURITY INVOKER` with an explicit
+    `search_path` terminating in `pg_catalog`. `app_api` holds **no** `EXECUTE` on the admin mutation
+    function — the 107-era grant is gone. No application role holds `INSERT`/`UPDATE`/`DELETE` on
+    `billing.quota_overrides`; RLS is enabled **and FORCED**. **No new `BYPASSRLS`** — the inventory
+    remains `app_migration`, `app_platform_admin`, `postgres`, all pre-existing. The claim is bounded
+    by the scope statement recorded at `FAR-P2-05` in §13.
+16. **`created_by` negative evidence — now direct.** `FAR_111_03` **Battery H, 7/7**: an outsider
+    non-member is refused `P0001`, an other-tenant member is refused `P0001`, a `NULL` actor is
+    refused `P0001`, a valid same-tenant member succeeds as the control, the rejected attempts wrote
+    **0** Agent rows, the clone path enforces the identical guard, and `app_api` cannot call
+    `fn_assert_agent_actor` directly (`42501`). This closes `FAR-P2-04` and supersedes the
+    `110_5C2`-era disclosure that the negative case had not been separately transcribed.
+17. **Lower-limit contract — non-destructive.** When the effective limit drops below current usage,
+    by expiry, supersession or a deliberately lower override, the database **closes admission only**:
+    new `ACTIVE_AGENTS` admissions are refused `53400`; **`auto_deprecated = 0`,
+    `soft_deleted_rows = 0`**; an existing Agent may still transition `DRAFT → PUBLISHED` while the
+    tenant is over limit; and the state is recoverable, because a new override re-opens admission
+    without touching customer data. No Agent, phone number or other customer resource is deleted,
+    deprecated or mutated to make a quota true.
+18. **Effective-quota resolution.** `billing.fn_resolve_effective_quota(organization_id, metric)` is
+    the single read authority: an active, non-superseded Platform Admin override wins; otherwise the
+    **current** commercial base in `billing.quota_configs`; otherwise no configured quota. An
+    override **never** overwrites the base — the two layers persist separately — and on expiry the
+    resolver returns the **current** base, not a stale historical value, not a previous superseded
+    override, and not unlimited unless the effective base itself carries a `NULL` `hard_limit`.
+    Evidenced across Battery B and restated as §15 rows 68–71.
+19. **Concurrency.** `ACTIVE_AGENTS` admission continues to use the concurrency-safe database guard
+    established by `110_5C2` — `pg_advisory_xact_lock(hashtext('voice.agent_quota:' || org))` — with
+    `111_5H4` changing only the quota **source** to the effective resolver. Simultaneous override
+    writes are serialized by `pg_advisory_xact_lock` on the override key and by the partial unique
+    index `uq_qo_org_metric_current`. Evidence: `FAR_111_03` Battery G.
+20. **Audit atomicity.** The override audit record (`QUOTA_OVERRIDE_SET` written into
+    `audit.audit_events.action_kind`) is committed **inside the same transaction** as the override
+    creation or supersession; a refusal or a rollback leaves neither the override row nor the audit
+    row. Evidence: `FAR_111_03` K.10c–K.10e.
+21. **Disposable infrastructure destroyed.** `docker rm -f far_fresh far_incr` returned both names,
+    and `docker ps -a --format '{{.Names}}' | grep -E '^far_(fresh|incr)$'` then returned **none**.
+    Destruction happened **after** every transcript quoted in the evidence files was captured. The
+    two throwaway databases (`far_v2` on host port 55441, `far_i2` on 55442) went with their
+    containers. **No unrelated container was stopped, removed or otherwise touched.**
+22. **Repository hygiene and working-tree scope.** No `__pycache__`, `*.pyc` or `*.pyo` anywhere in
+    the repository; no temporary validation script, harness or scratch SQL file inside the
+    repository — the harness lives in the session scratchpad, outside the repository tree; and none
+    of the four forbidden artifacts exists (`find` count **0**). `git status --short` reports exactly
+    **8 modified** and **6 untracked** paths, every one of them accounted for by the §12.3 change
+    register: **zero unexpected files** (§12.3).
+
+**Disclosed caveats are retained, not hidden.** The six limitations in §8 of the `111_5H4` report
+stand as written — including step **E.6b**, which printed `FAIL` because an exception raised by an
+earlier probe in the same `psql` `DO` block had already rolled back the agent that step was trying to
+re-create. That is a **harness expectation error, not an engine defect**, and the transcript is kept
+rather than removed. Likewise disclosed: the EXPIRED state was produced by deliberate superuser time
+travel rather than by waiting out wall-clock expiry; `CREATE OR REPLACE` does not revalidate existing
+rows behind a CHECK, so any future narrowing of the vocabulary needs an explicit revalidation; and
+fixture planting in Batteries A, B and C used superuser to create starting conditions only, never to
+make a result come out right.
+
+---
+
 ## 17. Result
 
-All 60 acceptance-gate checks pass (§15).
+All **97** acceptance-gate checks pass (§15) — the 60 checks carried forward from the `110_5C2`
+closure, six of which are explicitly scope-marked as superseded rather than deleted, plus the **37**
+added by the `111_5H4` billing / quota-override closure (rows 61–97).
 
 Zero FAR-P0. Zero **open** FAR-P1 — `FAR-P1-01` was raised, reclassified up from a mis-severity P3, and **closed by migration `110_5C2`**, not deferred; `FAR-P1-02` and `FAR-P1-03` were raised by the second independent review and are **closed by amended `110_5C2`**. Zero open FAR-P2: `FAR-P2-01` and `FAR-P2-02` are closed, and `FAR-P2-03` is **closed by amended `110_5C2`**. Zero open FAR-P3: `FAR-P3-01` is resolved, `FAR-P3-02` is superseded, and `FAR-P3-03` is closed at source rather than handed to a later index document. `DB-BLOCKER-FINAL-API-001` was **raised** — correcting an earlier revision of this document that wrongly recorded it as not raised — and is **resolved** by that same migration. Zero Class-E contradictions across the 55 collision groups, zero open handoffs, zero unresolved owner decisions, **zero items carried forward as future debt** from this pass.
 
 `FAR-OD-01` = Option B is enforced as the owner decided: hard, synchronous, server-authoritative `ACTIVE_AGENTS` admission on both `POST /api/v1/agents` and `POST /api/v1/agents/{agent_id}/clone`, serialized **inside** the database and compared against the limit as stored, fractional limits included. Both edges of the counted set are closed at the database boundary. A row can enter it by `INSERT` only through the two guarded functions, because raw `INSERT` is revoked from every application role. It cannot re-enter it by `UPDATE`, because `trg_agents_mutation_guard` binds every principal, `BYPASSRLS` roles and the superuser included. Deliberate out-of-band DDL by the table owner or a superuser, such as disabling the trigger, is outside that claim. The enforcement is live-validated on PostgreSQL 18.6 against disposable databases with real concurrent processes. Frozen 6A §17.3 is satisfied **without an exception**, and 6A was not weakened to achieve it.
 
-**Disclosure.** An earlier revision of this section declared this document ready for independent review. A second independent review then found **P0 = 0, P1 = 2, P2 = 1** (`FAR-P1-02`, `FAR-P1-03`, `FAR-P2-03`) and judged the earlier "structurally un-bypassable" wording overstated. Those findings were remediated by amending `110_5C2` in place and re-validating live; they are recorded in §13 and §15 rows 54–60, not hidden. One evidence limit is stated plainly: the `FAR-P2-03` negative case (a non-member `created_by`) is verified by code and catalog inspection, not by a separate transcript.
+`FAR-OD-02` = Option B is likewise enforced as the owner decided: the commercial baseline lives in
+`billing.quota_configs`, a temporary Platform Admin override lives in `billing.quota_overrides`, and
+the effective value is resolved by `billing.fn_resolve_effective_quota(organization_id, metric)` —
+active override first, otherwise the **current** base, otherwise no configured quota. An override
+never overwrites the base, a superseded override never reactivates, and an expiry falls back to the
+live baseline rather than to a stale value or to unlimited. `ACTIVE_AGENTS` admission keeps the
+concurrency-safe guard `110_5C2` established and changes only its quota **source**. `FAR-P1-04`
+(canonical-vocabulary divergence) and `FAR-P1-05` (fail-open on override expiry) were genuine P1
+findings — the first would have let a non-canonical metric be quota-governed, the second would have
+removed the limit entirely at the moment an override lapsed — and both are **closed by `111_5H4`**.
+`FAR-P2-04` is **closed by direct transcript** (`FAR_111_03` Battery H, 7/7). `FAR-P2-05` is **closed
+by scoped restatement**: under normal SQL execution with the defined triggers/functions/ACLs enabled,
+the tested runtime principals and tested privileged session cannot bypass the application invariant;
+deliberate superuser DDL or trigger-disabling actions are outside the application guarantee. No
+client holds quota or pricing authority. `110_5C2` was **not** amended again and **no migration
+`112`** was created.
+
+**Head chain.** `… → 109_5B7 → 110_5C2 → 111_5H4`. `109_5B7` remains the frozen historical **Phase
+6M** head and Phase 6M is **not** reopened by this pass; `110_5C2` is the immediate parent of the
+current head and is no longer the head itself; **`111_5H4` is the current project head**, owned by
+the Final API Reconciliation / Phase 5H.4 billing quota-override closure. One linear chain, exactly
+one Alembic head, no `112`.
+
+**Disclosure.** An earlier revision of this section declared this document ready for independent review. A second independent review then found **P0 = 0, P1 = 2, P2 = 1** (`FAR-P1-02`, `FAR-P1-03`, `FAR-P2-03`) and judged the earlier "structurally un-bypassable" wording overstated. Those findings were remediated by amending `110_5C2` in place and re-validating live; they are recorded in §13 and §15 rows 54–60, not hidden. ~~One evidence limit is stated plainly: the `FAR-P2-03` negative case (a non-member `created_by`) is verified by code and catalog inspection, not by a separate transcript.~~ ***Corrected by the `111_5H4` pass:*** *that limit no longer exists. The negative case is now **directly transcribed** — `FAR_111_03` **Battery H, 7/7** — and the gap is tracked and closed on its own ticket, `FAR-P2-04` (§13, §15 row 82, §16.3 item 16). The original sentence is struck in place rather than deleted so that the change in the evidence set remains auditable.*
 
 This document does not declare itself, or any Phase 6 document, APPROVED or FROZEN.
 

@@ -1,0 +1,220 @@
+==================================================================================
+FAR_111_01 - MIGRATION 111_5H4 EXECUTION, HEAD OWNERSHIP AND FROZEN-HISTORY
+             INTEGRITY
+Final API Reconciliation - 111_5H4 CLOSURE PASS
+Owner decision in force: FAR-OD-02 = OPTION B (true temporary Platform-Admin
+                         quota overrides with LIVE commercial-baseline fallback)
+Defects addressed:       FAR-P1-04 (metric-vocabulary incompatibility)
+                         FAR-P1-05 (override expiry fell back to "unlimited")
+==================================================================================
+
+SCOPE OF THIS FILE
+  Migration execution on both upgrade paths, single-head ownership, file hashes,
+  repository counts, frozen-history integrity for 001-110, and the fresh-vs-
+  incremental catalog convergence proof. Behavioural evidence is in
+  FAR_111_02 (resolution/override semantics) and FAR_111_03 (security and
+  ACTIVE_AGENTS integration).
+
+RELATIONSHIP TO THE EARLIER FAR_DB_* EVIDENCE SET
+  FAR_DB_01 / FAR_DB_02 / FAR_DB_03 and
+  FINAL_API_RECONCILIATION_DB_VALIDATION_REPORT.md are the evidence set for
+  migration 110_5C2 and remain valid for 110. They were written when no
+  migration 111 existed, and they say so. Those specific "no 111 exists" /
+  "migration 110 only, no 111" statements are SUPERSEDED by this pass and by
+  FINAL_API_RECONCILIATION_111_VALIDATION_REPORT.md. Nothing else in the 110
+  evidence set is withdrawn, and 110_5C2 was NOT modified by this pass.
+
+ENGINE ..... PostgreSQL 18.6 (Debian 18.6-1.pgdg12+2) on x86_64-pc-linux-gnu,
+             image pgvector/pgvector:pg18 (required: 034_5F.sql creates the
+             `vector` extension).
+             NOTE: the workstation's local psql client is 16.15 and is too old
+             to be authoritative here; every statement in this evidence set was
+             executed inside the PostgreSQL 18.6 container via `docker exec`.
+TOOLING .... alembic / SQLAlchemy / psycopg2 2.9.12. DATABASE_URL is the single
+             connection source (5K/alembic/env.py:48); alembic.ini carries no
+             sqlalchemy.url. The driver is psycopg2, so the URL scheme is
+             postgresql+psycopg2://.
+DATABASES .. disposable throwaway containers ONLY, destroyed at the end of this
+             pass. No shared, staging or production database was touched.
+               far_fresh : 127.0.0.1:55441  db far_v2  (fresh leg 001 -> 111)
+               far_incr  : 127.0.0.1:55442  db far_i2  (incremental 001 -> 110 -> 111)
+
+----------------------------------------------------------------------------------
+1. FILE INVENTORY AND HASHES (the filesystem is authoritative)
+----------------------------------------------------------------------------------
+
+  $ sha256sum 5K/migrations/111_5H4.sql 5K/alembic/versions/111_5H4.py
+  5fe2bc96431236d637dbe2558c0c78d13ab17b7cce647aac3e61db2ac2f4c048  111_5H4.sql
+  78b3fda47b22e9e5ef55b66ce4815a415578351a5e786f6977355cdd067e70ea  111_5H4.py
+
+  $ wc -l -c 111_5H4.sql 111_5H4.py
+    836   44726  docs/phase-05-database-design/5K/migrations/111_5H4.sql
+    161    9227  docs/phase-05-database-design/5K/alembic/versions/111_5H4.py
+
+  These hashes were re-verified against the working tree at the start of this
+  closure pass and again before this file was written. They are unchanged, and
+  migration 111 was NOT edited during this pass: the pass found no correctness
+  or security defect inside 111 that would justify an edit.
+
+----------------------------------------------------------------------------------
+2. REPOSITORY COUNTS AND SINGLE HEAD
+----------------------------------------------------------------------------------
+
+  $ ls 5K/migrations/*.sql | wc -l                     -> 111
+  $ ls 5K/alembic/versions/*.py | grep -v __init__ | wc -l -> 111
+  $ ls 5K/migrations/112* 5K/alembic/versions/112* | wc -l -> 0   (no migration 112)
+
+  Revision chain tail:
+    110_5C2.py : revision = '110_5C2'   down_revision = '109_5B7'
+    111_5H4.py : revision = '111_5H4'   down_revision = '110_5C2'
+
+  Head ownership: the single Alembic head is 111_5H4. Migration 110_5C2 is no
+  longer the head; it is the immediate parent of 111_5H4. Any document still
+  describing 110_5C2 as the head, or asserting that no 111 exists, is stale as
+  of this pass.
+
+----------------------------------------------------------------------------------
+3. FROZEN-HISTORY INTEGRITY: 001-110 UNCHANGED
+----------------------------------------------------------------------------------
+
+  $ git status --porcelain
+  ?? docs/phase-05-database-design/5K/alembic/versions/111_5H4.py
+  ?? docs/phase-05-database-design/5K/migrations/111_5H4.sql
+
+  The ONLY entries are the two new, still-untracked migration 111 files. No
+  tracked file under 5K/migrations/ or 5K/alembic/versions/ is modified, which
+  is the direct proof that migrations 001-110 - including 110_5C2 - were not
+  touched by this pass.
+
+----------------------------------------------------------------------------------
+4. FRESH LEG: 001 -> 111 ON AN EMPTY DATABASE
+----------------------------------------------------------------------------------
+
+  Command: alembic upgrade head, DATABASE_URL pointed at far_v2 (empty).
+  Exit status: 0.
+
+  INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+  INFO  [alembic.runtime.migration] Will assume transactional DDL.
+  INFO  [alembic.runtime.migration] Running upgrade  -> 001_5B, Phase 5K - wraps frozen migration 001_5B.sql.
+  ... (109 intermediate revisions elided; full log retained in the pass scratchpad) ...
+  INFO  [alembic.runtime.migration] Running upgrade 110_5C2 -> 111_5H4, Phase 5H.4 -- true temporary Platform-Admin quota overrides with live
+  commercial-baseline fallback, one canonical effective-quota resolver, and
+  restoration of the canonical 5H section 11.1 usage-metric vocabulary.
+
+  Resulting head in far_v2:
+    SELECT version_num FROM alembic_version;  ->  111_5H4
+
+----------------------------------------------------------------------------------
+5. INCREMENTAL LEG: 001 -> 110, THEN 110 -> 111 AS A SEPARATE STEP
+----------------------------------------------------------------------------------
+
+  Stage 1 (alembic upgrade 110_5C2) tail:
+    INFO  [alembic.runtime.migration] Running upgrade 108_5B6 -> 109_5B7, Phase 5B.7 -- wraps Phase 6M Admin Platform API DB-layer closure
+    migration 109_5B7.sql.
+    INFO  [alembic.runtime.migration] Running upgrade 109_5B7 -> 110_5C2, Phase 5C.2 -- wraps the Final API Reconciliation DB remediation
+    migration 110_5C2.sql.
+
+  Stage 2 (alembic upgrade head), the isolated 110 -> 111 step:
+    INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+    INFO  [alembic.runtime.migration] Will assume transactional DDL.
+    INFO  [alembic.runtime.migration] Running upgrade 110_5C2 -> 111_5H4, Phase 5H.4 -- true temporary Platform-Admin quota overrides with live
+    commercial-baseline fallback, one canonical effective-quota resolver, and
+    restoration of the canonical 5H section 11.1 usage-metric vocabulary.
+
+    real 0m0.266s
+
+  Resulting head in far_i2:
+    SELECT version_num FROM alembic_version;  ->  111_5H4
+
+  This matters because an existing deployment upgrades along the incremental
+  path, not the fresh path: 111 must apply cleanly on top of an already-
+  populated 110 database, and it does.
+
+----------------------------------------------------------------------------------
+6. FRESH VS INCREMENTAL CATALOG CONVERGENCE
+----------------------------------------------------------------------------------
+
+  The same catalog-inspection script was run against BOTH databases, covering:
+  server version, alembic head, presence of the 111 table and routines with
+  their security/volatility flags and identity arguments, every constraint and
+  index on billing.quota_overrides, RLS enable/force state, policies, table and
+  function ACLs, the app_* BYPASSRLS inventory, the four LEGACY column comments
+  on billing.quota_configs, and the 110 lifecycle trigger on voice.agents.
+
+  $ diff objects_fresh.txt objects_incr.txt
+  (no output - the two catalogs are IDENTICAL, 113 lines each)
+
+  Both upgrade paths therefore converge on exactly the same schema. There is no
+  fresh-only or incremental-only object.
+
+----------------------------------------------------------------------------------
+7. OBJECT INVENTORY CREATED OR REPLACED BY 111_5H4
+----------------------------------------------------------------------------------
+
+  Routines (pg_proc, live catalog - not inferred from the migration text):
+
+    routine                                                    | secdef | vol
+    -----------------------------------------------------------+--------+-----
+    billing.fn_is_canonical_usage_metric(text)                 | f      | i
+    billing.fn_resolve_effective_quota(uuid,text)              | f      | s
+    billing.fn_platform_set_quota_override(uuid,uuid,text,     | t      | v
+      numeric,numeric,text,timestamptz,text)                   |        |
+    voice.fn_assert_agent_quota_admission(uuid)                | f      | v
+
+    search_path is pinned explicitly on all four:
+      fn_is_canonical_usage_metric    search_path=pg_catalog
+      fn_platform_set_quota_override  search_path=billing, organization, pg_catalog
+      fn_resolve_effective_quota      search_path=billing, organization, pg_catalog
+      fn_assert_agent_quota_admission search_path=voice, billing, organization, public, pg_catalog
+
+    voice.fn_assert_agent_quota_admission is a CREATE OR REPLACE of the function
+    introduced by 110_5C2; its signature, SECURITY INVOKER posture and
+    search_path are unchanged. 110_5C2 itself was not modified.
+
+  Table billing.quota_overrides - constraints:
+
+    chk_qo_expires_after_start  CHECK (expires_at IS NULL OR expires_at > effective_from)
+    chk_qo_hard_limit           CHECK (hard_limit IS NULL OR hard_limit >= 0)
+    chk_qo_limits_order         CHECK (soft_limit IS NULL OR hard_limit IS NULL OR soft_limit <= hard_limit)
+    chk_qo_metric_canonical     CHECK (billing.fn_is_canonical_usage_metric(metric))
+    chk_qo_reason_length        CHECK (length(reason) >= 10 AND length(reason) <= 2000)
+    chk_qo_soft_limit           CHECK (soft_limit IS NULL OR soft_limit >= 0)
+    chk_qo_unit_label_length    CHECK (length(unit_label) >= 1 AND length(unit_label) <= 100)
+    pk_quota_overrides          PRIMARY KEY (id)
+    + NOT NULL on id, organization_id, metric, unit_label, reason, created_by,
+      effective_from, created_at
+
+    hard_limit is deliberately NULLABLE: a NULL effective hard_limit is the
+    representation of "unlimited / overage allowed", and the directive forbids
+    imposing a NOT NULL or integer-only rule on it. soft_limit <= hard_limit is
+    enforced only when both are present.
+
+  Table billing.quota_overrides - indexes:
+
+    pk_quota_overrides         UNIQUE btree (id)
+    uq_qo_org_metric_current   UNIQUE btree (organization_id, metric)
+                               WHERE superseded_at IS NULL
+    idx_qo_org_metric_history  btree (organization_id, metric, effective_from DESC)
+
+    uq_qo_org_metric_current is the structural guarantee that at most ONE
+    non-superseded override can exist per (organization, metric). It is a
+    partial unique index, so superseded history rows are unconstrained and the
+    full override history is retained.
+
+  billing.quota_configs is NOT overloaded by 111: no column was added, dropped
+  or repurposed there. 111 only attaches four LEGACY documentation comments to
+  the pre-existing override columns (see FAR_111_02 section 6).
+
+----------------------------------------------------------------------------------
+8. WHAT THIS FILE DOES AND DOES NOT ESTABLISH
+----------------------------------------------------------------------------------
+
+  ESTABLISHED: 111_5H4 applies cleanly on both upgrade paths, both paths
+  converge on an identical catalog, 111_5H4 is the single head, migrations
+  001-110 are unmodified, no migration 112 exists, and the objects 111 creates
+  are present with the intended structural constraints.
+
+  NOT ESTABLISHED HERE: override resolution semantics, supersession behaviour,
+  vocabulary enforcement, privilege boundaries, tenant isolation and
+  ACTIVE_AGENTS admission. Those are in FAR_111_02 and FAR_111_03 and were
+  proven by executing statements as the actual runtime principals.

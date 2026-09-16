@@ -6,6 +6,17 @@ Directive sections evidenced: §9 (migration 110 only, no 111), §11 (ONE final
                               history integrity + NEW 110 hashes)
 ==================================================================================
 
+SCOPE NOTICE - ADDED BY THE 111_5H4 PASS (CONTROLLED AMENDMENT, 2026-09-15)
+  This transcript is the historical record of the 110_5C2 micro-remediation pass.
+  Its statements "no migration 111" and "exactly one Alembic head (110_5C2)" were
+  TRUE AND CORRECT FOR THAT PASS and are deliberately left unedited.
+  They are SUPERSEDED as a description of the CURRENT repository. Migration
+  111_5H4 was subsequently created under the FAR-OD-02 authorisation; the single
+  Alembic head is now 111_5H4, with 110_5C2 as its immediate parent. Migration
+  110_5C2 was NOT amended again by that pass.
+  Current record: FINAL_API_RECONCILIATION_111_VALIDATION_REPORT.md and
+  FAR_111_01_migration_integrity.txt.
+
 SUPERSESSION NOTICE
   Migration 110_5C2.sql was AMENDED IN PLACE by the micro-remediation (FAR-P1-02
   fractional hard-limit admission, FAR-P1-03 counted-set re-entry guard,

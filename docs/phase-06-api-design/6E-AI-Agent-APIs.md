@@ -1550,9 +1550,12 @@ This is the **same** metric computed by 6K's periodic snapshot accounting — se
 
 The effective Agent-count limit is resolved **entirely server-side** through 6K's frozen commercial authority. It is **`billing.quota_configs.hard_limit`** for `(organization_id, metric = 'ACTIVE_AGENTS')`, restricted to the currently-effective window (`effective_from <= NOW() AND (expires_at IS NULL OR expires_at > NOW())`, `106_5H3.sql`).
 
+> **AMENDED BY `111_5H4` (Final API Reconciliation, owner decision `FAR-OD-02` = Option B) — see §43.12.** The sentence above is the `110_5C2`-era statement and is retained unedited as the historical record. It is **superseded on one point only**: the effective limit is no longer read from `billing.quota_configs` directly. It is resolved by **`billing.fn_resolve_effective_quota(p_organization_id, p_metric)`**, which returns an **active, non-superseded platform-admin override** from the new `billing.quota_overrides` table if one exists, and otherwise the **current** `quota_configs` base row. Everything else in §43.3 — `hard_limit` as the enforcement axis, `NULL`/absent ⇒ no hard stop, no Redis — is unchanged and now applies to the **effective** result rather than to the base row. `quota_configs` remains the base layer and is never overwritten by an override.
+
 - **`hard_limit` is the enforcement axis, not `included_quantity`.** This follows 6K §25.1's own corrected rule — **`overage_allowed = (hard_limit IS NULL)`, full stop** — which deliberately separates *enforcement* (`hard_limit`) from *pricing/inclusion* (`included_quantity` / `overage_rate`, resolved per 6K §13.2's agreement-override → `plan_prices` → default chain). Gating on `included_quantity` would contradict 6K §25.1 and would conflate the two axes 6K explicitly refuses to merge.
 - **Absent, `NULL`, or expired `hard_limit` ⇒ no hard stop.** The organization is unenforced for this metric (`overage_allowed = TRUE`), and `POST /agents` proceeds. This is fail-*open* **by 6K's own canonical definition**, not a permissive default invented here; the alternative (treating a missing row as limit 0) would block Agent creation for every organization that has not been explicitly provisioned, which no frozen document requires.
 - **Provisioning path unchanged.** A plan's or agreement's Agent cap becomes enforceable by writing that organization's `quota_configs` row — `app_worker` holds `INSERT, UPDATE` (`052_5H.sql`) and platform admin uses `billing.fn_platform_set_quota_override()` (`106_5H3.sql`, whose allow-list already contains `'ACTIVE_AGENTS'`). 6E introduces no new write path, and **`app_api` holds `SELECT` only** on `quota_configs` — the API can read the limit but can never alter it.
+  - *Amended by `111_5H4` (§43.12), historical text above retained:* the **base** provisioning path is exactly as described and is unchanged. What changed is the **override** path — `billing.fn_platform_set_quota_override(...)` no longer writes `quota_configs` at all; it writes a separate `billing.quota_overrides` row, and its `EXECUTE` grant is now **`app_platform_admin` only** (the `107_5B5`-era grant to `app_api` is revoked). `app_api` still holds no write path to any quota layer, and its ability to *read* an effective limit is unchanged because the resolver is `SECURITY INVOKER` and needs no platform-admin privilege.
 - **Redis is not used for this metric.** 6K's `INCR quota:{org}:{metric}` hot path (6K §25.2) is a monotonic period counter that explicitly accepts bounded over-consumption. `ACTIVE_AGENTS` is a **gauge** that must decrease on deprecation, and Option B forbids over-admission. The admission decision therefore reads PostgreSQL — 6K's own durable source of truth — directly.
 
 ### 43.4 Concurrency-safe serialization — the binding transaction rule
@@ -1698,7 +1701,7 @@ An earlier revision of this section concluded that Option B needed no DB change,
 
 | Object | Kind | Role |
 |---|---|---|
-| `voice.fn_assert_agent_quota_admission(UUID)` | `plpgsql`, **SECURITY INVOKER**, owner-only, **no `GRANT EXECUTE` to any role**, `PUBLIC` `EXECUTE` = `f` | Derives the tenant server-side, takes the advisory lock internally, resolves the limit from `billing.quota_configs`, counts, raises `53400` before any `INSERT` |
+| `voice.fn_assert_agent_quota_admission(UUID)` | `plpgsql`, **SECURITY INVOKER**, owner-only, **no `GRANT EXECUTE` to any role**, `PUBLIC` `EXECUTE` = `f` | Derives the tenant server-side, takes the advisory lock internally, resolves the limit from `billing.quota_configs`, counts, raises `53400` before any `INSERT`. *(Amended by `111_5H4`, §43.12: the limit is now resolved through `billing.fn_resolve_effective_quota()`; every other property of this row — signature, security class, ACL, lock, count, `53400` — is unchanged, and `110_5C2` itself was not amended.)* |
 | `voice.fn_create_agent(UUID, UUID, TEXT, TEXT)` -> `UUID` | **SECURITY DEFINER**, `GRANT EXECUTE TO app_api` | Sole `POST /agents` write path; guard, then one `DRAFT` Agent |
 | `voice.fn_clone_agent(UUID, UUID, UUID, UUID)` -> `UUID` | **SECURITY DEFINER**, `GRANT EXECUTE TO app_api` | Sole clone write path; ownership validation, same guard, then one `DRAFT` Agent |
 | `voice.fn_assert_agent_actor(UUID, UUID)` | `plpgsql`, **SECURITY INVOKER**, owner-only, **no `GRANT EXECUTE` to any role** | Cross-checks the application-supplied actor against the owning tenant's membership roster (§43.10a) |
@@ -1727,3 +1730,52 @@ No public contract changes: the request body, response DTO, permission string (`
 ### 43.11 `DEP-6E-20` — closed
 
 **`DEP-6E-20` = RESOLVED BY OWNER DECISION `FAR-OD-01` (Option B). Blocking: NO.** FR-TEN-005's per-tenant Agent-*count* quota is enforced synchronously by `POST /api/v1/agents` and `POST /agents/{id}/clone` under §43.1–§43.9, using 6K's quota authority, 6K's counted metric, and 6K's canonical error, enforced at the database boundary by migration `110_5C2` (§43.10) so that the limit cannot be bypassed by any runtime role. The §38 register row is updated accordingly; the `FR-TEN-005` traceability row (§37) is now satisfied at the enforcement level, not merely handed off.
+
+### 43.12 Controlled amendment — effective-quota resolution under `FAR-OD-02` (migration `111_5H4`)
+
+> **Status of this section.** A second **controlled amendment** applied during the Final API Reconciliation pass, under owner decision **`FAR-OD-02` = Option B (true temporary overrides with baseline fallback)**. It changes **where the Agent-count limit comes from** and nothing else. No 6E endpoint, request body, response DTO, permission string, status code or error code changes. `§43.1`–`§43.11` remain in force; where §43.3's first paragraph or §43.10's object table conflicts with this section on the *source* of the limit, **this section governs**.
+
+#### 43.12.1 What changed
+
+`110_5C2`'s `voice.fn_assert_agent_quota_admission(UUID)` read `billing.quota_configs` directly. Migration `111_5H4` replaces that one lookup — via `CREATE OR REPLACE FUNCTION`, keeping the identical signature, security class (`SECURITY INVOKER`), owner, empty `GRANT EXECUTE` set and `PUBLIC EXECUTE = f` — so that the limit comes from:
+
+```sql
+billing.fn_resolve_effective_quota(:organization_id, 'ACTIVE_AGENTS')
+```
+
+`110_5C2` was **not** amended. The advisory lock (`pg_advisory_xact_lock(hashtext('voice.agent_quota:' || org))`), the counted-set definition of §43.2, the fractional `>` comparison of §43.4b, the `53400` raise, the `429 QUOTA_EXCEEDED` mapping of §43.6, the reactivation guard trigger of §43.4a and the `created_by` trust boundary of §43.10a are all untouched and were re-verified live against the `111` head.
+
+#### 43.12.2 Resolution order (normative — 5H's controlled amendment is the source)
+
+1. An **active, non-superseded** override in `billing.quota_overrides` (`superseded_at IS NULL`, and `expires_at IS NULL` or `expires_at > NOW()`) — reported with `source = 'PLATFORM_OVERRIDE'`.
+2. Otherwise the **current** `billing.quota_configs` base row — `source = 'BASE'`.
+3. Otherwise **no row**, which means *no configured quota* and, per §43.3's unchanged rule, **no hard stop** for `ACTIVE_AGENTS`.
+
+An override **never overwrites the base**. When an override expires or is superseded, admission falls back to the organization's **current** base limit — not to unlimited, and not to a stale value captured when the override was written. This closes `FAR-P1-05`, where the `107_5B5`-era design overwrote the single `quota_configs` row and left the tenant *unlimited* after expiry.
+
+`billing.fn_resolve_effective_quota` is **SECURITY INVOKER**. `app_api` resolves its own tenant's effective quota with **no** platform-admin privilege and cannot resolve another tenant's; §43.3's "the API can read the limit but can never alter it" is therefore still exactly true, and tenant isolation is unchanged.
+
+#### 43.12.3 Metric vocabulary
+
+`'ACTIVE_AGENTS'` is the canonical metric name and is unchanged from §43.2/§43.3. `'AGENT_COUNT'` — the vocabulary used by the `107_5B5` override function — is **rejected**, not aliased: `111_5H4` refuses it both in the override write path (`P0001`) and structurally at the table (`23514 / chk_qo_metric_canonical`). This closed `FAR-P1-04`. 6E gains no new metric name and no new error code.
+
+#### 43.12.4 Lower-limit contract — admission only, never mutation
+
+When the effective `ACTIVE_AGENTS` limit **drops below** the organization's current counted Agents — because an override expired, was superseded, or was deliberately set lower than current usage — the behaviour is:
+
+| | Behaviour |
+|---|---|
+| `POST /agents`, `POST /agents/{id}/clone` | **`429 QUOTA_EXCEEDED`** (§43.6), unchanged — the count is already at or above the effective limit. |
+| Existing Agents | **Untouched.** No Agent is deleted, soft-deleted, deprecated, unpublished or moved. `voice.agents` rows are not mutated by any quota event. |
+| `POST /agents/{id}/publish` (`DRAFT → PUBLISHED`) | **Still succeeds** while the organization is over limit — publish is count-neutral (§43.2) and is not gated. Live-verified against the `111` head. |
+| `POST /agents/{id}/deprecate` | Still succeeds and still releases a slot (§43.2). |
+
+The over-limit state is therefore **self-healing only by tenant action or a commercial decision**: the database closes the admission edge and takes no remedial action of its own. Reconciling usage down to a lowered limit is a product/commercial workflow, not a database side effect, and 6E defines no endpoint that performs it.
+
+#### 43.12.5 Validation and integrity
+
+Re-verified live on **PostgreSQL 18.6** against the `111_5H4` head, disposable databases only: baseline-only, override-wins, base-not-overwritten, base-raised-while-override-active, post-expiry fallback to the **current** base, supersession (old override never reactivates), fractional effective limits, two-process concurrency at the boundary, cross-tenant isolation of the resolver, and all `110_5C2` invariants (`DRAFT → PUBLISHED` over limit, deprecate-frees-a-slot, reactivation-trigger rejections, raw-`INSERT` denial per role). Under normal SQL execution with the defined triggers, functions and ACLs enabled, the tested runtime principals and the tested privileged session cannot bypass the application invariant; deliberate superuser DDL or trigger-disabling actions are outside the application guarantee.
+
+Record: `docs/phase-05-database-design/5K/validation/FINAL_API_RECONCILIATION_111_VALIDATION_REPORT.md`, with transcripts `FAR_111_01_migration_integrity.txt`, `FAR_111_02_override_resolver_battery.txt`, `FAR_111_03_security_integration_battery.txt`. Schema contract: `docs/phase-05-database-design/5H-Billing-Usage-Schema.md` ("Controlled Amendment — Final API Reconciliation"). Manifest: `5K/MIGRATION_MANIFEST.md` Row 111.
+
+**Head ownership (restated):** `109_5B7` remains the frozen historical **Phase 6M** head; `110_5C2` is `111_5H4`'s immediate parent and was not amended by this pass; **`111_5H4` is the current project head**, owned by the Final API Reconciliation pass. Migrations `001`–`110` are unchanged; there is no `112`.

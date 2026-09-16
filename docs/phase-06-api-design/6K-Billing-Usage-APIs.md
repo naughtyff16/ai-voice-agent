@@ -2041,6 +2041,8 @@ Per task §22/§75: `cost_entries` (5H, existing, unchanged) is the platform's o
 - **`overage_allowed` — corrected (task §30):** a first draft conflated enforcement (whether consumption is blocked) with pricing (whether it's charged), deriving `overage_allowed` from *either* condition. This is wrong: an explicit `hard_limit` is a real, unconditional enforcement stop regardless of whether the metric happens to be priced. Corrected definition: **`overage_allowed = (hard_limit IS NULL)`** — full stop. Whether consumption beyond `included_quantity` is *billed* is a completely separate question, already answered by the sibling `overage_rate` field (non-null iff `effective_overage_rate(metric)`, §13.2, resolves one) — the two fields are never merged into one. A metric can therefore be in any of four independent states: enforced-and-priced, enforced-and-unpriced (blocked at `hard_limit`, and any usage up to that point is free), unenforced-and-priced (no hard stop, but overage beyond `included_quantity` is billed), or unenforced-and-unpriced (tracked only).
 - **No self-service quota mutation:** per task §24 — quota mutation belongs to plan provisioning, an active commercial agreement, or platform admin, never an ordinary tenant call. No `PATCH`/`POST` exists on this resource in this document.
 
+> **AMENDED BY `111_5H4` (`FAR-OD-02` = Option B) — see §53.** Everything above is retained unedited and remains correct, with one clarification that is now load-bearing: the values this endpoint returns are the **EFFECTIVE** quota, resolved by `billing.fn_resolve_effective_quota(organization_id, metric)` — an active platform-admin override from `billing.quota_overrides` if one exists, otherwise the **current** `billing.quota_configs` base row. `soft_limit`, `hard_limit`, `remaining` and therefore **`overage_allowed = (hard_limit IS NULL)`** are all computed from that effective result, never from the base row when an override is in force. The rule itself is unchanged — only the row it is evaluated against is now explicit. The endpoint stays read-only: the override write path is `billing.fn_platform_set_quota_override(...)`, executable by `app_platform_admin` only and surfaced in 6M, never here.
+
 ### 25.2 Quota Enforcement — Hot Path
 
 Per task §25: PostgreSQL `quota_configs` + `usage_records` remain the durable source of truth (5H §13); Redis (`quota:{tenant_id}:{metric}` `INCR`, per 4F's own sequence diagram) is the enforcement hot-tier used by call/campaign-initiation checks, which **are** latency-sensitive (6D/6H's own request paths), separate from billing's own report/invoice/payment endpoints, which are not (§43).
@@ -3495,7 +3497,7 @@ Before this amendment, §21.1 described `ACTIVE_AGENTS` as enforced by a **perio
 | **Hard synchronous admission control** | 6E §43 (`POST /api/v1/agents`, `POST /agents/{id}/clone`), executed by the Phase-5 `SECURITY DEFINER` functions `voice.fn_create_agent` / `voice.fn_clone_agent` (migration `110_5C2`) | Prevents the counted set from ever exceeding the effective limit | Inside the create transaction, before the `INSERT`, before commit |
 | **Periodic snapshot / reconciliation** | 6K (§21.1, §22) | Reporting, `GET /billing/quotas` display, commercial usage tracking, drift detection | Scheduled |
 
-Both read **the same effective limit** — `billing.quota_configs.hard_limit` for `(organization_id, 'ACTIVE_AGENTS')` within its effective window (`106_5H3.sql`) — and **the same counted-set predicate** (§52.3). The synchronous path resolves that limit **server-side inside the database**, from `billing.quota_configs` only; no client-supplied limit, count or quota hint is read or trusted on either path. There is exactly one quota source of truth for this metric; the synchronous path is admission control, the periodic path is accounting, and they may not diverge. Per §25.1's binding rule, **`overage_allowed = (hard_limit IS NULL)`**: where no effective `hard_limit` row exists for an organization, there is **no hard stop** and Agent creation proceeds. `included_quantity`/`overage_rate` (§13.2) continue to govern **pricing and inclusion only**, never the hard stop — the two axes remain separate exactly as §25.1 requires.
+Both read **the same effective limit** — `billing.quota_configs.hard_limit` for `(organization_id, 'ACTIVE_AGENTS')` within its effective window (`106_5H3.sql`) — and **the same counted-set predicate** (§52.3). The synchronous path resolves that limit **server-side inside the database**, from `billing.quota_configs` only; no client-supplied limit, count or quota hint is read or trusted on either path. There is exactly one quota source of truth for this metric; the synchronous path is admission control, the periodic path is accounting, and they may not diverge. *(Amended by `111_5H4`, §53 — the historical sentences in this paragraph are retained unedited: the one source of truth for this metric is now the **effective** quota returned by `billing.fn_resolve_effective_quota(org, 'ACTIVE_AGENTS')` — an active override if one exists, else the current `quota_configs` base row. Both paths still read that same single authority, so they still may not diverge; no client-supplied limit, count or quota hint is read or trusted on either path.)* Per §25.1's binding rule, **`overage_allowed = (hard_limit IS NULL)`**: where no effective `hard_limit` row exists for an organization, there is **no hard stop** and Agent creation proceeds. `included_quantity`/`overage_rate` (§13.2) continue to govern **pricing and inclusion only**, never the hard stop — the two axes remain separate exactly as §25.1 requires.
 
 ### 52.3 `ACTIVE_AGENTS` counted-state set — now stated precisely
 
@@ -3531,6 +3533,8 @@ The Agent-count rejection reuses 6K's **existing canonical** `429 QUOTA_EXCEEDED
 - No quota-mutation surface is added — `GET /billing/quotas` remains read-only (§25.1), and `app_api` retains `SELECT`-only on `billing.quota_configs` (`052_5H.sql`) — **unchanged by migration `110_5C2`**, which touches no `billing` object at all.
 - **No billing table, column, index, constraint, RLS policy, grant or function was added, altered or dropped.** Migration `110_5C2` (§52.7) is confined to the `voice` schema; it *reads* `billing.quota_configs` from inside a `SECURITY DEFINER` function owned by the migration role, which is why `app_api` needs no additional billing privilege.
 
+> **Scope of the two bullets above is `110_5C2` only, and they are retained unedited as the record of that migration.** They are **not** claims about `111_5H4`. The later migration `111_5H4` (§53) **does** add billing objects — the `billing.quota_overrides` table with its constraints, indexes and RLS policies, plus `billing.fn_is_canonical_usage_metric` and `billing.fn_resolve_effective_quota`, and a replacement of `billing.fn_platform_set_quota_override` — all **additive**. Still true after `111_5H4`: `GET /billing/quotas` remains read-only, no self-service quota mutation exists, `app_api` gains **no** write privilege on any quota layer, and no existing billing table, column, index, constraint or RLS policy was altered or dropped.
+
 ### 52.7 Database support — migration `110_5C2` (correction to an earlier claim)
 
 An earlier revision of this section stated that "no new DB structure, function, grant, or migration is required or was created." That was **incorrect** and is corrected here rather than removed. Two defects at head `109_5B7` made a hard, unbypassable gate impossible in the API layer alone:
@@ -3541,3 +3545,69 @@ An earlier revision of this section stated that "no new DB structure, function, 
 `DB-BLOCKER-FINAL-API-001` was raised on that basis and is **RESOLVED BY additive migration `110_5C2`** (Phase 5C.2, `down_revision = '109_5B7'`; `001`–`109` untouched and byte-identical; **no `111`**), which adds `voice.fn_assert_agent_quota_admission` (guard; granted to **no** role; `PUBLIC` `EXECUTE` = `f`), `voice.fn_create_agent` and `voice.fn_clone_agent` (both `SECURITY DEFINER`, `EXECUTE` to `app_api` only), and revokes raw `INSERT` on `voice.agents` from `app_api`, `app_worker` and `app_platform_admin`.
 
 **Amended in place (2026-09-15).** A second independent freeze-gate review of `110_5C2` returned P0 = 0, P1 = 2, P2 = 1, and the migration was amended **in place** — still no `111`, still `001`–`109` untouched. It now also contains `voice.fn_assert_agent_actor` (actor cross-check, granted to no role) and `voice.fn_agents_mutation_guard()` behind a `BEFORE UPDATE` trigger on `voice.agents`, which prevents a raw `UPDATE` from re-entering a row into the counted set behind the gate (6E §43.4a), and the admission comparison was corrected per §52.3a. **From 6K's side this changes nothing at all**: `110_5C2` still touches no `billing` object, `app_api` still holds `SELECT`-only on `billing.quota_configs`, and the authority, predicate and canonical error are unchanged. All earlier `110_5C2` hashes and validation transcripts referenced from this section are superseded by the single final validation cycle. **From 6K's side nothing changes**: the same authority, the same predicate, the same canonical `429 QUOTA_EXCEEDED`, the same read-only `billing.quota_configs` posture. Full DDL, rationale and live PostgreSQL 18.6 validation: 6E §43.10, `docs/phase-05-database-design/5C-Voice-Schema.md` (Final API Reconciliation controlled DB amendment), `docs/phase-05-database-design/5K/MIGRATION_MANIFEST.md` Row 110.
+
+---
+
+## 53. FINAL API RECONCILIATION CONTROLLED AMENDMENT — Temporary Platform-Admin Quota Overrides (`FAR-OD-02`, Option B)
+
+> **Status of this section.** A controlled amendment applied during the Final API Reconciliation pass under owner decision **`FAR-OD-02` = Option B**, implemented by migration **`111_5H4`** (`down_revision = '110_5C2'`). It changes **what "the quota" means** for every 6K quota surface — from "the `quota_configs` row" to "the **effective** quota" — and adds no endpoint, no request field, no response field and no error code to 6K. §52 remains in force; §25.1's `overage_allowed` rule remains in force verbatim. Where an earlier section names `billing.quota_configs` as *the* quota source, **this section governs**.
+
+### 53.1 The two layers
+
+| Layer | Object | Written by | Lifetime |
+|---|---|---|---|
+| **Commercial / base quota** | `billing.quota_configs` | plan provisioning, commercial agreement (`app_worker` holds `INSERT, UPDATE`, `052_5H.sql`) | as long as the commercial arrangement says |
+| **Temporary platform-admin override** | `billing.quota_overrides` (new, additive) | `billing.fn_platform_set_quota_override(...)`, `EXECUTE` to **`app_platform_admin` only** | until `expires_at`, until superseded, or permanent (`expires_at IS NULL`) |
+
+**An override never overwrites the base.** This closes `FAR-P1-05`: the `107_5B5`-era override mutated the single `UNIQUE (organization_id, metric)` row in `quota_configs`, so when it lapsed the only effective `hard_limit` was gone and resolution fell through to "row not found ⇒ unlimited" — a fail-open that silently converted a temporary grant into permanent unmetered entitlement.
+
+### 53.2 EFFECTIVE quota — the reporting contract
+
+Every 6K quota surface reports the **effective** quota, resolved by `billing.fn_resolve_effective_quota(p_organization_id, p_metric)`:
+
+1. Active, non-superseded override (`superseded_at IS NULL` and `expires_at IS NULL OR expires_at > NOW()`) ⇒ that row, `source = 'PLATFORM_OVERRIDE'`.
+2. Otherwise the **current** base row ⇒ `source = 'BASE'`.
+3. Otherwise **no row** — *no configured quota* for that metric. This is **not** a synonym for unlimited; it is the absence of a configured limit, and §25.1's `overage_allowed` rule is evaluated on the effective `hard_limit`, which in this case does not exist.
+
+Consequences for `GET /api/v1/billing/quotas` (§25.1), unchanged in shape:
+
+- `soft_limit` / `hard_limit` are the **effective** values.
+- `remaining` is computed against the **effective** `hard_limit`.
+- **`overage_allowed = (effective hard_limit IS NULL)`** — §25.1's corrected rule, applied to the effective result. Enforcement and pricing remain separate axes: `overage_rate` still comes from §13.2's agreement-override → `plan_prices` → default chain and is **not** affected by an override, because `billing.quota_overrides` carries **no pricing fields** by design.
+- `unit_label` is unchanged and continues to use the 106-era reconciled labels (`KNOWLEDGE_RETRIEVALS` → *queries*, `STORAGE_GB` → *GB-months*).
+
+**Expiry is read-time.** The override is compared against `NOW()` when resolved; there is no sweeper job and no background state transition. Because `NOW()` is `transaction_timestamp()`, a reported quota is stable for the duration of a transaction and an expiry becomes visible to the **next** transaction. On expiry, reporting falls back to the organization's **current** base value — not to unlimited, and not to a stale base captured when the override was created. Live-proven: base `1000` → override `2000` → base raised to `1200` while the override is active (effective still `2000`) → after expiry, effective **`1200`**.
+
+### 53.3 Metric vocabulary — canonical, no aliases
+
+`billing.fn_is_canonical_usage_metric(TEXT)` is the single source of the canonical 15-metric vocabulary and backs the `CHECK` on `billing.quota_overrides`: `CALL_MINUTES`, `AI_MINUTES`, `STT_SECONDS`, `TTS_CHARACTERS`, `LLM_PROMPT_TOKENS`, `LLM_COMPLETION_TOKENS`, `EMBEDDING_TOKENS`, `CAMPAIGN_CALLS`, `WORKFLOW_EXECUTIONS`, `TOOL_EXECUTIONS`, `KNOWLEDGE_RETRIEVALS`, `STORAGE_GB`, `API_REQUESTS`, `ACTIVE_AGENTS`, `ACTIVE_PHONE_NUMBERS` — the same list as this document's metric catalogue (§22).
+
+`AGENT_COUNT` and every other `107_5B5`-era name is **rejected, never aliased**, by the function (`P0001`) and independently by the table (`23514 / chk_qo_metric_canonical`). This closed `FAR-P1-04`: the two 15-name vocabularies intersected in only **two** members, so an override written under the old vocabulary could never be found by a canonical reader.
+
+### 53.4 Redis is unchanged
+
+§25.2's hot path is **frozen by this amendment**: `INCR quota:{org}:{metric}` and the TTL-bounded cached limit copy are unchanged, and no new Redis key, structure or invalidation protocol is introduced. What changes is only **what a cache entry must be seeded from**: a cached limit for an organization/metric must be seeded from `billing.fn_resolve_effective_quota(...)`, not from a direct `quota_configs` read, or the cache will serve the base limit while an override is active. The existing TTL bound remains the staleness contract — an override taking effect or expiring is visible to the hot path within one TTL, exactly as a base-limit change already was. `ACTIVE_AGENTS` continues **not** to use Redis at all (§52.4, 6E §43.3): it is a gauge and its admission gate reads PostgreSQL directly.
+
+### 53.5 Write path, supersession, audit
+
+`billing.fn_platform_set_quota_override(...)` is the sole write path — **SECURITY DEFINER**, explicit `search_path`, `EXECUTE` granted to `app_platform_admin` only (the `107_5B5`-era grant to `app_api` is **revoked**), validating the acting admin, the organization's existence, the canonical metric, `soft_limit <= hard_limit`, reason length, and a **future** `expires_at`. `hard_limit` may be `NULL` (unlimited) and both limits are `NUMERIC(18,4)`, so fractional limits are supported and compared **as stored**, consistent with §52.3a.
+
+Supersession is **atomic**: the prior current row is superseded and the new row inserted under one advisory lock in one transaction, with a partial unique index (`(organization_id, metric) WHERE superseded_at IS NULL`) enforcing "at most one current override" structurally rather than by a check-then-insert race. A superseded override can never reactivate. The **Platform Admin audit event is written in the same transaction** as the override row — a rollback discards both, and a refused call writes neither.
+
+### 53.6 Lower-limit contract
+
+When the effective limit drops below current usage — by expiry, by supersession, or by a deliberately lower override — 6K **reports** the new effective limit and a `remaining` that is zero or negative, and enforcement closes the **admission** edge only (`429 QUOTA_EXCEEDED` on the metric's gated path, e.g. 6E `POST /agents`). **No** customer resource is deleted, deprecated, soft-deleted or otherwise mutated by any quota event, and no invoice, credit, refund or pricing behaviour changes. Reconciling usage down to a lowered limit is a commercial workflow, not a database side effect; 6K defines no endpoint that performs it.
+
+### 53.7 Scope limits
+
+- No pricing, plan, agreement, invoice, payment, refund, credit or entitlement behaviour changes. `billing.quota_overrides` carries no pricing fields.
+- No 6K endpoint, request field, response field, permission string or error code is added or changed.
+- `GET /billing/quotas` remains read-only; no self-service quota mutation is introduced; `app_api` gains **no** write privilege on `quota_configs` or `quota_overrides`.
+- `billing.fn_resolve_effective_quota` is **SECURITY INVOKER**, so tenant consumers read their own effective quota **without** platform-admin privilege and cannot read another tenant's. No role gained `BYPASSRLS`.
+- `billing.quota_configs.override_reason`, `.effective_from`, `.expires_at` and `.updated_by` are **retained** (106-era history is preserved) and now commented `LEGACY (111_5H4)`; the resolver does not read them, and a past `quota_configs.expires_at` does **not** mean the base disappeared.
+
+### 53.8 Validation
+
+Live on **PostgreSQL 18.6**, disposable databases only: vocabulary rejection (function and table), baseline-only resolution, override-wins, base-not-overwritten, base-raised-while-override-active, post-expiry fallback to the **current** base, permanent overrides, unlimited (`hard_limit IS NULL`) at both layers, atomic supersession with no reactivation, fractional limits, two-process concurrency, admin-mutation validation failures, `created_by` negative cases, the Platform Admin read model (ACTIVE / EXPIRED / SUPERSEDED) and the tenant effective-quota contract including cross-tenant refusal. Under normal SQL execution with the defined triggers, functions and ACLs enabled, the tested runtime principals and the tested privileged session cannot bypass the application invariant; deliberate superuser DDL or trigger-disabling actions are outside the application guarantee.
+
+Record: `docs/phase-05-database-design/5K/validation/FINAL_API_RECONCILIATION_111_VALIDATION_REPORT.md` with transcripts `FAR_111_01_migration_integrity.txt`, `FAR_111_02_override_resolver_battery.txt`, `FAR_111_03_security_integration_battery.txt`. Schema contract: `5H-Billing-Usage-Schema.md` ("Controlled Amendment — Final API Reconciliation"). Manifest: `5K/MIGRATION_MANIFEST.md` Row 111. Migrations `001`–`110` are unchanged; `111_5H4` is the single project head; there is no `112`.

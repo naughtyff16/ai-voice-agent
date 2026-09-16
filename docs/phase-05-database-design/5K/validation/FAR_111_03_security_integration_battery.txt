@@ -1,0 +1,688 @@
+==================================================================================
+FAR_111_03 - SECURITY, TENANCY, CONCURRENCY AND ACTIVE_AGENTS INTEGRATION
+Final API Reconciliation - 111_5H4 CLOSURE PASS
+Batteries E (ACTIVE_AGENTS end-to-end), G (concurrency), H (created_by negative),
+I (Platform Admin read model), J (tenant effective-quota contract),
+plus the live catalog / ACL / RLS state and audit-write atomicity.
+==================================================================================
+
+ENGINE ..... PostgreSQL 18.6 (Debian 18.6-1.pgdg12+2), disposable container
+             far_fresh (127.0.0.1:55441, db far_v2) built by
+             `alembic upgrade head` from base -> 111_5H4; destroyed at the end
+             of this pass.
+METHOD ..... every block below is real captured output from that database.
+             Each block names the principal it ran as. Nothing is reconstructed.
+
+------------------------------------------------------------------------------
+SCOPE OF THE SECURITY CLAIM (read this before any statement below)
+------------------------------------------------------------------------------
+Under normal SQL execution with the defined triggers/functions/ACLs enabled, the
+tested runtime principals and tested privileged session cannot bypass the
+application invariant; deliberate superuser DDL/trigger-disabling actions are
+outside the application guarantee.
+
+That sentence bounds every "cannot", "refused" and "enforced" in this file. Two
+kinds of superuser action appear below and are always labelled:
+  (a) HARNESS TIME TRAVEL - shifting an override window into the past to make a
+      row read EXPIRED. No application path can produce such a row (Battery D.7
+      rejects a past p_expires_at, and chk_qo_expires_after_start rejects
+      backdating expires_at alone - see E.6).
+  (b) STRUCTURAL PROOFS - inserting/updating billing.quota_overrides directly as
+      the table owner to show that a constraint, not merely a function body,
+      holds the invariant.
+Neither is an application capability, and neither is presented as one.
+
+==================================================================================
+PART 1 - LIVE CATALOG, ACL AND RLS STATE OF EVERYTHING 111 CREATES
+==================================================================================
+
+=== K.1 pg_proc: the four routines created/replaced by 111 ===
+                   fn                   | security_definer |  owner   |                           set_clauses                            | provolatile
+----------------------------------------+------------------+----------+------------------------------------------------------------------+-------------
+ billing.fn_is_canonical_usage_metric   | f                | postgres | {search_path=pg_catalog}                                         | i
+ billing.fn_platform_set_quota_override | t                | postgres | {"search_path=billing, organization, pg_catalog"}                | v
+ billing.fn_resolve_effective_quota     | f                | postgres | {"search_path=billing, organization, pg_catalog"}                | s
+ voice.fn_assert_agent_quota_admission  | f                | postgres | {"search_path=voice, billing, organization, public, pg_catalog"} | v
+(4 rows)
+
+  Exactly ONE function is SECURITY DEFINER: the Platform Admin mutation
+  function, which is the only path that must write a table no application role
+  may write. Every other routine is SECURITY INVOKER, so the resolver and the
+  admission check run with the caller's own rights and RLS. Every routine pins
+  an explicit search_path ending in pg_catalog - no schema-shadowing surface.
+
+=== K.2 EXECUTE ACLs ===
+                   fn                   |              acl
+----------------------------------------+-------------------------------
+ billing.fn_is_canonical_usage_metric   | postgres=X/postgres          +
+                                        | app_api=X/postgres           +
+                                        | app_worker=X/postgres        +
+                                        | app_readonly=X/postgres      +
+                                        | app_platform_admin=X/postgres
+ billing.fn_platform_set_quota_override | postgres=X/postgres          +
+                                        | app_platform_admin=X/postgres
+ billing.fn_resolve_effective_quota     | postgres=X/postgres          +
+                                        | app_api=X/postgres           +
+                                        | app_worker=X/postgres        +
+                                        | app_readonly=X/postgres      +
+                                        | app_platform_admin=X/postgres
+ voice.fn_assert_agent_quota_admission  | postgres=X/postgres
+(4 rows)
+
+  app_api holds NO EXECUTE on fn_platform_set_quota_override. The 107-era grant
+  to app_api is gone. The admission function is not directly callable by any
+  application role either - it is reachable only from inside voice.fn_create_agent
+  and its clone sibling, which is what makes admission unskippable.
+
+=== K.3 has_function_privilege matrix (all application roles) ===
+           rolname           | set_override | resolve | assert_admission
+-----------------------------+--------------+---------+------------------
+ app_api                     | f            | t       | f
+ app_billing_reconciler      | f            | f       | f
+ app_billing_webhook_ingress | f            | f       | f
+ app_migration               | f            | f       | f
+ app_platform_admin          | t            | t       | f
+ app_readonly                | f            | t       | f
+ app_voice_reconciler        | f            | f       | f
+ app_worker                  | f            | t       | f
+(8 rows)
+
+  Exactly one role can set an override. Four roles can READ an effective quota.
+  This is the §10 requirement that tenant consumers must NOT need Platform Admin
+  privileges: app_api, app_worker and app_readonly all resolve effective quota
+  with no admin rights whatsoever.
+
+=== K.4 table ACL + RLS on billing.quota_overrides ===
+     relname     | rls_enabled | rls_forced |  owner   |              acl
+-----------------+-------------+------------+----------+-------------------------------
+ quota_overrides | t           | t          | postgres | postgres=arwdDxtm/postgres   +
+                 |             |            |          | app_api=r/postgres           +
+                 |             |            |          | app_worker=r/postgres        +
+                 |             |            |          | app_readonly=r/postgres      +
+                 |             |            |          | app_platform_admin=r/postgres
+(1 row)
+
+        polname        | polcmd |                      using_expr                      |            check_expr            |      roles
+-----------------------+--------+------------------------------------------------------+----------------------------------+-----------------
+ rls_qo_platform_admin | *      | organization.is_platform_admin()                     | organization.is_platform_admin() | unknown (OID=0)
+ rls_qo_tenant         | r      | (organization_id = organization.current_tenant_id()) |                                  | unknown (OID=0)
+(2 rows)
+
+  RLS is not merely ENABLED, it is FORCED, so the table owner is subject to it
+  too on ordinary access. No application role holds INSERT, UPDATE or DELETE -
+  only SELECT. Both policies apply to PUBLIC (roles OID 0) and are gated purely
+  by their predicates, so adding a future role does not silently widen access.
+  The tenant policy is read-only (polcmd r) by construction.
+
+=== K.5 constraints and indexes on billing.quota_overrides ===
+                 conname                  | contype |                                         def
+------------------------------------------+---------+--------------------------------------------------------------------------------------
+ chk_qo_expires_after_start               | c       | CHECK (((expires_at IS NULL) OR (expires_at > effective_from)))
+ chk_qo_hard_limit                        | c       | CHECK (((hard_limit IS NULL) OR (hard_limit >= (0)::numeric)))
+ chk_qo_limits_order                      | c       | CHECK (((soft_limit IS NULL) OR (hard_limit IS NULL) OR (soft_limit <= hard_limit)))
+ chk_qo_metric_canonical                  | c       | CHECK (billing.fn_is_canonical_usage_metric(metric))
+ chk_qo_reason_length                     | c       | CHECK (((length(reason) >= 10) AND (length(reason) <= 2000)))
+ chk_qo_soft_limit                        | c       | CHECK (((soft_limit IS NULL) OR (soft_limit >= (0)::numeric)))
+ chk_qo_unit_label_length                 | c       | CHECK (((length(unit_label) >= 1) AND (length(unit_label) <= 100)))
+ quota_overrides_created_at_not_null      | n       | NOT NULL created_at
+ quota_overrides_created_by_not_null      | n       | NOT NULL created_by
+ quota_overrides_effective_from_not_null  | n       | NOT NULL effective_from
+ quota_overrides_id_not_null              | n       | NOT NULL id
+ quota_overrides_metric_not_null          | n       | NOT NULL metric
+ quota_overrides_organization_id_not_null | n       | NOT NULL organization_id
+ quota_overrides_reason_not_null          | n       | NOT NULL reason
+ quota_overrides_unit_label_not_null      | n       | NOT NULL unit_label
+ pk_quota_overrides                       | p       | PRIMARY KEY (id)
+(16 rows)
+
+         indexname         |                                            indexdef
+---------------------------+------------------------------------------------------------------------------------------
+ idx_qo_org_metric_history | CREATE INDEX idx_qo_org_metric_history ON billing.quota_overrides USING btree (organization_id, metric, effective_from DESC)
+ pk_quota_overrides        | CREATE UNIQUE INDEX pk_quota_overrides ON billing.quota_overrides USING btree (id)
+ uq_qo_org_metric_current  | CREATE UNIQUE INDEX uq_qo_org_metric_current ON billing.quota_overrides USING btree (organization_id, metric) WHERE (superseded_at IS NULL)
+(3 rows)
+
+  hard_limit is deliberately NULLABLE (the representation of "unlimited") and
+  NUMERIC, not integer. Neither forbidden over-restriction was imposed.
+
+=== K.6 BYPASSRLS inventory ===
+      rolname       | rolbypassrls | rolsuper
+--------------------+--------------+----------
+ app_migration      | t            | f
+ app_platform_admin | t            | f
+ postgres           | t            | t
+(3 rows)
+
+  Exactly the two pre-existing application roles plus the superuser. 111 grants
+  NO new BYPASSRLS to anyone.
+
+=== K.7 alembic head in BOTH databases (fresh chain and incremental chain) ===
+ version_num           version_num
+-------------          -------------
+ 111_5H4               111_5H4
+(1 row)                (1 row)
+
+==================================================================================
+PART 2 - BATTERY E: ACTIVE_AGENTS ADMISSION END TO END (6E via the resolver)
+==================================================================================
+
+voice.fn_assert_agent_quota_admission(UUID) was replaced in 111 so that it reads
+the EFFECTIVE quota from billing.fn_resolve_effective_quota instead of reading a
+base quota row directly. Everything below is exercised through the real runtime
+principal app_api calling voice.fn_create_agent - never by calling the admission
+function directly (K.3 shows app_api cannot).
+
+### E.1 [app_api] starting state
+    metric     | soft_limit | hard_limit | source | override_id
+---------------+------------+------------+--------+-------------
+ ACTIVE_AGENTS |            |     2.0000 | BASE   |
+ counted_active = 1
+
+### E.2 [app_api] fill the BASE limit, then attempt one beyond it
+NOTICE:  E.2a PASS: 2nd agent created (at base limit) id=01a0a5ac-55ce-790f-8caa-aafa9f2ed882
+NOTICE:  E.2b PASS (base enforced): SQLSTATE=53400 MSG=ACTIVE_AGENTS quota exceeded DETAIL-check
+
+### E.2c [app_api] the raised SQLSTATE and DETAIL, uncaught
+ERROR:  ACTIVE_AGENTS quota exceeded
+DETAIL:  metric=ACTIVE_AGENTS; hard_limit=2.0000; active=2; requested=3
+CONTEXT:  PL/pgSQL function fn_assert_agent_quota_admission(uuid) line 42 at RAISE
+SQL statement "SELECT voice.fn_assert_agent_quota_admission(v_org)"
+PL/pgSQL function fn_create_agent(uuid,uuid,text,text) line 23 at PERFORM
+
+  SQLSTATE 53400 (configuration_limit_exceeded) is the stable machine-readable
+  signal the 6E API layer maps to its quota-exceeded response. The DETAIL line
+  carries metric, the EFFECTIVE hard_limit, the current count and the requested
+  count - enough for an actionable error body without a second query.
+
+### E.3 [app_platform_admin] raise ACTIVE_AGENTS to 3 with a temporary override
+             override_id
+--------------------------------------
+ 01a0a5ac-566b-79ee-9503-0303499d4179
+
+### E.4 [app_api] the SAME create now succeeds; the BASE row is untouched
+    metric     | hard_limit |      source              metric     | base_row_hard_limit
+---------------+------------+-------------------    ---------------+---------------------
+ ACTIVE_AGENTS |     3.0000 | PLATFORM_OVERRIDE      ACTIVE_AGENTS |              2.0000
+NOTICE:  E.4 PASS: 3rd agent admitted under the override id=01a0a5ac-56c1-77c6-a760-6075c5064363
+
+  This is the whole point of FAR-OD-02 Option B, observed end to end: the
+  admission decision changed, the commercial baseline did not.
+
+### E.5 [app_api] CLONE is guarded by the same admission (4th slot refused at override limit 3)
+NOTICE:  E.5 PASS (clone guarded): SQLSTATE=53400 MSG=ACTIVE_AGENTS quota exceeded
+ counted_active = 3
+
+### E.6 [postgres / HARNESS ONLY] first attempt at simulating expiry is REJECTED
+ERROR:  new row for relation "quota_overrides" violates check constraint "chk_qo_expires_after_start"
+DETAIL:  Failing row contains (01a0a5ac-566b-79ee-9503-0303499d4179, 11111111-1111-7111-a111-00000000000a,
+         ACTIVE_AGENTS, null, 3.0000, count, E3 temporary ACTIVE_AGENTS headroom for onboarding,
+         2026-09-15 15:25:30.08739+00, 2026-09-15 15:24:30.332142+00, null,
+         aaaaaaaa-0000-7000-a000-000000000001, 2026-09-15 15:25:30.08739+00).
+
+  Backdating expires_at ALONE is impossible even for the superuser: an override
+  can never be made to have expired before it started. This rejection is
+  positive evidence, and it is why the harness must shift BOTH endpoints.
+
+### E.6c [postgres / HARNESS ONLY] shift the WHOLE window into the past (both endpoints)
+UPDATE 1
+  Labelled harness time travel, category (a) above. Not an application path:
+  D.7 shows the Platform Admin function rejects any past p_expires_at.
+
+### E.7 [app_api] after expiry the effective quota falls back to the CURRENT base
+    metric     | soft_limit | hard_limit | source | override_id
+---------------+------------+------------+--------+-------------
+ ACTIVE_AGENTS |            |     2.0000 | BASE   |
+  => 2, the current commercial baseline. Not unlimited. FAR-P1-05 does not
+     reappear on the admission path either.
+
+### E.8 [app_api] NON-DESTRUCTIVE LOWERING: the counted set (3) now EXCEEDS the limit (2)
+             name              | status | soft_deleted
+-------------------------------+--------+--------------
+ H4 control member agent       | DRAFT  | f
+ E2 agent two                  | DRAFT  | f
+ E4 agent three under override | DRAFT  | f
+(3 rows)
+ counted_active | auto_deprecated | soft_deleted_rows
+----------------+-----------------+-------------------
+              3 |               0 |                 0
+
+### E.9 [app_api] over-limit tenant: NEW admissions close, EXISTING agents keep working
+NOTICE:  E.9a PASS (admission closed): SQLSTATE=53400 MSG=ACTIVE_AGENTS quota exceeded
+NOTICE:  E.9b PASS (existing agent still operable): DRAFT -> PUBLISHED accepted while over limit,
+         id=01a0a5ab-a0d0-768c-b691-9149a856239b
+ agents_still_present | auto_deprecated | soft_deleted_rows
+----------------------+-----------------+-------------------
+                    3 |               0 |                 0
+
+  THE LOWER-LIMIT CONTRACT, DEMONSTRATED: when the effective limit drops below
+  current usage the database closes ADMISSION ONLY. Zero Agents were deleted,
+  zero were deprecated, zero were soft-deleted, and an existing Agent could
+  still be published. The database never destroys customer resources to make a
+  quota true.
+
+### E.10 [app_api] the 110_5C2 invariants are intact under the new admission code
+NOTICE:  E.10a soft-delete accepted (expected) id=01a0a5ac-56c1-77c6-a760-6075c5064363
+NOTICE:  E.10b PASS (non-restorable): SQLSTATE=P0001 MSG=voice.agents: a soft-deleted agent cannot be
+         restored; restoring it would re-enter the ACTIVE_AGENTS counted set without quota admission.
+         agent id=01a0a5ac-56c1-77c6-a760-6075c5064363
+NOTICE:  E.10c PASS (lifecycle guarded): SQLSTATE=P0001 MSG=voice.agents: illegal lifecycle transition
+         DRAFT -> DEPRECATED (6E §31.3 permits only DRAFT->PUBLISHED and PUBLISHED->DEPRECATED;
+         DEPRECATED is terminal). agent id=01a0a5ab-a0d0-768c-b691-9149a856239b
+NOTICE:  E.10d PASS (raw INSERT revoked): SQLSTATE=42501 MSG=permission denied for table agents
+
+  111 replaced the BODY of the admission function only. The 110 guards around
+  restoration, the lifecycle machine and the revoked raw INSERT all still fire.
+  Migration 110_5C2 was not amended.
+
+### E.11 [app_api + app_platform_admin] recovery: a new override re-opens admission
+             override_id                          hard_limit |      source
+--------------------------------------          ------------+-------------------
+ 01a0a5ad-012b-75cf-b47e-7e753e488857                4.0000 | PLATFORM_OVERRIDE
+NOTICE:  E.11 PASS: admission re-opened id=01a0a5ad-017e-7ac6-965e-5eedd9e8d4a6
+ current_override_rows | override_history_rows
+-----------------------+-----------------------
+                     1 |                     2
+
+  An expired override is superseded by the new grant rather than resurrected,
+  and the over-limit state is recoverable without touching any customer data.
+
+HARNESS EXPECTATION ERROR, DISCLOSED
+  An intermediate step E.6b printed "E.6b FAIL: SQLSTATE=53400 ACTIVE_AGENTS
+  quota exceeded". That label is MY harness's error, not an engine defect. The
+  step ran inside a single psql DO $$ ... $$ block; a psql DO block is one
+  statement, so the exception raised by an earlier probe inside it had already
+  rolled back the agent that step was trying to re-create, leaving the counted
+  set at 3 against a limit of 3. The engine behaved correctly; the expectation
+  encoded in the harness was wrong. It is recorded here rather than removed.
+
+==================================================================================
+PART 3 - BATTERY G: CONCURRENCY
+==================================================================================
+
+### G.0 exactly ONE free slot: effective limit 5, 4 agents already active
+ effective_limit | counted_active
+-----------------+----------------
+          5.0000 |              4
+
+### G.1 two CONCURRENT fn_create_agent transactions race for that one slot
+[G1-sessionB] BEGIN / pg_sleep / created 01a0a5ad-a498-7e6d-ae3e-3ec0fb1c66de / COMMIT
+[G1-sessionA] BEGIN / pg_sleep /
+[G1-sessionA] ERROR:  ACTIVE_AGENTS quota exceeded
+[G1-sessionA] DETAIL:  metric=ACTIVE_AGENTS; hard_limit=5.0000; active=5; requested=6
+[G1-sessionA] CONTEXT:  PL/pgSQL function fn_assert_agent_quota_admission(uuid) line 42 at RAISE
+[G1-sessionA] ROLLBACK
+
+### G.1 result
+ counted_active                     name
+----------------          ------------------------------
+              5            G1-sessionB concurrent agent
+
+  Exactly one of the two contenders won. Session A did not observe a stale count
+  of 4 and slip through: it saw active=5 after serializing behind
+  pg_advisory_xact_lock(hashtext('voice.agent_quota:'||org)), and was refused.
+  The final count is exactly the limit, not limit+1. No over-admission window.
+
+### G.2 two CONCURRENT fn_platform_set_quota_override calls on the SAME (org, metric)
+[G2-sessionA] override_id 01a0a5ad-a727-738f-80ad-adff176e3aa1  COMMIT
+[G2-sessionB] override_id 01a0a5ad-a72b-7fc8-9bed-edce82493f10  COMMIT
+
+ hard_limit  |                     reason                     | is_current
+-------------+------------------------------------------------+------------
+ 500000.0000 | B10 pilot grant with no commercial baseline    | f
+  10000.0000 | G2-sessionA concurrent TTS_CHARACTERS override | f
+  20000.0000 | G2-sessionB concurrent TTS_CHARACTERS override | t
+(3 rows)
+ current_rows | history_rows
+--------------+--------------
+            1 |            3
+
+### G.3 the resolver returns the single surviving current override
+     metric     | soft_limit | hard_limit |      source
+----------------+------------+------------+-------------------
+ TTS_CHARACTERS | 16000.0000 | 20000.0000 | PLATFORM_OVERRIDE
+
+  Both admin calls SUCCEEDED and both are recorded, but they serialized behind
+  pg_advisory_xact_lock(hashtext('billing.quota_override:'||org||':'||metric)),
+  so the second superseded the first instead of racing it. There is no
+  check-then-insert window and never two current rows. The resolver is
+  single-valued: no ambiguity about which quota is in force.
+
+==================================================================================
+PART 4 - BATTERY H: created_by NON-MEMBER NEGATIVE (FAR-P2-03)
+==================================================================================
+
+Runtime principal app_api, tenant context FAR Org A. This is the exact negative
+transcript the coverage matrix requires.
+
+ session_user | current_user                   tenant                | is_platform_admin
+--------------+--------------       --------------------------------------+-------------------
+ app_api      | app_api              11111111-1111-7111-a111-00000000000a | f
+
+-- H.0 roster of FAR Org A (the outsider is deliberately absent)
+               user_id                | status            outsider_membership_rows
+--------------------------------------+--------          --------------------------
+ aaaaaaaa-0000-7000-a000-00000000000a | ACTIVE                                  0
+
+-- H.1 NON-MEMBER created_by is refused
+NOTICE:  H.1 PASS: SQLSTATE=P0001 MSG=fn_assert_agent_actor: created_by
+         cccccccc-0000-7000-a000-00000000000c is not a member of organization
+         11111111-1111-7111-a111-00000000000a
+
+-- H.2 created_by belonging to the OTHER tenant is equally refused
+NOTICE:  H.2 PASS: SQLSTATE=P0001 MSG=fn_assert_agent_actor: created_by
+         bbbbbbbb-0000-7000-a000-00000000000b is not a member of organization
+         11111111-1111-7111-a111-00000000000a
+
+-- H.3 NULL created_by is refused
+NOTICE:  H.3 PASS: SQLSTATE=P0001 MSG=fn_assert_agent_actor: created_by is required
+
+-- H.4 the SAME call with a real member of this tenant succeeds (control)
+NOTICE:  H.4 PASS (control): agent created id=01a0a5ab-a0d0-768c-b691-9149a856239b
+
+-- H.5 no row was written by H.1 / H.2 / H.3
+          name           |              created_by              | status
+-------------------------+--------------------------------------+--------
+ H4 control member agent | aaaaaaaa-0000-7000-a000-00000000000a | DRAFT
+(1 row)
+
+-- H.6 the clone path enforces the same actor guard
+NOTICE:  H.6 PASS: SQLSTATE=P0001 MSG=fn_assert_agent_actor: created_by
+         cccccccc-0000-7000-a000-00000000000c is not a member of organization
+         11111111-1111-7111-a111-00000000000a
+
+-- H.7 app_api holds no EXECUTE on the internal actor guard itself
+NOTICE:  H.7 PASS: SQLSTATE=42501 MSG=permission denied for function fn_assert_agent_actor
+
+  7/7. attribution cannot be forged: created_by must be a live member of the
+  acting tenant, the guard cannot be called (or skipped) directly by the runtime
+  principal, and a refused create leaves no row behind. H.2 in particular shows
+  that a valid user of ANOTHER organization is not an acceptable actor.
+
+==================================================================================
+PART 5 - BATTERY I: PLATFORM ADMIN GET READ MODEL (6M) - THREE DISTINCT STATES
+==================================================================================
+
+  SUPERSEDED  superseded_at IS NOT NULL
+  EXPIRED     superseded_at IS NULL AND expires_at IS NOT NULL AND expires_at <= NOW()
+  ACTIVE      otherwise
+
+### I.1 [postgres / HARNESS ONLY] shift one CURRENT row's window into the past so it reads EXPIRED
+UPDATE 1
+  Harness time travel, category (a). See the E.6 rejection for why both
+  endpoints must move.
+
+### I.2 [app_platform_admin] every override row for FAR Org A, with its state
+        metric        |  hard_limit  | unit_label |   state    | permanent
+----------------------+--------------+------------+------------+-----------
+ ACTIVE_AGENTS        |       3.0000 | count      | SUPERSEDED | f
+ ACTIVE_AGENTS        |       4.0000 | count      | SUPERSEDED | f
+ ACTIVE_AGENTS        |       5.0000 | count      | ACTIVE     | f
+ API_REQUESTS         |              | requests   | ACTIVE     | f
+ CAMPAIGN_CALLS       |     100.0000 | calls      | SUPERSEDED | f
+ CAMPAIGN_CALLS       |     200.0000 | calls      | SUPERSEDED | f
+ CAMPAIGN_CALLS       |     300.0000 | calls      | ACTIVE     | f
+ KNOWLEDGE_RETRIEVALS |    1000.0000 | lookups    | ACTIVE     | f
+ LLM_PROMPT_TOKENS    | 1000000.0000 | tokens     | SUPERSEDED | f
+ LLM_PROMPT_TOKENS    | 2000000.0000 | tokens     | EXPIRED    | f
+ STORAGE_GB           |       1.5000 | GB-months  | SUPERSEDED | f
+ STORAGE_GB           |       1.5000 | GB-months  | ACTIVE     | f
+ TTS_CHARACTERS       |  500000.0000 | characters | SUPERSEDED | f
+ TTS_CHARACTERS       |   10000.0000 | characters | SUPERSEDED | f
+ TTS_CHARACTERS       |   20000.0000 | characters | ACTIVE     | f
+(15 rows)
+
+### I.3 [app_platform_admin] state census
+   state    | count
+------------+-------
+ ACTIVE     |     6
+ EXPIRED    |     1
+ SUPERSEDED |     8
+(3 rows)
+
+  All three states are present and distinguishable in ONE query. EXPIRED and
+  SUPERSEDED are genuinely different: the LLM_PROMPT_TOKENS row at 2000000 is
+  still the CURRENT row for its (org, metric) - nothing superseded it - but its
+  window has closed. A 6M GET that collapses EXPIRED into SUPERSEDED, or either
+  into a single "inactive", loses information the Platform Admin needs to decide
+  whether to re-grant or to supersede.
+
+### I.4 an EXPIRED current row is NOT enforced
+ resolver_rows | base_rows
+---------------+-----------
+             0 |         0
+  LLM_PROMPT_TOKENS has an expired override and no commercial baseline, so the
+  resolver returns zero rows rather than honouring the expired 2000000 limit.
+  The read model still shows the row; the enforcement path does not use it.
+
+### I.5 [app_platform_admin] first cross-tenant attempt - VACUOUS, disclosed
+           organization_id            | override_rows
+--------------------------------------+---------------
+ 11111111-1111-7111-a111-00000000000a |            15
+(1 row)
+  Only one organization appears because only one had override rows. This proves
+  nothing about cross-tenant admin visibility and is not offered as proof.
+
+### I.6 [app_platform_admin] grant FAR Org B a real override, then repeat
+            org_b_override
+--------------------------------------
+ 01a0a5b1-5121-7e19-9340-405a0d9084b8
+(1 row)
+
+### I.7 [app_platform_admin] the admin read model spans BOTH tenants
+           organization_id            | override_rows
+--------------------------------------+---------------
+ 11111111-1111-7111-a111-00000000000a |            15
+ 22222222-2222-7222-a222-00000000000b |             1
+(2 rows)
+
+           organization_id            |     metric     | hard_limit |   state
+--------------------------------------+----------------+------------+------------
+ 11111111-1111-7111-a111-00000000000a | CAMPAIGN_CALLS |   100.0000 | SUPERSEDED
+ 11111111-1111-7111-a111-00000000000a | CAMPAIGN_CALLS |   200.0000 | SUPERSEDED
+ 11111111-1111-7111-a111-00000000000a | CAMPAIGN_CALLS |   300.0000 | ACTIVE
+ 22222222-2222-7222-a222-00000000000b | CAMPAIGN_CALLS |   900.0000 | ACTIVE
+(4 rows)
+
+  Two organizations now hold a CURRENT override on the SAME metric with
+  DIFFERENT values (300 vs 900), and the Platform Admin sees both, while
+  Battery J below shows that neither tenant can see the other's.
+
+==================================================================================
+PART 6 - BATTERY J: THE TENANT EFFECTIVE-QUOTA CONTRACT (no admin privilege)
+==================================================================================
+
+### J.1 [app_api] a plain tenant principal resolves ITS OWN effective quota
+ session_user | is_platform_admin
+--------------+-------------------
+ app_api      | f
+    metric    | soft_limit | hard_limit | unit_label | source | overage_allowed
+--------------+------------+------------+------------+--------+-----------------
+ CALL_MINUTES |  1000.0000 |  1200.0000 | minutes    | BASE   | f
+    metric    | hard_limit |      source       | overage_allowed
+--------------+------------+-------------------+-----------------
+ API_REQUESTS |            | PLATFORM_OVERRIDE | t
+
+  The tenant-facing contract in one picture: app_api, holding no admin right,
+  reads the EFFECTIVE quota, learns its SOURCE (BASE vs PLATFORM_OVERRIDE), and
+  derives overage_allowed from the effective hard_limit being NULL. 6K reporting
+  and cache seeding need nothing more, and need no Platform Admin privilege.
+
+### J.2 [app_api] CROSS-TENANT read is refused
+NOTICE:  J.2 PASS: SQLSTATE=P0001 MSG=fn_resolve_effective_quota: organization_id
+         22222222-2222-7222-a222-00000000000b does not match the current tenant context.
+
+### J.8 [app_api] refused in the REVERSE direction too
+NOTICE:  J.8 PASS (reverse direction): SQLSTATE=P0001 MSG=fn_resolve_effective_quota: organization_id
+         11111111-1111-7111-a111-00000000000a does not match the current tenant context.
+
+### J.3 [app_api] RLS on the override table: FAR Org A sees only its own rows
+SET
+           organization_id            | count
+--------------------------------------+-------
+ 11111111-1111-7111-a111-00000000000a |    15
+(1 row)
+
+SET
+ organization_id | count
+-----------------+-------
+(0 rows)
+
+  VACUITY CAVEAT, DISCLOSED: at the time J.3 ran, FAR Org B held ZERO override
+  rows, so "Org B's context sees nothing" was not yet evidence of isolation -
+  there was nothing to hide. J.7 below repeats it after Org B has real rows.
+
+### J.7 [app_api] the SAME test repeated with Org B HOLDING DATA (non-vacuous)
+SET
+         ctx          |           organization_id            | count
+----------------------+--------------------------------------+-------
+ tenant-context=ORG A | 11111111-1111-7111-a111-00000000000a |    15
+(1 row)
+
+SET
+         ctx          |           organization_id            | count
+----------------------+--------------------------------------+-------
+ tenant-context=ORG B | 22222222-2222-7222-a222-00000000000b |     1
+(1 row)
+
+  Same principal, same table, same query - only the tenant GUC differs, and each
+  session sees exactly its own rows and none of the other's. 15 rows exist that
+  the Org B session cannot see, and 1 row exists that the Org A session cannot
+  see, so the isolation is demonstrated in both directions with real data on
+  both sides.
+
+### J.8 [app_api] each tenant resolves a DIFFERENT effective quota on the SAME metric
+SET
+ tenant |     metric     | hard_limit |      source
+--------+----------------+------------+-------------------
+ ORG A  | CAMPAIGN_CALLS |   300.0000 | PLATFORM_OVERRIDE
+(1 row)
+
+SET
+ tenant |     metric     | hard_limit |      source
+--------+----------------+------------+-------------------
+ ORG B  | CAMPAIGN_CALLS |   900.0000 | PLATFORM_OVERRIDE
+(1 row)
+
+### J.4 [app_api] with NO tenant context the resolver FAILS CLOSED
+NOTICE:  J.4 PASS: SQLSTATE=P0001 MSG=fn_resolve_effective_quota: no tenant context
+         (app.tenant_id is not set).
+  Absent context raises. It does not default to "no quota", which would read as
+  unlimited to a careless caller.
+
+### J.5 [app_api] a tenant principal cannot MUTATE overrides by any route
+NOTICE:  J.5a PASS: SQLSTATE=42501 MSG=permission denied for function fn_platform_set_quota_override
+NOTICE:  J.5b PASS: SQLSTATE=42501 MSG=permission denied for table quota_overrides
+NOTICE:  J.5c PASS: SQLSTATE=42501 MSG=permission denied for table quota_configs
+
+### J.6 [app_worker / app_readonly] the other runtime principals resolve but cannot mutate
+ session_user |    metric    | hard_limit | source
+--------------+--------------+------------+--------
+ app_worker   | CALL_MINUTES |  1200.0000 | BASE
+(1 row)
+NOTICE:  J.6a PASS: SQLSTATE=42501 MSG=permission denied for function fn_platform_set_quota_override
+
+ session_user |    metric    | hard_limit | source
+--------------+--------------+------------+--------
+ app_readonly | CALL_MINUTES |  1200.0000 | BASE
+(1 row)
+NOTICE:  J.6b PASS: SQLSTATE=42501 MSG=permission denied for function fn_platform_set_quota_override
+
+  Three runtime principals can READ an effective quota; none can change one.
+  The only write path is the SECURITY DEFINER function, and the only role that
+  can execute it is app_platform_admin - which additionally needs
+  app.is_platform_admin='true' in its session, not merely the role (D.1).
+
+==================================================================================
+PART 7 - AUDIT-WRITE ATOMICITY
+==================================================================================
+
+Every override mutation must write its audit record inside the SAME transaction
+as the override row. The audit table is audit.audit_events and the action column
+is action_kind.
+
+### K.10a all audit rows written by 111 override mutations in this run
+    action_kind     | resource_type  | outcome | rows
+--------------------+----------------+---------+------
+ QUOTA_OVERRIDE_SET | QUOTA_OVERRIDE | SUCCESS |   14
+(1 row)
+
+### K.10b sample audit row (newest)
+occurred_at       | 2026-09-15 15:30:56.413194+00
+action_kind       | QUOTA_OVERRIDE_SET
+actor_type        | PLATFORM_ADMIN
+actor_ref         | bbbbbbbb-0000-7000-a000-000000000001
+organization_id   | 22222222-2222-7222-a222-00000000000b
+resource_type     | QUOTA_OVERRIDE
+resource_id       | 01a0a5b1-5121-7e19-9340-405a0d9084b8
+outcome           | SUCCESS
+resource_snapshot | {"metric": "CAMPAIGN_CALLS", "reason": "I6 FAR Org B campaign burst grant",
+                     "expires_at": "2026-10-15T15:30:56.413194+00:00", "hard_limit": 900,
+                     "soft_limit": 700, "unit_label": "calls",
+                     "override_id": "01a0a5b1-5121-7e19-9340-405a0d9084b8",
+                     "effective_from": "2026-09-15T15:30:56.413194+00:00"}
+
+  The record identifies the acting admin, the tenant, the specific override row,
+  and the full granted values. An override can be reconstructed from the audit
+  trail alone.
+
+### K.10c ATOMICITY 1 - a REFUSED override leaves NO audit row
+ audit_before = 14
+NOTICE:  K.10c refusal: SQLSTATE=P0001 MSG=fn_platform_set_quota_override: metric AGENT_COUNT is
+         outside the canonical 5H §11.1 usage-dimension vocabulary.
+ audit_after_refusal = 14
+  No phantom "attempted" record, and no partial write.
+
+### K.10d ATOMICITY 2 - a rolled-back tx leaves NEITHER the override NOR the audit row
+ ov_before | audit_before          ov_inside_tx | audit_inside_tx        ov_after | audit_after
+-----------+--------------        --------------+-----------------      ----------+-------------
+         0 |           14                     1 |              15              0 |          14
+  (BEGIN ... created_in_aborted_tx 01a0a5b2-f660-710c-a64e-4eeda99e74a0 ... ROLLBACK)
+  Inside the transaction both rows exist; after ROLLBACK both are gone. They
+  cannot diverge, because there is no second connection, no deferred job and no
+  autonomous transaction in the path.
+
+### K.10e ATOMICITY 3 - a COMMITTED supersession writes exactly one audit row in the SAME tx
+ audit_before = 14
+ BEGIN ... new_override 01a0a5b2-f6ab-7b50-83a5-a512463fb679
+ audit_visible_inside_same_tx = 15
+ COMMIT
+ audit_after_commit = 15
+  The audit row is visible inside the same transaction that created the
+  override, and exactly one row was added - supersession of the previous current
+  row did not produce a second or a missing record.
+
+==================================================================================
+PART 8 - WHAT THIS FILE ESTABLISHES, AND WHAT IT DOES NOT
+==================================================================================
+
+ESTABLISHED, from live output on PostgreSQL 18.6:
+  - ACTIVE_AGENTS admission reads the EFFECTIVE quota, honours an override while
+    active, and falls back to the CURRENT baseline on expiry (E.1-E.7).
+  - Lowering the effective limit below current usage closes admission and
+    destroys nothing (E.8, E.9).
+  - The 110_5C2 invariants still hold under the replaced admission body (E.10).
+  - Concurrent admission cannot over-admit; concurrent override writes cannot
+    produce two current rows (G.1-G.3).
+  - created_by cannot be a non-member, a cross-tenant user, or NULL (H.1-H.7).
+  - ACTIVE / EXPIRED / SUPERSEDED are three distinct, simultaneously observable
+    states, and an EXPIRED current row is not enforced (I.2-I.4).
+  - Tenants read their own effective quota without admin privilege, are refused
+    across tenants in both directions, are isolated by non-vacuous RLS, fail
+    closed without context, and cannot mutate anything (J.1-J.8).
+  - Audit records are written in the same transaction as the override, and
+    refusals and rollbacks leave neither row (K.10c-K.10e).
+  - 111 adds no new BYPASSRLS role and grants no application role write access
+    to billing.quota_overrides (K.4, K.6).
+
+NOT ESTABLISHED, and not claimed:
+  - Nothing here is a claim about FastAPI-layer behaviour. No application code
+    was written or executed in this pass; these are database guarantees that the
+    API layer must surface, not replace.
+  - Nothing here measures performance, capacity or index efficiency.
+  - The EXPIRED state was produced by deliberate superuser time travel on a test
+    database. Real expiry has not been observed by waiting for wall-clock time
+    to pass; it is inferred from the read-time comparison against NOW(), which
+    is what the resolver actually evaluates.
+  - The security scope statement at the top of this file bounds every claim
+    above: deliberate superuser DDL, disabling triggers, dropping policies or
+    altering the functions are outside the application guarantee.
