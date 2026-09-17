@@ -10,12 +10,13 @@
 |---|---|
 | Document | `FINAL-API-RECONCILIATION.md` |
 | Phase | Final API Reconciliation (post-6A–6M) |
-| Depends on | All 13 Phase 6 API design documents (6A–6M), as they stand after this pass's controlled source edits (§12), **plus** the **three** Phase 5 documents amended by the authorized database remediations (`5C-Voice-Schema.md`, `5H-Billing-Usage-Schema.md`, `5K/MIGRATION_MANIFEST.md`) — `5H-Billing-Usage-Schema.md` added by the `FAR-OD-02` billing / quota-override closure (§10A, §12.1) and amended again by the `FAR-OD-03` / `FAR-OD-04` capacity-quota closure (§10B, §12.4) |
-| Scope | API-contract reconciliation **plus one authorized additive database remediation** *(original `110_5C2` scope — historical; as extended below the reconciliation now carries **three** separately owner-authorized additive migrations, `110_5C2`, `111_5H4` and `112_5H5`)*. The owner's Option-B decision could not be implemented legally under frozen 6A §17.3 by the API layer alone (§10.1), so the DB-conformant closure directive authorized exactly **one** new migration, `110_5C2`; after the second independent review (P0 = 0, P1 = 2, P2 = 1) that same migration was **amended in place** by the micro-remediation (§13) — no second migration was created. No application code, no OpenAPI document. Migrations `001`–`109` and their Alembic wrappers are **byte-identical to `HEAD`** (§16). Live PostgreSQL 18.6 and Alembic validation was executed against **disposable** databases only (§16). **Extended by the billing / quota-override closure:** owner decision `FAR-OD-02` = Option B authorized exactly **one** further additive migration, `111_5H4` (`down_revision = '110_5C2'`), closing `FAR-P1-04` and `FAR-P1-05`. `110_5C2` was **not** amended again and *(historical, 111 pass — superseded)* ~~no migration `112` exists~~; as of that pass the byte-identity statement read **`001`–`110`** (§16.3). **Extended by the capacity-quota closure:** owner decisions `FAR-OD-03` = Option B and `FAR-OD-04` = ADMISSION→TERMINAL authorized exactly **one** further additive migration, `112_5H5` (`down_revision = '111_5H4'`), closing `FAR-P1-06` and `FAR-P2-08`. `110_5C2` and `111_5H4` were **not** amended; **no migration `113` exists**; the byte-identity statement now reads **`001`–`111`** (§16.4). **Current project head: `112_5H5`.** |
-| Method | Independent, reproducible **dual** route extraction (semantic-normalized **and** literal) over the full body text of all 13 documents. **Current exact re-extraction (112 state, `FAR-P2-07`): 1,683 raw route occurrences → 595 unique literal Method+Path → 448 unique semantic Method+Path → 55 cross-document semantic collision groups (31 of which carry more than one literal spelling).** The earlier figures 1,640 / 598 / 448 / 55 / 32 are **historical / intermediate** (pre-normalization state of the original pass). See §1. |
-| Owner decision of record | **`FAR-OD-01` = OPTION B** — hard synchronous Agent-count quota enforcement on `POST /api/v1/agents`. Applied in full (§10). Closes `DEP-6E-20`.<br>**`FAR-OD-02` = OPTION B** — true temporary Platform-Admin quota overrides with live commercial-baseline fallback; an override never overwrites the base, and expiry falls back to the **current** base, not to unlimited. Applied in full (§10A). Closes `FAR-P1-04`, `FAR-P1-05`, `FAR-P2-04`, `FAR-P2-05`.<br>**`FAR-OD-03` = OPTION B** — `CONCURRENT_CALLS` is a separate **CAPACITY / ENTITLEMENT** quota domain (instantaneous reservation), not an accumulated usage metric. Applied in full (§10B). Closes `FAR-P1-06`, `FAR-P2-08`.<br>**`FAR-OD-04` = ADMISSION→TERMINAL** — one `CONCURRENT_CALLS` reservation per call, acquired once at outbound admission and released once at setup failure or on entry to a frozen terminal state (6K §54.6, 6D §42.4, 6H §54.2). Applied in full (§10B). |
-| Forbidden artifacts (per governing task) | `API-MASTER-INDEX.md`, `AUTHORIZATION-MATRIX.md`, `ERROR-CATALOG.md`, `API-VERSIONING-STRATEGY.md` — **none created.** No implementation code, no OpenAPI document. Migration history of this reconciliation: `110_5C2` (`FAR-OD-01`, amended in place by the micro-remediation, §12.1) → `111_5H4` (`FAR-OD-02`, §12.3) → `112_5H5` (`FAR-OD-03` / `FAR-OD-04`, §12.4). *Historical statements "no migration `111` exists" (110 pass) and "no migration `112` exists" (111 pass) are superseded.* **`112_5H5` is the single Alembic head; no migration `113` exists** (§14.1, §16.4). |
-| Date | 2026-09-15 (110 / 111 passes); 2026-09-16 (112 capacity-quota pass); **2026-09-17** (master-FAR closure) |
+| Depends on | All 13 Phase 6 API design documents (6A–6M), as they stand after this pass's controlled source edits (§12), **plus** the **three** Phase 5 documents amended by the authorized database remediations (`5C-Voice-Schema.md`, `5H-Billing-Usage-Schema.md`, `5K/MIGRATION_MANIFEST.md`) — `5H-Billing-Usage-Schema.md` added by the `FAR-OD-02` billing / quota-override closure (§10A, §12.1) and amended again by the `FAR-OD-03` / `FAR-OD-04` capacity-quota closure (§10B, §12.4) and by the `FAR-OD-05` last-contract-remediation pass (§10B.10, §12.5); the `FAR-P2-12` last static correction (§10B.15, §12.6) amended **no** Phase 5 document |
+| Scope | API-contract reconciliation **plus one authorized additive database remediation** *(original `110_5C2` scope — historical; as extended below the reconciliation now carries **three** separately owner-authorized additive migrations, `110_5C2`, `111_5H4` and `112_5H5`)*. The owner's Option-B decision could not be implemented legally under frozen 6A §17.3 by the API layer alone (§10.1), so the DB-conformant closure directive authorized exactly **one** new migration, `110_5C2`; after the second independent review (P0 = 0, P1 = 2, P2 = 1) that same migration was **amended in place** by the micro-remediation (§13) — no second migration was created. No application code, no OpenAPI document. Migrations `001`–`109` and their Alembic wrappers are **byte-identical to `HEAD`** (§16). Live PostgreSQL 18.6 and Alembic validation was executed against **disposable** databases only (§16). **Extended by the billing / quota-override closure:** owner decision `FAR-OD-02` = Option B authorized exactly **one** further additive migration, `111_5H4` (`down_revision = '110_5C2'`), closing `FAR-P1-04` and `FAR-P1-05`. `110_5C2` was **not** amended again and *(historical, 111 pass — superseded)* ~~no migration `112` exists~~; as of that pass the byte-identity statement read **`001`–`110`** (§16.3). **Extended by the capacity-quota closure:** owner decisions `FAR-OD-03` = Option B and `FAR-OD-04` = ADMISSION→TERMINAL authorized exactly **one** further additive migration, `112_5H5` (`down_revision = '111_5H4'`), closing `FAR-P1-06` and `FAR-P2-08`. `110_5C2` and `111_5H4` were **not** amended; **no migration `113` exists**; the byte-identity statement now reads **`001`–`111`** (§16.4). **Current project head: `112_5H5`.** **Extended by the last contract remediation pass (2026-09-17):** owner decision `FAR-OD-05` = Option A resolved the final open owner decision and, with `FAR-P1-07`, `FAR-P2-10`, `FAR-P2-11` and `FAR-P3-08`, was closed by **document correction and controlled erratum only** — **no migration was created or edited**, `112_5H5.sql` and `112_5H5.py` are byte-identical and their hashes are stable, **no migration `113` exists**, and **no new live database validation was run** (§12.5, §16.5). **Extended by the `FAR-P2-12` last static correction (2026-09-17):** the final freeze-gate review's single remaining issue — 6D §42.5's lowering-capacity wording still naming only the two outbound paths after `FAR-OD-05` made `CONCURRENT_CALLS` direction-neutral — was closed by **narrow document correction only**, touching **two** files (`6D-Voice-Call-Agent-APIs.md`, this document). No architecture was reopened, `CONCURRENT_CALLS` was **not** redesigned, `FAR-OD-05` and `FAR-OD-04` are **unchanged**, no migration was created or edited, `112_5H5.sql` / `112_5H5.py` hashes are **stable**, **no migration `113` exists**, and **no database was started, migrated or queried** (§10B.15, §12.6, §16.6). |
+| Method | Independent, reproducible **dual** route extraction (semantic-normalized **and** literal) over the full body text of all 13 documents. **Current exact re-extraction (`FAR-OD-05` state, `FAR-P2-07`): 1,697 raw route occurrences → 595 unique literal Method+Path → 448 unique semantic Method+Path → 56 cross-document semantic collision groups (31 of which carry more than one literal spelling).** The figures ~~1,683 / 595 / 448 / 55 / 31~~ are the **112 state**, and 1,640 / 598 / 448 / 55 / 32 are **historical / intermediate** (pre-normalization state of the original pass). The literal set (595) and the semantic set (448) are **identical** across the 112 → `FAR-OD-05` re-extraction, proving this pass added references, not routes. See §1, §1.1, §2.1 row 56. |
+| Owner decision of record | **`FAR-OD-01` = OPTION B** — hard synchronous Agent-count quota enforcement on `POST /api/v1/agents`. Applied in full (§10). Closes `DEP-6E-20`.<br>**`FAR-OD-02` = OPTION B** — true temporary Platform-Admin quota overrides with live commercial-baseline fallback; an override never overwrites the base, and expiry falls back to the **current** base, not to unlimited. Applied in full (§10A). Closes `FAR-P1-04`, `FAR-P1-05`, `FAR-P2-04`, `FAR-P2-05`.<br>**`FAR-OD-03` = OPTION B** — `CONCURRENT_CALLS` is a separate **CAPACITY / ENTITLEMENT** quota domain (instantaneous reservation), not an accumulated usage metric. Applied in full (§10B). Closes `FAR-P1-06`, `FAR-P2-08`.<br>**`FAR-OD-04` = ADMISSION→TERMINAL** — one `CONCURRENT_CALLS` reservation per call, acquired once at admission and released once at setup failure or on entry to a frozen terminal state (6K §54.4–§54.6, 6D §42.4, 6H §54.2). Applied in full (§10B). *(The earlier wording "at outbound admission" is superseded by `FAR-OD-05`: admission is direction-agnostic.)*<br>**`FAR-OD-05` = OPTION A** — `CONCURRENT_CALLS` is the organization's **total** admitted simultaneous call capacity, consumed by **inbound and outbound** alike from **one** organization-level pool; no separate inbound pool, no direction-specific quota, no reserved or priority slots. Applied in full (§10B.10). Closes `FAR-P1-07` (with §10B.11) and the last unresolved owner decision. |
+| Owner decisions outstanding | **None. All five (`FAR-OD-01`…`FAR-OD-05`) are RESOLVED and APPLIED** (§10, §10A, §10B, §13). |
+| Forbidden artifacts (per governing task) | `API-MASTER-INDEX.md`, `AUTHORIZATION-MATRIX.md`, `ERROR-CATALOG.md`, `API-VERSIONING-STRATEGY.md` — **none created.** No implementation code, no OpenAPI document. Migration history of this reconciliation: `110_5C2` (`FAR-OD-01`, amended in place by the micro-remediation, §12.1) → `111_5H4` (`FAR-OD-02`, §12.3) → `112_5H5` (`FAR-OD-03` / `FAR-OD-04`, §12.4). The `FAR-OD-05` pass (§12.5) added **none**, and the `FAR-P2-12` last static correction (§12.6) added **none**. *Historical statements "no migration `111` exists" (110 pass) and "no migration `112` exists" (111 pass) are superseded.* **`112_5H5` is the single Alembic head; no migration `113` exists** (§14.1, §16.4). |
+| Date | 2026-09-15 (110 / 111 passes); 2026-09-16 (112 capacity-quota pass); **2026-09-17** (master-FAR closure; **`FAR-P2-12` last static correction**) |
 | Result | **See §15.** |
 
 This document does **not** self-declare any Phase 6 document APPROVED or FROZEN. Freeze remains an independent-review decision.
@@ -29,11 +30,11 @@ Prior sessions' route counts ("558/308/35", and this artifact's own earlier "445
 1. **Corpus.** Full body text of all 13 documents (not headings only) — several documents (6A, 6F, 6G, 6I, 6L, 6M) declare or reference endpoints inline in prose, auth matrices and error tables.
 2. **Match.** Two patterns applied to every line: inline `(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+`?<path>` and table-cell `| `?<METHOD>`? | `?<path>`, with `<path>` = `/[A-Za-z0-9_\-./{}:*]*` (case-insensitive method for the inline form). Rejected: paths shorter than 2 characters, file-like / repository paths (`.md`, `.sql`, `.py`, `.json`, `.yaml`, `.yml`, `.ts`, `.tsx`, `/docs`, `/home`, `phase-0`), paths with unbalanced `{`, and bare `/`. Identical (file, line, literal) hits are counted once. Trailing punctuation and trailing `/` are stripped.
 3. **Prefix normalization (both passes).** `/api/internal/v1/…` and `/internal/v1/…` → `INTERNAL …`; `/api/v1/…` → `PUBLIC …`. This is required because 6I and 6M frequently omit the `/api/v1` prefix when referring to their own already-declared routes, and because an internal-surface route must never be allowed to collide with a public-surface route of the same tail. A bare `/api/v1` or `/api/internal/v1` normalizes to `PUBLIC /` / `INTERNAL /`; any other path without a recognized prefix is treated as `PUBLIC`.
-4. **Pass A — literal.** Parameter names preserved exactly as written. → **595 unique literal Method+Path pairs** from **1,683 raw occurrences** (current exact re-extraction, `FAR-P2-07`).
+4. **Pass A — literal.** Parameter names preserved exactly as written. → **595 unique literal Method+Path pairs** from **1,697 raw occurrences** (current exact re-extraction after the `FAR-OD-05` pass, `FAR-P2-07`; ~~1,683~~ at the `112_5H5` state, §1.1).
 5. **Pass B — semantic.** Every `{anything}` segment collapsed to `{param}`. → **448 unique semantic Method+Path pairs**.
-6. **Collision detection.** Group Pass-B keys by (method, semantic path); a group is a *cross-document collision group* when it appears in **two or more distinct documents**. → **55 groups**.
-7. **Literal-variance detection.** For each of the 55 groups, all Pass-A literals were retained. **31 groups currently carry more than one literal spelling** — each was individually adjudicated in §3, and three real defects were corrected at source (§12 edits #3–#5).
-8. **Verification.** Every one of the 55 groups was verified by reading the actual source text on all sides — never accepted from the normalized match alone, because normalization itself manufactures false positives (three found; §2.1 rows 8, 46, 47).
+6. **Collision detection.** Group Pass-B keys by (method, semantic path); a group is a *cross-document collision group* when it appears in **two or more distinct documents**. → **56 groups** (~~55~~ at the `112_5H5` state; the `FAR-OD-05` pass added exactly one group — §1.1, §2.1 row 56).
+7. **Literal-variance detection.** For each of the 56 groups, all Pass-A literals were retained. **31 groups currently carry more than one literal spelling** — each was individually adjudicated in §3, and three real defects were corrected at source (§12 edits #3–#5).
+8. **Verification.** Every one of the 56 groups was verified by reading the actual source text on all sides — never accepted from the normalized match alone, because normalization itself manufactures false positives (three found; §2.1 rows 8, 46, 47).
 9. **Scratch artifacts.** The extraction helper and its JSON output were kept exclusively under the session scratchpad directory **outside the repository** and are not part of this deliverable. No `__pycache__`, `*.pyc` or `*.pyo` exists anywhere in the repository (§15, gate 27).
 
 **1.1 Count history (FAR-P2-07).** The same extractor and the same matcher were used throughout; no algorithm change was made in any re-run.
@@ -43,9 +44,12 @@ Prior sessions' route counts ("558/308/35", and this artifact's own earlier "445
 | Original pass, first run | 1,640 | 600 | 448 | 55 | 33 | historical |
 | Original pass, after in-pass literal corrections (figures the original §1–§3 recorded) | 1,640 | 598 | 448 | 55 | 32 | **historical / intermediate** — pre-normalization state |
 | Committed corpus after literal normalization (110/111 passes) | 1,660 | 595 | 448 | 55 | 31 | historical |
-| **Current exact re-extraction (112 state)** | **1,683** | **595** | **448** | **55** | **31** | **current** |
+| Current exact re-extraction (112 state) | 1,683 | 595 | 448 | 55 | 31 | historical — superseded by the row below |
+| **Current exact re-extraction (`FAR-OD-05` state)** | **1,697** | **595** | **448** | **56** | **31** | **current** |
 
 The 112 documentation amendments (6D, 6E, 6H, 6K, 6M) raised raw references 1,660 → 1,683 but changed **neither** the literal set (595), **nor** the semantic set (448), **nor** the 55-group set, **nor** the 31 variance groups: **no group was added or removed**. They added references, not contracts. The only participation change is group 41 (`POST /calls`), which gained 6K and 6M as referencing documents (§2.1 row 41).
+
+**`FAR-OD-05` re-extraction (current).** The extractor was rerun **unmodified** — same corpus, same two match patterns, same prefix normalization, same dedupe — after every document edit of this pass. Raw references rose 1,683 → **1,697** (+14: the inbound admission contract now cites the existing provider callback and the existing outbound routes from 6K, 6H and 6M). The **literal set is unchanged at 595** and the **semantic set is unchanged at 448** — the symmetric-difference of both sets against the pre-pass state is **empty** — which is the formal proof that **no new route, and no new spelling of an existing route, was introduced**. Collision groups moved **55 → 56**, and the **31** literal-variance groups are unchanged. The single added group is adjudicated in full at §2.1 row 56: `POST /webhooks/voice/{provider_slug}/events`, previously declared and referenced **only** in 6D, is now **also cited by 6K §54.6** as the point at which the inbound `CONCURRENT_CALLS` admission invariant binds. It is a Class **B** canonical-owner + consumer reference with a **single** literal spelling on both sides; it is not a new endpoint, and it is not a Class E contradiction. The collision-group **set** is otherwise identical: **zero groups removed**, **zero participation changes** on the 55 pre-existing groups, and **zero literal-spelling changes** within them.
 
 ---
 
@@ -67,7 +71,7 @@ Two adjudication rules were applied and are stated here so the classification is
 - **Mixed-group rule.** Where a group contains both a real owner/consumer relation **and** a 6A example-only component (groups 27 and 42), the group is classified by its **strongest** relation (**B**), and 6A's example-only participation is recorded in the *Contract Difference* column. A group in which 6A is the **only** other document is classified **D**.
 - **Shorthand rule.** A path written in a document's local shorthand (prefix omitted, or `{id}` for a canonical `{descriptive_id}`) is **not** a declaration. It is evidence of literal drift (§3), and only makes a group a FALSE POSITIVE when the shorthand collides with a *different document's real route*.
 
-### 2.1 Ledger — all 55 cross-document collision groups, one row each
+### 2.1 Ledger — all 56 cross-document collision groups, one row each
 
 Every group appears below. No grouping, no "~", no "etc.".
 
@@ -128,21 +132,25 @@ Every group appears below. No grouping, no "~", no "etc.".
 | 53 | `POST` | `/webhook-deliveries/{delivery_id}/replay` · `/webhook-deliveries/{id}/replay` | `/webhook-deliveries/{param}/replay` | 6A, 6J | **6J** | **D** | 6A lines 192–196/772 — illustrative example only; 6A explicitly defers webhook endpoint design to the Integrations document. | Example-only. 6J canonical. | CLOSED |
 | 54 | `POST` | `/webhook-endpoints` | `/webhook-endpoints` | 6A, 6J | **6J** | **D** | Same 6A deferral statement (line 772). | Example-only. 6J canonical. | CLOSED |
 | 55 | `POST` | `/workflows/{id}/publish` · `/workflows/{workflow_id}/publish` | `/workflows/{param}/publish` | 6A, 6I | **6I** | **D** | 6A line 196's illustrative example block. | Example-only. 6I canonical. | CLOSED |
+| 56 | `POST` | `/webhooks/voice/{provider_slug}/events` *(one spelling on both sides)* | `/webhooks/voice/{param}/events` | 6D, 6K | **6D** | **B** | **None.** 6D §10.4 declares the provider-facing callback outright — provider-native signature scheme, not tenant JWT/API-key, recorded in `webhooks.inbound_webhook_events` per 6A §28.2, idempotent on `UNIQUE (organization_id, provider_slug, provider_event_id)`. 6K §54.6 does **not** redeclare shape, auth, signature scheme, idempotency or errors; it cites the route as the transport that precedes the **existing** in-process admission point (4B §14.1 `CallApplicationService.initiate_call`, via `process_inbound_webhook`), and states explicitly that "**No new public endpoint is defined**". 6K §54.6 also defers the webhook-transport acknowledgement to frozen 6D. | **New group, added by the `FAR-OD-05` pass** and adjudicated here rather than suppressed. Consumer reference only: the literal set (595) and semantic set (448) are unchanged against the pre-pass state, which proves no route was added. 6D remains canonical; 6K is a consumer. No edit required on either side. | CLOSED |
+
 ### 2.2 Classification arithmetic (must sum exactly)
 
 | Class | Count | Group numbers |
 |---|---|---|
 | **A** — SAME CONTRACT | **0** | — |
-| **B** — CANONICAL OWNER + CONSUMER REFERENCE | **42** | 1–7, 9–31, 33, 35, 38, 39, 40, 42, 43, 48, 49, 50, 51, 52 |
+| **B** — CANONICAL OWNER + CONSUMER REFERENCE | **43** | 1–7, 9–31, 33, 35, 38, 39, 40, 42, 43, 48, 49, 50, 51, 52, **56** |
 | **C** — CONTROLLED EXTENSION | **3** | 36, 37, 41 |
 | **D** — EXAMPLE ONLY | **7** | 32, 34, 44, 45, 53, 54, 55 |
 | **E** — TRUE CONTRADICTION | **0** | — |
 | **FALSE POSITIVE** | **3** | 8, 46, 47 |
-| **Total** | **55** | A 0 + B 42 + C 3 + D 7 + E 0 + FP 3 = **55** ✅ |
+| **Total** | **56** | A 0 + B 43 + C 3 + D 7 + E 0 + FP 3 = **56** ✅ |
 
-**Headline result: zero (E) TRUE CONTRADICTIONS across all 55 collision groups.** Every group resolves to a single named canonical owner, or is not a collision at all.
+*(Historical — `112_5H5` state: A 0 + B 42 + C 3 + D 7 + E 0 + FP 3 = **55**. The `FAR-OD-05` pass added exactly one Class **B** group, row 56, and changed no other row.)*
 
-### 2.3 Why the total is 55 and not the previously recorded 52
+**Headline result: zero (E) TRUE CONTRADICTIONS across all 56 collision groups.** Every group resolves to a single named canonical owner, or is not a collision at all.
+
+### 2.3 Why the total is 56 (55 at the `112_5H5` state) and not the previously recorded 52
 
 The earlier revision of this artifact recorded "445 unique routes / 52 raw collision groups". That figure is **superseded, not reconciled to**: it was produced by a single-pass extraction that (a) collapsed every parameter to `{id}` **and** stripped `/api/v1` without distinguishing the internal surface, and (b) grouped several related routes into single ledger rows rather than counting them individually. Per the governing instruction, the fresh reproducible result is used and the difference is explained rather than forced back to 52:
 
@@ -153,13 +161,13 @@ The earlier revision of this artifact recorded "445 unique routes / 52 raw colli
 | Two real source defects corrected this pass (6D's `/internal/v1/` prefix omission and its duplicated `{id}/versions/{id}` parameter) previously produced malformed keys that grouped incorrectly. | Corrects mis-grouping (±) |
 | The unique-route denominator itself changed shape: 448 **semantic** vs. 598 **literal** unique pairs *(598 = historical / intermediate; current literal count 595, §1.1)*. The old "445" was a semantic-style count and is closest to today's 448; the 3-pair difference is attributable to the internal/public split plus the two corrected 6D literals. | Denominator now stated twice, unambiguously |
 
-**No group was added or removed to reach a target number.** *(Historical / intermediate — original pass:)* the same normalization rules over the source text as it then stood yielded 1,640 / 598 / 448 / 55 / 32. **Current exact re-extraction (112 state): 1,683 / 595 / 448 / 55 / 31** — same group set, same arithmetic (A 0 + B 42 + C 3 + D 7 + E 0 + FP 3 = 55), zero Class E (§1.1).
+**No group was added or removed to reach a target number.** *(Historical / intermediate — original pass:)* the same normalization rules over the source text as it then stood yielded 1,640 / 598 / 448 / 55 / 32. *(Historical — 112 state: 1,683 / 595 / 448 / 55 / 31, arithmetic A 0 + B 42 + C 3 + D 7 + E 0 + FP 3 = 55.)* **Current exact re-extraction (`FAR-OD-05` state): 1,697 / 595 / 448 / 56 / 31** — arithmetic A 0 + B 43 + C 3 + D 7 + E 0 + FP 3 = **56**, zero Class E (§1.1). The one added group was **found by the rerun and adjudicated**, not engineered: the pre-pass figure of 55 was **not** preserved as a target, and the identical literal and semantic sets prove the addition is a citation of an existing 6D route rather than a new contract.
 
 ---
 
 ## 3. Final Route Literal Consistency Check
 
-Scope: Method spelling, path spelling, singular/plural, prefix correctness, and parameter naming — across the collision groups carrying more than one literal spelling (32 in the historical / intermediate original-pass state; **31** in the current exact re-extraction, §1.1), plus the two prefix families.
+Scope: Method spelling, path spelling, singular/plural, prefix correctness, and parameter naming — across the collision groups carrying more than one literal spelling (32 in the historical / intermediate original-pass state; **31** in the current exact re-extraction, §1.1), plus the two prefix families. The group added by the `FAR-OD-05` pass (§2.1 row 56) carries **one** literal spelling on both sides, so the variance count stays at **31** and no new literal-consistency defect arises.
 
 ### 3.1 Defects found and corrected at source (5)
 
@@ -199,7 +207,7 @@ Post-fix residual check for the prefix family: **0** remaining `/internal/v1/` o
 
 **What actually changed in 6M:** 95 `{id}` literals normalized; **0 remain**. The edit is a literal-spelling normalization only — no route added, removed, split, merged or re-scoped. Verified after the edit: the §25 endpoint inventory still carries **42** one-route-per-row entries and §27.2 still carries **42**, matching each other exactly as before. A labelled *FINAL API RECONCILIATION — path-parameter normalization* note was added above the §25 inventory so the change is disclosed at source rather than appearing as silent drift.
 
-**Effect on §2's collision ledger: none.** Pass-B normalization already collapses every `{anything}` segment to `{param}`, so semantic collision grouping is invariant under this rename; the 55 groups are unchanged. Pass-A literal variance decreases, which is the point. The `/api/v1/platform-admin` prefix continues to separate these routes from 6C's tenant `/api/v1/organizations/{organization_id}/suspend` and 6L's tenant `/api/v1/audit/events` — the surfaces differ by **prefix**, never by parameter name (§2.1 rows 8 and 47).
+**Effect on §2's collision ledger: none.** Pass-B normalization already collapses every `{anything}` segment to `{param}`, so semantic collision grouping is invariant under this rename; the groups in force when this normalization was applied (then 55, now 56 — §1.1) are unchanged by it. Pass-A literal variance decreases, which is the point. The `/api/v1/platform-admin` prefix continues to separate these routes from 6C's tenant `/api/v1/organizations/{organization_id}/suspend` and 6L's tenant `/api/v1/audit/events` — the surfaces differ by **prefix**, never by parameter name (§2.1 rows 8 and 47).
 
 **§3.2 rows 2–4 are unaffected** and remain deliberate non-changes: they concern narrative shorthand and worked-example tokens inside documents whose own declarations already carry the long form, not normative inventories.
 
@@ -283,7 +291,7 @@ Scope note: this ledger reconciles **shared** codes for conflicts. It is not, an
 | 15 | **Inbound provider-webhook envelope** — `webhooks.inbound_webhook_events` row, deduplicated on `UNIQUE (organization_id, provider_slug, provider_event_id)` | 6D §12 (voice providers); 6K §30 applies the same shape to payment providers | 6H, 6M | None — the payment case adds a verification-first ordering rule (no receipt row unless the signature verifies) and resolves tenant identity from the originating attempt row rather than the payload, which *strengthens* the shared contract without forking it | **CLOSED** |
 | 16 | **Outbound webhook delivery envelope** — 5I `webhooks.webhook_deliveries`, HMAC-SHA256 over `ts={unix}.{payload_json}`, header `X-Platform-Signature: v1={hex}` | 6A §11/§22 | 6D, 6H, 6K | None — consumers name event types (`call.completed`, `campaign.finished`, `invoice.generated`) but none redefines the signature scheme, the `PENDING → DELIVERING → DELIVERED \| DEAD_LETTER \| CANCELLED` lifecycle, or the retry contract | **CLOSED** |
 
-**Zero cross-document DTO conflicts across all 16 rows.** Per the governing scope rule, rows were added only where a shared contract sits behind one of the accepted 55 collision groups and was not already represented — this ledger is a conflict register, not an exhaustive schema inventory.
+**Zero cross-document DTO conflicts across all 16 rows.** Per the governing scope rule, rows were added only where a shared contract sits behind one of the accepted collision groups (55 when this ledger was built; 56 after the `FAR-OD-05` pass, whose added group 56 is a webhook-transport citation carrying **no** cross-document DTO) and was not already represented — this ledger is a conflict register, not an exhaustive schema inventory.
 
 ---
 
@@ -352,7 +360,7 @@ Unchanged from the prior pass; re-verified, no new work required. Current author
 | 7 | Async-job status convention | 6A §18.3 → 6J | `GET /api/v1/jobs/{job_id}` semantics | 6J consumes the convention and discloses its bounded deviation (Celery task ID) under 6A's own allowance | **CLOSED (disclosed deviation)** |
 | 8 | **`DEP-6E-20` — database-layer continuation** | **Phase 6 (API design) → Phase 5 (database)**, under the owner authorization granted for this pass only | `FAR-OD-01` settled the *policy* (Option B, hard synchronous quota), but the API-layer enforcement mechanism was not legal under frozen 6A §17.3 — raised here as `FAR-P1-01` / `DB-BLOCKER-FINAL-API-001` | **CLOSED BY MIGRATION `110_5C2`** — serialization moved inside a Phase-5 `SECURITY DEFINER` boundary, raw `INSERT ON voice.agents` revoked from every runtime role, both Agent-creating operations routed through the same guard, and the whole path validated live (§16.2). Nothing is carried forward as future debt | **CLOSED** |
 
-*(Historical — 110/111 passes:)* ~~Zero open handoffs across all 8 rows. Zero pending owner decisions.~~ This line described only the eight cross-document handoffs traced in the rows above. It was **not** a whole-corpus classification. `FAR-P2-06` found that wording overbroad, and it is superseded by the full 213-item classification in §9.1–§9.5. The eight rows above stay CLOSED and are counted inside §9.3.
+*(Historical — 110/111 passes:)* ~~Zero open handoffs across all 8 rows. Zero pending owner decisions.~~ This line described only the eight cross-document handoffs traced in the rows above. It was **not** a whole-corpus classification. `FAR-P2-06` found that wording overbroad, and it is superseded by the full 214-item classification in §9.1–§9.5. The eight rows above stay CLOSED and are counted inside §9.3.
 
 ### 9.1 `FAR-P2-06` — whole-corpus handoff classification: method and dedupe
 
@@ -369,13 +377,28 @@ Every deferred, future, handoff, residual or open item declared anywhere in 6A�
 **Dedupe methodology.**
 1. **Anchoring.** Every item is anchored to one source document plus a text pattern that must match that document's current text. Items without a match are rejected, so the ledger cannot drift from the documents.
 2. **DEP coverage.** The complete set of `DEP-6X-NN` identifiers was extracted from every register row **and** every prose mention across 6A–6M. That gives **142** unique IDs: 141 register rows plus the row-less retired mention `DEP-6G-17`. Classification was asserted to cover all 142, with none missing and none extra.
-3. **Non-DEP registers.** These cover 6A §R-1..R-8, 6B §34, 6D/6E §3.2, 6H ADR/§18.4 residuals, 6I §54 (rows 1–14), 6J §57 (J1–J4), 6K §54.5/§54.6, 6L §55/§61/ODD-5J-01..07, and 6M §46/§51/§52/§53. There were **85** such entries.
+3. **Non-DEP registers.** These cover 6A §R-1..R-8, 6B §34, 6D/6E §3.2, 6H ADR/§18.4 residuals, 6I §54 (rows 1–14), 6J §57 (J1–J4), 6K §54.5/§54.6, 6L §55/§61/ODD-5J-01..07, and 6M §46/§51/§52/§53. There were **86** such entries.
+
+   > **Amendment (`FAR-OD-05`, applied 2026-09-17).** This count was **85** in the `112_5H5` pass. 6K §54.6 was then a
+   > single entry ("inbound calls under `CONCURRENT_CALLS` governance", FUTURE). `FAR-OD-05` = Option A resolves that
+   > item's **contract** and leaves a genuinely distinct residual, so the entry is **split into two anchored entries**
+   > against 6K §54.6's current text — not renamed, and not silently reclassified:
+   >
+   > | Entry | Anchor in 6K §54.6 | Class |
+   > |---|---|---|
+   > | Inbound `CONCURRENT_CALLS` admission **contract** | the normative inbound admission invariant ("before an inbound provider-originated call is admitted … the organization MUST acquire a `CONCURRENT_CALLS` reservation from the same capacity authority") | **CLOSED** |
+   > | Provider-facing inbound **decline / busy / fallback signalling** | "**What remains implementation-readiness.**" | **IMPLEMENTATION-READINESS** |
+   >
+   > The split adds exactly **one** non-DEP entry (85 → 86) and exactly **one** unique item (213 → 214). No other
+   > entry in §9.2 or §9.3 changed class, and the `DEP-*` side (142) is untouched.
 4. **Explicit `same_as`.** When the same item appears in two registers (for example 6A R-5 and `DEP-6D-10`), the later entry is collapsed onto the canonical one with an explicit `same_as` link. A duplicate must carry the **same class** as its canonical item, and chains are not allowed. **14** duplicates were collapsed.
 5. **Closure-word cross-check.** Every CLOSED item was checked for closure wording in its full source line, and every non-CLOSED item was checked for the absence of it. Each flag was reviewed by hand against the source: `DEP-6E-03` (resolved by 6I §54 row 9), `DEP-6E-04` (resolved by 6F §21), `DEP-6F-11` (6I via the 6F service), `DEP-6G-02` ("closed by classification") and `DEP-6G-15` (6L COVERED). **Residual flags: 0.**
 6. **Reclassification recorded.** `DEP-6G-14` (`contact.converted` billing consumption) is **FUTURE**, not CLOSED, because 6K never consumes it. `DEP-6E-16` is **FUTURE** because it is mitigated on the output side only.
 7. The classifier ran only from the session scratchpad **outside the repository**. No script was added to the repo.
 
-**Arithmetic.** Raw entries = 142 DEP + 85 non-DEP = **227** (CLOSED 107, FUTURE 92, RELEASE-TRAIN 4, IMPLEMENTATION-READINESS 24). Subtracting the 14 `same_as` duplicates (2 CLOSED, 8 FUTURE, 4 IMPLEMENTATION-READINESS) leaves **213 unique items**.
+**Arithmetic.** Raw entries = 142 DEP + 86 non-DEP = **228** (CLOSED 108, FUTURE 91, RELEASE-TRAIN 4, IMPLEMENTATION-READINESS 25). Subtracting the 14 `same_as` duplicates (2 CLOSED, 8 FUTURE, 4 IMPLEMENTATION-READINESS) leaves **214 unique items**.
+
+*(Historical — `112_5H5` pass:)* ~~Raw entries = 142 DEP + 85 non-DEP = **227** (CLOSED 107, FUTURE 92, RELEASE-TRAIN 4, IMPLEMENTATION-READINESS 24) … leaves **213 unique items**.~~ Superseded by the `FAR-OD-05` split of the 6K §54.6 entry described in step 3 above. The duplicate count is unchanged at **14** — the split entry has no `same_as` link on either side.
 
 ### 9.2 `DEP-*` register items (142), grouped by document and class
 
@@ -392,7 +415,7 @@ Every deferred, future, handoff, residual or open item declared anywhere in 6A�
 | 6K | — | 03 manual billing-account suspend/reactivate override (6M) · 04 6C tax-profile endpoint | — | 01 `TOOL_EXECUTIONS` producer · 02 `KNOWLEDGE_RETRIEVALS` producer · 05 workflow-completion payload discriminator | 5 |
 | **Σ** | **76** | **51** | **2** | **13** | **142** |
 
-### 9.3 Non-`DEP` register items (71 unique of 85 entries)
+### 9.3 Non-`DEP` register items (72 unique of 86 entries)
 
 | Doc / register | CLOSED | FUTURE — NON-BLOCKING | RELEASE-TRAIN | IMPLEMENTATION-READINESS | Collapsed `same_as` |
 |---|---|---|---|---|---|
@@ -404,33 +427,46 @@ Every deferred, future, handoff, residual or open item declared anywhere in 6A�
 | 6H | — | campaign DELETE not exposed · recurring campaigns (ADR-6H-09) · telephony provider-side ambiguity residual (§18.4) | — | — | — |
 | 6I §54 rows 1–14 | 4 WorkflowTrigger absent · 6 side-effecting node idempotency · 7 platform-admin DML bypass · 8 checkpoint ordering · 12 billing token-cost dependency | 1 ADR-5G-010 prompt-version pinning · 2 partition automation · 3 `started_at` pruning · 11 publish idempotency replay strength · 13 node-level analytics telemetry · 14 admin stuck-workflow intervention | — | 5 WEBHOOK/API_CALL execution (egress runtime, 6J) · 10 campaign↔workflow ACL | 9 → `DEP-6E-03` |
 | 6J §57 | — | J1 multiple connections per provider · J2 private-network egress allow-list · J3 plugin marketplace · J4 integration usage billable | — | — | — |
-| 6K §54 | — | §54.6 inbound calls under `CONCURRENT_CALLS` governance | — | §54.5 capacity runtime (reservation store, grace period, reconciler cadence) | — |
+| 6K §54 | **§54.6 inbound `CONCURRENT_CALLS` admission contract** *(`FAR-OD-05` = Option A: inbound and outbound share one organization-level capacity pool; the inbound admission invariant is normative and binds the existing provider-driven admission point, 6D §42.3b / 4B §14.1 — no new endpoint)* | — | — | §54.5 capacity runtime (reservation store, grace period, reconciler cadence) · **§54.6 provider-facing inbound decline / busy / fallback signalling** | — |
 | 6L | §61.1 cross-tenant sensitive-media support access | §61.2 campaign cost attribution · §55-11 historical archive API · §61.3 A AI-assisted setup · B advanced agent config · C preview/test · D controlled deployment snapshots · ODD-5J-01..07 (7) | **§61.3 E SIP trunk support (V1 requirement)** | §55-5 10 of 12 projection-population functions | §55-16 campaign ROI on billed spend → §61.2 |
 | 6M §52 | provider health · cross-tenant revenue/margin · internal financial analytics · analytics ingestion diagnostics · analytics dead-letter inspection · retention administration · platform audit-event exploration · audit-chain verification · recording support · transcript support | — | — | historical rebuild/backfill control | — |
 | 6M §53 | plan/plan-version/plan-price admin · pricing agreement admin · pricing activation · tax config · manual credits · billing adjustments · refunds · payment-attempt diagnostics · stuck payment webhook receipt visibility · payment reconciliation status | — | — | — | billing-account manual override → `DEP-6K-03` |
 | 6M §46 / §51 | — | §46 cross-tenant admin webhook replay (DBGAP-6M-04) · §51 FR-ADM-001 mutable system configuration | **§46 FR-FLAG-001 feature-flag persistence / CRUD (DBGAP-6M-01)** | — | manual suspend override → `DEP-6K-03` · stuck-workflow intervention (DBGAP-6M-05) → 6I §54-14 |
-| **Σ** | **29** | **33** | **2** | **7** | **14** |
+| **Σ** | **30** | **32** | **2** | **8** | **14** |
 
 ### 9.4 Totals
 
 | Class | DEP | Non-DEP | **Unique total** |
 |---|---:|---:|---:|
-| CLOSED | 76 | 29 | **105** |
-| FUTURE — NON-BLOCKING | 51 | 33 | **84** |
+| CLOSED | 76 | 30 | **106** |
+| FUTURE — NON-BLOCKING | 51 | 32 | **83** |
 | RELEASE-TRAIN | 2 | 2 | **4** |
-| IMPLEMENTATION-READINESS | 13 | 7 | **20** |
+| IMPLEMENTATION-READINESS | 13 | 8 | **21** |
 | BLOCKER | 0 | 0 | **0** |
-| **Total** | **142** | **71** | **213** |
+| **Total** | **142** | **72** | **214** |
 
-105 + 84 + 4 + 20 + 0 = **213**. **Non-closed = 108** (84 + 4 + 20). The 108 non-closed items are **disclosed and registered** (§11), not hidden. None is described as implemented.
+106 + 83 + 4 + 21 + 0 = **214**. **Non-closed = 108** (83 + 4 + 21). The 108 non-closed items are **disclosed and registered** (§11), not hidden. None is described as implemented.
+
+*(Historical — `112_5H5` pass:)* ~~105 + 84 + 4 + 20 + 0 = **213**. Non-closed = 108 (84 + 4 + 20).~~ Superseded by the `FAR-OD-05` reclassification (§9.1 step 3, §9.6). The non-closed total is **coincidentally unchanged at 108**: one item moved from FUTURE to CLOSED and one new IMPLEMENTATION-READINESS entry was split out of the same source item.
 
 **RELEASE-TRAIN (4):** `DEP-6D-11` voice latency / provider benchmark validation · `DEP-6H-11` DNC dispatch-proof logging (legal) · 6L §61.3 E **SIP trunk support (V1)** · `FR-FLAG-001` / `DBGAP-6M-01` feature-flag persistence / CRUD.
 
-**IMPLEMENTATION-READINESS (20):** `DEP-6B-04`, `DEP-6B-07`, `DEP-6C-12`, `DEP-6D-05`, `DEP-6D-08`, `DEP-6D-10`, `DEP-6F-06`, `DEP-6F-07`, `DEP-6F-08`, `DEP-6F-10`, `DEP-6K-01`, `DEP-6K-02`, `DEP-6K-05`; 6A R-4, 6A R-6; 6I §54-5, 6I §54-10; 6K §54.5; 6L §55-5; 6M §52 historical rebuild/backfill.
+**IMPLEMENTATION-READINESS (21):** `DEP-6B-04`, `DEP-6B-07`, `DEP-6C-12`, `DEP-6D-05`, `DEP-6D-08`, `DEP-6D-10`, `DEP-6F-06`, `DEP-6F-07`, `DEP-6F-08`, `DEP-6F-10`, `DEP-6K-01`, `DEP-6K-02`, `DEP-6K-05`; 6A R-4, 6A R-6; 6I §54-5, 6I §54-10; 6K §54.5; **6K §54.6 provider-facing inbound decline / busy / fallback signalling**; 6L §55-5; 6M §52 historical rebuild/backfill.
 
 ### 9.5 Result
 
-**ZERO BLOCKING HANDOFFS.** 108 items remain open but none blocks, broken down as 84 FUTURE — NON-BLOCKING, 4 RELEASE-TRAIN and 20 IMPLEMENTATION-READINESS. The register does **not** claim zero open handoffs. **`FAR-P2-06` is CLOSED** (§13).
+**ZERO BLOCKING HANDOFFS.** 108 items remain open but none blocks, broken down as 83 FUTURE — NON-BLOCKING, 4 RELEASE-TRAIN and 21 IMPLEMENTATION-READINESS. The register does **not** claim zero open handoffs. **`FAR-P2-06` is CLOSED** (§13), and its arithmetic is restated against the amended ledger in §9.6.
+
+### 9.6 `FAR-OD-05` reclassification of the 6K §54.6 handoff item
+
+`FAR-OD-05` = Option A (§10B.10) makes inbound capacity admission a **contract that is now specified**, so the ledger may no longer carry "inbound calls under `CONCURRENT_CALLS` governance" as FUTURE — NON-BLOCKING. The ledger was **not** rebuilt; exactly one source item was re-anchored against 6K §54.6's current text and split:
+
+| Before (`112_5H5` pass) | After (this pass) | Basis |
+|---|---|---|
+| 6K §54.6 inbound calls under `CONCURRENT_CALLS` governance — **FUTURE — NON-BLOCKING**, "registered as a future, non-blocking item, not silently adopted" | 6K §54.6 inbound `CONCURRENT_CALLS` admission **contract** — **CLOSED** | `FAR-OD-05` = Option A; normative inbound admission invariant in 6K §54.6; canonical existing admission point proved from frozen 4B §14.1 and documented at 6D §42.3b; no new endpoint, no new route, no new DTO |
+| *(not separately registered)* | 6K §54.6 provider-facing inbound **decline / busy / fallback signalling** — **IMPLEMENTATION-READINESS** | 6K §54.6 "What remains implementation-readiness"; the API contract is complete, what remains is provider-specific telephony signalling at build time. It does **not** weaken the admission invariant |
+
+**Net effect on the ledger.** Non-DEP entries 85 → 86; unique items 213 → **214**; CLOSED 105 → **106**; FUTURE 84 → **83**; RELEASE-TRAIN **4** (unchanged); IMPLEMENTATION-READINESS 20 → **21**; **BLOCKER 0** (unchanged); non-closed **108** (unchanged). No `DEP-*` item changed class. No item was deleted.
 
 ---
 
@@ -504,9 +540,17 @@ BEGIN;
 COMMIT;
 ```
 
-Inside `voice.fn_create_agent()` / `voice.fn_clone_agent()`, the shared `voice.fn_assert_agent_quota_admission(p_organization_id)` performs, in order: derive the tenant from `organization.current_tenant_id()` server-side and cross-check the supplied `organization_id` against it; `PERFORM pg_catalog.pg_advisory_xact_lock(...)` on a per-organization key; resolve `billing.quota_configs.hard_limit` for the in-force row; `COUNT` the §10.2 set; `RAISE` with SQLSTATE `53400` if `counted >= hard_limit`. Because the lock is acquired **before** the count and released only at `COMMIT`/`ROLLBACK`, count-then-insert is atomic against every competing transaction for the same organization.
+Inside `voice.fn_create_agent()` / `voice.fn_clone_agent()`, the shared `voice.fn_assert_agent_quota_admission(p_organization_id)` performs, in order: derive the tenant from `organization.current_tenant_id()` server-side and cross-check the supplied `organization_id` against it; `PERFORM pg_catalog.pg_advisory_xact_lock(...)` on a per-organization key; resolve the **effective** limit through `billing.fn_resolve_effective_quota(p_organization_id, 'ACTIVE_AGENTS')`; `COUNT` the §10.2 set; `RAISE` with SQLSTATE `53400` when the effective `hard_limit` is not `NULL` and `(counted + 1) > hard_limit`. Because the lock is acquired **before** the count and released only at `COMMIT`/`ROLLBACK`, count-then-insert is atomic against every competing transaction for the same organization.
 
-**Why more than N can never commit, for quota N:** every transaction that can insert a quota-counted row must go through a guarded function — raw `INSERT` on `voice.agents` is revoked from every application role — and each such function first acquires the *same* advisory lock key for that organization, so all such transactions for one organization are totally ordered. Within a holder's critical section, the `COUNT` observes every previously **committed** insert (the previous holder released the lock only at `COMMIT`/`ROLLBACK`, so its insert is already visible to the next holder under READ COMMITTED). A transaction inserts only when `counted < hard_limit`, so the committed count increases by at most one per holder and can never pass `hard_limit`. Rolled-back transactions release the lock and leave the count unchanged. The lock key is per-organization, so tenants never serialize against each other.
+> **Correction (`FAR-P2-11`, applied 2026-09-17).** An earlier revision of this paragraph said the guard resolves `billing.quota_configs.hard_limit` for the in-force row and raises when `counted >= hard_limit`. **Both clauses were stale in this master document** and are superseded by the text above. They described the pre-`111_5H4`, pre-`FAR-P1-02` state and had already been corrected in the source documents (6E §43.4b, 6K §52.3a, §10A.6 row `ACTIVE_AGENTS admission`, §13 row `FAR-P1-02`) without being carried back here.
+>
+> The two corrections are independent:
+> - **Source.** From `111_5H4` the guard reads `billing.fn_resolve_effective_quota(organization_id, 'ACTIVE_AGENTS')` — the USAGE-domain resolver — not `billing.quota_configs` directly. The base table is still the fallback *inside* the resolver (an active non-superseded override otherwise the **current** base, §10A.2), but it is no longer read by the guard. A `NULL` `hard_limit` on the **effective** row means **explicitly uncapped** per the usage contract (§10A.3), and admission proceeds.
+> - **Arithmetic.** From the `FAR-P1-02` amendment the comparison is the **post-insert** form `(counted + 1) > hard_limit` → refuse, equivalently admit iff `(counted + 1) <= hard_limit`. `hard_limit` is `NUMERIC(18,4)` and is compared **as stored** — never rounded, floored, ceiled or coerced to an integer. `counted >= hard_limit` is wrong for a fractional limit: with `hard_limit = 1.5` and one Agent already counted, `1 >= 1.5` is false, so a second Agent would be admitted and the committed count (2) would exceed the stored limit.
+>
+> Everything else on this contract is unchanged and remains in force: the counted set is `{DRAFT, PUBLISHED} ∧ deleted_at IS NULL` with `DEPRECATED` excluded (§10.2), the advisory lock serializes per organization, raw `INSERT` on `voice.agents` is revoked from every application role, and `voice.fn_create_agent()` and `voice.fn_clone_agent()` share the **same** guard. Historical references to the superseded algorithm are retained elsewhere in this document **only** where they are explicitly labelled historical or superseded — notably the `FAR-P1-02` ledger row (§13), which describes the defect it closed.
+
+**Why more than N can never commit, for quota N:** every transaction that can insert a quota-counted row must go through a guarded function — raw `INSERT` on `voice.agents` is revoked from every application role — and each such function first acquires the *same* advisory lock key for that organization, so all such transactions for one organization are totally ordered. Within a holder's critical section, the `COUNT` observes every previously **committed** insert (the previous holder released the lock only at `COMMIT`/`ROLLBACK`, so its insert is already visible to the next holder under READ COMMITTED). A transaction inserts only when `(counted + 1) <= hard_limit`, so the committed count increases by at most one per holder and can never pass `hard_limit` — including when `hard_limit` is fractional. Rolled-back transactions release the lock and leave the count unchanged. The lock key is per-organization, so tenants never serialize against each other.
 
 **6A §17.3 is satisfied without an exception.** Every advisory-lock use in the schema — including this one — sits *inside* a `SECURITY DEFINER`-reached Phase 5 function. The API/service/repository layer executes **no** `SELECT pg_advisory_xact_lock(...)` of its own on this path; it issues one `SELECT voice.fn_create_agent(...)` / `voice.fn_clone_agent(...)` call. There is no disclosed deviation left on this contract: `FAR-P3-02` is superseded by `FAR-P1-01`, which is **CLOSED BY MIGRATION `110_5C2`** (§13).
 
@@ -514,7 +558,7 @@ Inside `voice.fn_create_agent()` / `voice.fn_clone_agent()`, the shared `voice.f
 
 | Case | Scenario | Required outcome |
 |---|---|---|
-| **1** | Two concurrent creations, org is **below** the limit with ≥2 free slots | **Both succeed.** Serialized, both observe `counted < hard_limit`. |
+| **1** | Two concurrent creations, org is **below** the limit with ≥2 free slots | **Both succeed.** Serialized, each observes `(counted + 1) <= hard_limit` at its own turn. |
 | **2** | Two concurrent creations, **exactly one** free slot | **Exactly one succeeds; the other returns `429 QUOTA_EXCEEDED`.** The loser observes the winner's committed row. |
 | **3** | Creation attempted while **already at** the limit | **Refused with `429 QUOTA_EXCEEDED`. No row is created**, and no audit/outbox row is emitted. |
 | **4** | **Idempotent replay** of a successful creation (same `Idempotency-Key`) | **The stored response is returned; no second quota slot is consumed and no second row is created** (§10.7). |
@@ -706,11 +750,12 @@ Both are closed by `111_5H4` and proven in §16.3.
 
 ---
 
-## 10B. `FAR-OD-03` = OPTION B and `FAR-OD-04` = ADMISSION → TERMINAL — Capacity / Entitlement Quota (contract of record)
+## 10B. `FAR-OD-03` = OPTION B, `FAR-OD-04` = ADMISSION → TERMINAL, `FAR-OD-05` = OPTION A — Capacity / Entitlement Quota (contract of record)
 
 **Owner decisions (binding).**
 - **`FAR-OD-03` = Option B.** `CONCURRENT_CALLS` is a **CAPACITY / ENTITLEMENT** quota. It is a separate domain from the accumulated USAGE quotas and is **not** a sixteenth usage metric.
 - **`FAR-OD-04` = Admission → terminal.** A `CONCURRENT_CALLS` reservation is held from admission until the call enters a frozen terminal state, or until setup fails.
+- **`FAR-OD-05` = Option A** (registered 2026-09-17). `CONCURRENT_CALLS` is the organization's **TOTAL** admitted simultaneous call capacity. It applies to **both** directions — inbound provider-originated calls and outbound calls (direct `POST /calls` and campaign-originated) — and all of them consume **the same** organization-level pool. There is no separate inbound pool, no separate campaign tenant pool, no direction-specific quota in V1, and no reserved or priority slots. Full statement and consequences: §10B.10.
 
 **Why this section exists.** It closes **`FAR-P1-06`**. Three frozen Phase-6 documents governed `CONCURRENT_CALLS` as a per-organization limit: 6D (`CheckQuota(CONCURRENT_CALLS)`), 6H (campaign dispatch fail-closed) and 6K (quota vocabulary and the 429 mapping). The limit was not representable anywhere in the database at head `111_5H4`: the 111 setter could not write it and `billing.fn_resolve_effective_quota` raised on it (`FAR_112_02` §1).
 
@@ -746,7 +791,7 @@ Separation is enforced at three independent layers: the two table `CHECK` constr
 |---|---|---|---|
 | A | one row, `hard_limit IS NULL` | **Explicitly uncapped**: a deliberate configuration decision recorded in a row | Admit. The reservation is still recorded |
 | B | **zero rows** | Capacity configuration **absent** | **FAIL CLOSED**: refuse and never read as unlimited → `503 DEPENDENCY_UNAVAILABLE`, `details.reason = "CAPACITY_QUOTA_NOT_CONFIGURED"` |
-| C | one row, finite `hard_limit` | Capped | Admit only while occupied `<` `hard_limit`; at the limit → `429 QUOTA_EXCEEDED`, `details.metric = "CONCURRENT_CALLS"` |
+| C | one row, finite `hard_limit` | Capped | Admit **iff** `(occupied + 1) <= hard_limit`, compared as stored; otherwise refuse (§10B.11). For direct outbound the refusal is `429 QUOTA_EXCEEDED`, `details.metric = "CONCURRENT_CALLS"`; for campaign dispatch it is `DEFERRED` under the existing 6H contract; for inbound provider admission no further AI voice session is admitted (§10B.10) |
 | — | reservation store or resolver unreachable | Authority unavailable | **FAIL CLOSED** → `503 DEPENDENCY_UNAVAILABLE`, `details.reason = "CAPACITY_AUTHORITY_UNAVAILABLE"` |
 
 At the SQL layer, case B is a clean zero-row result (`FAR_112_02` §15), so refusing it is a consumer obligation that 6K §54.3 imposes on every consumer. Case A is proven in `FAR_112_02` §10. Resolution precedence and read-time expiry are those of 111: an active non-superseded override, otherwise the **current** base; expiry falls back to the current base, never to unlimited (`FAR_112_02` §§3–9). Both reasons are `details.reason` values reusing the existing `DEPENDENCY_UNAVAILABLE` code (6K §54.7), not new error codes.
@@ -755,7 +800,7 @@ At the SQL layer, case B is a clean zero-row result (`FAR_112_02` §15), so refu
 
 | Rule | Contract |
 |---|---|
-| **Acquire exactly once, at admission** | At exactly two outbound admission points: 6D `POST /api/v1/calls`, and Campaign → Voice dispatch through 6D §28.10a `InitiateOutboundCallUseCase`. Acquire happens **before** the provider is contacted |
+| **Acquire exactly once, at admission** | At **three** admission points, all consuming one organization-level pool (`FAR-OD-05`, §10B.10): inbound provider-originated admission inside `CallApplicationService.initiate_call` reached from the Telephony ACL (4B §14.1, 6D §42.3b); direct outbound 6D `POST /api/v1/calls`; and Campaign → Voice dispatch through 6D §28.10a `InitiateOutboundCallUseCase`. On the outbound paths acquire happens **before** the provider is contacted; on the inbound path it happens **before** the call is admitted into an AI voice session |
 | **Reservation identity** | `reservation_id` = `voice.call_sessions.id` (= 6D `call_id` = `call_session_id`). It is never a request ID, an idempotency key or a random token |
 | **Idempotent acquire** | A repeat for a held `reservation_id` returns `ALREADY_HELD` and takes no second slot. This covers `Idempotency-Key` replay, dispatch replay and worker retry |
 | **Held across all non-terminal states** | `INITIATED`, `RINGING`, `ANSWERED`, `ACTIVE`, `ON_HOLD`, `TRANSFERRING`, `WRAP_UP`. There is **no** release or re-acquire on any transition into or out of `ACTIVE` |
@@ -766,16 +811,16 @@ At the SQL layer, case B is a clean zero-row result (`FAR_112_02` §15), so refu
 | **No new states** | The frozen 6D §11.1 / 4B §7.1 / 5C §5.1 state machine is used exactly as frozen. Nothing is added, renamed or reinterpreted |
 | **ACTIVE-only index** | The frozen `status = 'ACTIVE'` count through `idx_cs_org_status` is **retained** for reporting, observability and reconciliation cross-check **only**. It is no longer the admission decision |
 | **Crash backstop** | The reconciler releases against authoritative Postgres state. It **never** releases while dispatch is `SUBMITTING` or `AMBIGUOUS` (6K §54.5 rule 8) |
-| **Inbound** | Inbound calls pass through neither admission point, so in V1 they are neither admitted nor refused and hold no reservation. Inbound capacity admission is registered by 6K §54.6 as a **future, non-blocking** item, *"not silently adopted"* (§9.3, §11) |
+| **Inbound** | Inbound provider-originated calls acquire a reservation from the **same** authority, at the canonical inbound admission point already present in the frozen flow — no new public endpoint is introduced (§10B.10, 6D §42.3b, 6K §54.6). If capacity is exhausted, no further AI voice session is admitted; if capacity configuration is absent, the path fails **closed**. The reservation identity, idempotence, held-state set, transfer/resume rule and release rules above are identical for inbound and outbound. *(Historical, superseded 2026-09-17 by `FAR-OD-05` = Option A: an earlier revision of this row said inbound calls pass through neither admission point, are in V1 neither admitted nor refused, hold no reservation, and that inbound capacity admission was registered as a future, non-blocking item. That is no longer the contract. Only provider-specific decline/busy/fallback **signalling** remains IMPLEMENTATION-READINESS.)* |
 
 **Status.** This lifecycle is an **API contract of record**. It is not a database-implemented mechanism, and this section does not describe it as implemented. The reservation store, grace period and reconciler cadence are **IMPLEMENTATION-READINESS** items (6K §54.5, §9.3/§9.4). The database side that 112 implements is the configuration, override and resolution layer only.
 
 ### 10B.5 Consumers use one authority; the campaign sub-ceiling is separate
 
 - **6K is the single runtime admission owner** (6K §54.4). `AcquireCapacity` → `ADMITTED` / `ALREADY_HELD` / `REFUSED_AT_LIMIT` / `REFUSED_NOT_CONFIGURED` / `UNAVAILABLE`. `ReleaseCapacity` → `RELEASED` / `NOT_HELD` / `UNAVAILABLE`. `ReadCapacity` is advisory and never admits. These are in-process ports, and no route is added.
-- **6D consumes it** (6D §42.2 `POST /calls` acquisition and release; §42.3 the campaign in-process caller uses the same authority; §42.4 counted lifetime; §42.7 error mapping).
+- **6D consumes it on both directions** (6D §42.2 `POST /calls` acquisition and release; §42.3 the campaign in-process caller uses the same authority; **§42.3b** inbound provider-originated admission uses the same authority; §42.4 counted lifetime and directional scope; §42.7 error mapping, in which the inbound path deliberately has no client-facing error row).
 - **6H consumes it** (6H §54.2 dispatch sequence; §54.3 start pre-flight; §54.4 outcome mapping: at the limit the contact is `DEFERRED` under the existing `TENANT_CALL_QUOTA_REACHED` reason, with no client error).
-- A campaign slot and a `POST /calls` slot are drawn from **the same per-organization gauge** (6K §54.5 rule 10).
+- An inbound slot, a campaign slot and a `POST /calls` slot are drawn from **the same per-organization gauge** (6K §54.5 rule 10, §10B.10). The authority is never told the direction of a call, and there is no direction, channel or origin dimension on `billing.quota_configs`, `billing.capacity_quota_overrides` or either resolver signature.
 - **The campaign sub-ceiling is separate** (6H §54.6). `campaigns.concurrency_policy.max_concurrent_calls` and its Redis counter `campaign:concurrency:{tenant_id}:{campaign_id}` are campaign-scoped and non-authoritative. They are never used as, summed into or substituted for the tenant `CONCURRENT_CALLS` gauge, and the two reconcilers do not touch each other's state.
 
 ### 10B.6 Lowering capacity is non-destructive
@@ -786,7 +831,7 @@ When the effective limit drops below the occupied count — by a lower base, a l
 - **no** `voice.call_sessions` row is mutated;
 - **no** reservation is revoked.
 
-Only **new** acquisitions are refused until occupied falls below the new limit (6K §54.8, 6D §42.5, 6H §54.5).
+Only **new** acquisitions are refused until enough existing reservations are released for `(occupied + 1) <= effective hard_limit` to hold again (6K §54.8, 6D §42.5, 6H §54.5). **"New acquisitions" is direction-neutral** (`FAR-OD-05`, and `FAR-P2-12` at §10B.15): it means **all three** admission points — inbound provider-originated, direct outbound and campaign-originated outbound. No direction is exempt from a lowered limit or an expired override.
 
 ### 10B.7 Closures carried by this pass
 
@@ -815,13 +860,117 @@ The guarantee is: within the application's runtime trust boundary (sessions conn
 | **Nothing dropped** | No table, column, constraint, index or policy was dropped or destructively altered. No RLS was weakened. No new `BYPASSRLS` |
 | **Usage domain not redefined** | The 15-metric vocabulary, `billing.quota_overrides` and `billing.fn_resolve_effective_quota` behave exactly as at 111. This is re-proven by the targeted 111 regression (`FAR_112_03` §6) |
 
+### 10B.10 `FAR-OD-05` = Option A — directional scope of `CONCURRENT_CALLS`
+
+**Owner decision (binding, registered 2026-09-17).**
+
+> `CONCURRENT_CALLS` means the organization's **TOTAL admitted simultaneous call capacity**. It applies to **BOTH INBOUND AND OUTBOUND** calls — direct outbound (`POST /api/v1/calls`), campaign-originated outbound, and inbound provider-originated calls. All directions consume the **SAME** organization-level pool. The platform must **NOT** interpret `CONCURRENT_CALLS = 10` as "10 outbound plus unlimited inbound". There is **no** separate inbound capacity pool, **no** separate campaign tenant-capacity pool, **no** direction-specific quota in V1, and **no** reserved inbound/outbound slots or priority classes.
+
+**Consequences with `hard_limit = 10`.**
+
+| Situation | Outcome |
+|---|---|
+| 6 inbound + 4 outbound in progress | Capacity is **full**. The next call of **either** direction is refused or deferred |
+| 10 inbound in progress, a direct outbound `POST /calls` arrives | The outbound request is **refused** (`429 QUOTA_EXCEEDED`); a campaign contact is **DEFERRED** |
+| 8 outbound in progress, an inbound arrival that would require 3 slots | Only the **actually available** capacity may be admitted — 2 slots. The third inbound call is **not** admitted into an AI voice session |
+
+**The three admission points.**
+
+| Direction | Admission point | Public endpoint? |
+|---|---|---|
+| Inbound, provider-originated | `CallApplicationService.initiate_call(InitiateCall)`, reached from the Telephony ACL's `process_inbound_webhook` behind the existing provider callback `POST /webhooks/voice/{provider_slug}/events` (4B §14.1; 6D §10.4, §42.3b) | **No new endpoint.** The callback already exists and is provider-driven; the admission decision is taken inside the application service, not at the transport edge |
+| Direct outbound | 6D `POST /api/v1/calls` (6D §42.2) | Existing |
+| Campaign outbound | 6D §28.10a `InitiateOutboundCallUseCase`, called in-process by 6H campaign dispatch (6H §54.2) | In-process port; no route added |
+
+The inbound point is **canonical, not invented**: the frozen 4B §14.1 `initiate_call` sequence already places `ConcurrentCallQuotaNotExceeded` at step 2 for **both** directions. `FAR-OD-05` = Option A therefore *restores* the frozen 4B behaviour that a later Phase-6 revision had narrowed to outbound only.
+
+**Normative inbound admission invariant.** Before an inbound provider-originated call is admitted into an AI voice session, the organization **must** acquire a `CONCURRENT_CALLS` reservation from the **same** capacity authority (6K §54) used by the outbound paths. If capacity is available the call is admitted and the reservation is held under the §10B.4 lifecycle. If capacity is exhausted, **no further AI voice session is admitted**. If capacity configuration is absent (resolver returns zero rows), the path **fails closed** — it is never read as unlimited.
+
+**No public REST response is defined for the inbound path**, because the inbound flow is provider-driven and the existing contract defines none. The **provider-facing** consequence — what busy/reject/fallback signalling is returned to the carrier — is deliberately **not** invented here and remains **IMPLEMENTATION-READINESS** (§9.3, §11). The admission invariant above is fully **normative** regardless.
+
+**Final-slot competition.** If an inbound arrival and an outbound request compete for the last slot, the capacity authority **serializes the acquisitions atomically** and exactly one wins. Neither direction is preferred, neither is given a reserved slot, and the loser takes its own direction's refusal path.
+
+**What this does not change.** No route, DTO, permission string, error code, store, resolver signature or migration changes because of `FAR-OD-05`. `112_5H5` is **not** modified, its hash is stable, and no migration `113` was created. The decision fixes the **meaning** of the administered number (6M §67.10), not the mechanism.
+
+### 10B.11 `FAR-P1-07` — fractional capacity admission arithmetic (post-admission form)
+
+**Binding invariant.**
+
+> **ADMIT** iff `(occupied + 1) <= effective_hard_limit`. **REFUSE** iff `(occupied + 1) > effective_hard_limit`.
+
+`hard_limit` is `NUMERIC(18,4)` and is compared **as stored**: no rounding, no `FLOOR`, no `CEIL`, no integer coercion, in either the capacity authority or any consumer. The atomic final-slot acquisition evaluates the **post-admission** occupancy invariant, not the pre-admission form `occupied < hard_limit`.
+
+**Why the earlier wording was wrong.** `occupied < hard_limit` admits one call too many for a fractional limit: with `hard_limit = 1.5000` and one call already occupying a slot, `1 < 1.5` is true, so a second call would be admitted and occupancy (`2`) would exceed the stored limit. This is the **same defect class** as `FAR-P1-02` in the USAGE domain, where `v_active >= v_hard_limit` was replaced by `(v_active + 1) > v_hard_limit`.
+
+**Normative boundary matrix.**
+
+| `hard_limit` (as stored) | `occupied` at request time | `(occupied + 1)` | Decision |
+|---|---|---|---|
+| `1.5000` | `0` | `1` | **ADMITTED** — `1 <= 1.5` |
+| `1.5000` | `1` | `2` | **REFUSED** — `2 > 1.5` |
+| `0.5000` | `0` | `1` | **REFUSED** — `1 > 0.5`. A sub-unit limit admits **no** call; it is not rounded up to 1 |
+| `2.0000` | `1` | `2` | **ADMITTED** — `2 <= 2.0` |
+| `2.0000` | `2` | `3` | **REFUSED** — `3 > 2.0` |
+
+The authority of record for this arithmetic is **6K §54.5 rule 2**. 6D, 6H and 6M **consume** it and do not restate or re-derive it; where 6H expresses a non-authoritative pre-flight it uses `remaining < 1` (6H §54.2), and only the atomic acquisition admits.
+
+### 10B.12 `FAR-P2-10` — the two source literals are deliberately different
+
+| Domain | Resolver | Override literal reported in `source` |
+|---|---|---|
+| USAGE / ACCOUNTING | `billing.fn_resolve_effective_quota` (111) | **`PLATFORM_OVERRIDE`** |
+| CAPACITY / ENTITLEMENT | `billing.fn_resolve_effective_capacity_quota` (112) | **`PLATFORM_CAPACITY_OVERRIDE`** |
+
+`112_5H5.sql` line 435 returns `'PLATFORM_CAPACITY_OVERRIDE'::TEXT`. Documents that described the capacity resolver as reporting `PLATFORM_OVERRIDE` were **wrong about the capacity resolver only**; the usage resolver's `PLATFORM_OVERRIDE` is **correct and unchanged** everywhere it appears (§10A.2, §13, §14, §16). Neither literal is an alias for the other, and no global substitution was performed. Exactly two stale capacity-domain occurrences existed and both were corrected this pass (5H `fn_resolve_effective_capacity_quota` subsection; 6K §54.2). **CLOSED by document correction — no SQL change.**
+
+### 10B.13 `FAR-P3-08` — controlled erratum: `NULL` `hard_limit` across the two domains
+
+The Alembic wrapper `112_5H5.py` contains descriptive wording that carries the USAGE-domain reading of a `NULL` `hard_limit` ("overage-allowed") into a CAPACITY-domain sentence. **The wrapper is frozen and was not edited; its SHA-256 must remain stable, and no migration `113` was created.** The defect is terminology-only: it does not alter one byte of executed SQL or one row of observed behaviour. It is closed here and in `5K/MIGRATION_MANIFEST.md` by **controlled erratum**.
+
+| Domain | Meaning of `hard_limit IS NULL` on the **effective** row |
+|---|---|
+| **USAGE / ACCOUNTING** | May correspond to overage / no-hard-stop semantics per the usage contract (§10A.3: `overage_allowed = (hard_limit IS NULL)`) |
+| **CAPACITY / ENTITLEMENT** | **EXPLICITLY UNCAPPED** — a deliberate recorded configuration decision. It is **not** billable overage |
+
+`CONCURRENT_CALLS` is **not** metered usage, **not** rated usage, **not** invoice overage and **not** billable overage (§10B.1, 6K §54.1). An absent row remains a third, distinct state that **fails closed** (§10B.3 case B).
+
+### 10B.14 Capacity runtime — implementation-readiness, not executed
+
+The capacity **runtime** (reservation store, atomic acquisition, grace period, reconciler cadence) is **not implemented**, and nothing in this document claims otherwise. The fractional, concurrency, replay and lifecycle test matrix for it is specified in **6K §54.14** as an implementation-readiness obligation. Those cases were **not** executed by `112_5H5` and no evidence in §16 may be read as having executed them. What `112_5H5` validated live is the **database** layer only: vocabulary, predicates, the capacity override table, the capacity resolver, the Platform-Admin dispatcher, RLS, grants and audit atomicity.
+
+### 10B.15 `FAR-P2-12` — lower-capacity behaviour is direction-neutral (last static correction)
+
+`FAR-OD-05` = Option A made `CONCURRENT_CALLS` the organization's **total** admitted simultaneous-call capacity across
+both directions, drawn from **one** pool at **three** admission points. 6K §54.8 was already written in
+direction-neutral terms ("Only **new** acquisitions are refused"), but **6D §42.5 was not**: it still read "Only new
+`POST /calls` and new campaign acquisitions are refused until occupancy falls below the new limit", naming only the
+**two outbound** paths. Left standing, that sentence could be read as exempting **new inbound admission** from the
+tenant-wide limit after a lowered base quota or an expired override — a direct contradiction of `FAR-OD-05`, of 6D
+§42.3b's inbound admission invariant, and of 6K §54.8.
+
+**Corrected contract (6D §42.5).** A lowered effective limit — from a lower base, a lower or superseding override, or
+read-time **expiry** of a higher override — refuses **new capacity acquisitions** at **all three** admission points
+until enough existing reservations have been released for `(occupied + 1) <= effective hard_limit` to hold again:
+
+| Admission path | Behaviour after a lowered limit / override expiry |
+|---|---|
+| **Inbound provider-originated** (4B §14.1 / 6D §42.3b) | New admission **refused** (`REFUSED_AT_LIMIT`). No AI voice session is created and no slot is held. Not a tenant-facing HTTP error; provider-facing decline signalling remains implementation-readiness (6K §54.6) |
+| **Direct outbound** `POST /api/v1/calls` (6D §42.2) | New acquisition **refused** → `429 QUOTA_EXCEEDED`, `metric: "CONCURRENT_CALLS"` (6D §42.7, unchanged) |
+| **Campaign-originated outbound** (6D §28.10a / 6H §54.5) | New acquisition **refused / deferred**; the executor re-reads the authority on the next tick. The campaign `concurrency_policy` sub-ceiling is unchanged and remains only a campaign sub-ceiling beneath this tenant-wide authority |
+| **Every in-progress call, any direction** | **Unaffected.** Not terminated, no provider call acted on, no `voice.call_sessions` row mutated, no reservation revoked. Capacity returns naturally as reservations are released at the §42.4 counted lifetime's end |
+
+**Scope of the correction.** Wording only. `FAR-OD-04` and `FAR-OD-05` are unchanged; `CONCURRENT_CALLS` was not
+redesigned; no endpoint was added; no provider-specific inbound signalling was invented; migrations 001–112 were not
+touched; no `113` was created; PostgreSQL was not rerun and no database evidence was regenerated. Migration `112_5H5`
+remains the database authority, byte-identical.
+
 ---
 
 ## 11. Future / Release-Train Register
 
-Every non-closed item from the whole-corpus classification (§9.1–§9.5, `FAR-P2-06`) is listed here by owning document. Nothing is silently dropped, silently promoted into V1, or described as implemented. The class definitions are in §9.1.
+Every non-closed item from the whole-corpus classification (§9.1–§9.6, `FAR-P2-06`) is listed here by owning document. Nothing is silently dropped, silently promoted into V1, or described as implemented. The class definitions are in §9.1.
 
-**Totals: 108 non-closed = 84 FUTURE — NON-BLOCKING + 4 RELEASE-TRAIN + 20 IMPLEMENTATION-READINESS. BLOCKER = 0.** Each item is counted once, under its canonical owner. Duplicates collapsed by `same_as` (§9.1 step 4) are shown as "→ canonical" and are not counted a second time.
+**Totals: 108 non-closed = 83 FUTURE — NON-BLOCKING + 4 RELEASE-TRAIN + 21 IMPLEMENTATION-READINESS. BLOCKER = 0.** *(`112_5H5` pass: ~~84 + 4 + 20~~ — superseded by the `FAR-OD-05` reclassification of 6K §54.6, §9.6. The non-closed total is unchanged.)* Each item is counted once, under its canonical owner. Duplicates collapsed by `same_as` (§9.1 step 4) are shown as "→ canonical" and are not counted a second time.
 
 ### 11.1 RELEASE-TRAIN (4) — must be delivered or validated before a V1 release; not future debt
 
@@ -846,10 +995,10 @@ Every non-closed item from the whole-corpus classification (§9.1–§9.5, `FAR-
 | **6H** | `DEP-6H-05` `action_kind` vocabulary · `-06` list source · `-07` list rename · `-08` import cancel/retry · `-09` outcome index · `-10` CampaignContact command · `-13` **`CostLookupPort` / cost** · `-14` **outcome comparison analytics** · `-16` **affordability pre-flight** · `-17` **campaign budget** · **recurring campaigns** (ADR-6H-09) · campaign DELETE not exposed · telephony provider-side ambiguity residual (§18.4) | `DEP-6H-11` **DNC dispatch-proof logging (legal)** | — | 14 |
 | **6I** | §54-1 ADR-5G-010 prompt-version pinning · §54-2 partition automation · §54-3 `started_at` pruning · §54-11 **publish idempotency replay residual** · §54-13 node-level analytics telemetry · §54-14 admin stuck-workflow intervention *(6M `DBGAP-6M-05` → here)* | — | §54-5 **`WEBHOOK`/`API_CALL` egress runtime** (6J) · §54-10 **campaign↔workflow ACL** | 8 |
 | **6J** | `DEP-6J-03` `external_account_ref` uniqueness · `-07` webhook auto-suspend · `-08` definition metadata columns · **J1** multiple connections per provider · **J2** private-network egress allow-list · **J3** plugin marketplace · **J4** integration usage billable | — | — | 7 |
-| **6K** | `DEP-6K-03` manual billing-account suspend/reactivate override *(6M billing-account override → here)* · `DEP-6K-04` 6C tax-profile endpoint · §54.6 **inbound calls under `CONCURRENT_CALLS` governance** ("registered as a future, non-blocking item, not silently adopted") | — | `DEP-6K-01` `TOOL_EXECUTIONS` producer · `DEP-6K-02` `KNOWLEDGE_RETRIEVALS` producer · `DEP-6K-05` workflow-completion payload discriminator · §54.5 **capacity runtime** (reservation store, grace period, reconciler cadence) | 7 |
+| **6K** | `DEP-6K-03` manual billing-account suspend/reactivate override *(6M billing-account override → here)* · `DEP-6K-04` 6C tax-profile endpoint *(§54.6 **inbound `CONCURRENT_CALLS` admission** is **no longer listed here** — it is **CLOSED** by `FAR-OD-05` = Option A, §9.6, §10B.10)* | — | `DEP-6K-01` `TOOL_EXECUTIONS` producer · `DEP-6K-02` `KNOWLEDGE_RETRIEVALS` producer · `DEP-6K-05` workflow-completion payload discriminator · §54.5 **capacity runtime** (reservation store, grace period, reconciler cadence) · §54.6 **provider-facing inbound decline / busy / fallback signalling** | 7 |
 | **6L** | §61.2 **campaign spend / cost attribution** *(§55-16 → here)* · §55-11 **historical archive API** · §61.3 **A** AI-assisted setup · **B** advanced agent config · **C** preview/test · **D** controlled deployment snapshots · **ODD-5J-01..07** (7) | §61.3 **E SIP trunk support (V1)** | §55-5 **10 of 12 projection-population functions** | 15 |
 | **6M** | §46 **cross-tenant admin webhook replay** (`DBGAP-6M-04`) · §51 `FR-ADM-001` mutable system configuration | §46 **`FR-FLAG-001`** / `DBGAP-6M-01` | §52 **historical rebuild / backfill** control | 4 |
-| **Σ** | **84** | **4** | **20** | **108** |
+| **Σ** | **83** | **4** | **21** | **108** |
 
 Owner requirements A–E in 6L §61.3 are all registered: A–D are FUTURE, and **E (SIP trunk) is V1 RELEASE-TRAIN**. The 6M stuck-workflow and billing-override items appear under their canonical owners, 6I §54-14 and `DEP-6K-03`.
 
@@ -857,7 +1006,11 @@ Owner requirements A–E in 6L §61.3 are all registered: A–D are FUTURE, and 
 
 - `DEP-6E-20` is **closed** (§9 row 1, `FAR-OD-01`).
 - `FR-DB-001` is **closed**. It was raised in an earlier revision of this document as a deferred database remediation, and migration **`110_5C2`** implements exactly that remediation. The forward item is removed rather than left standing as phantom debt (§10.1, §13).
-- `FAR-P1-06` (`CONCURRENT_CALLS` not representable) is **closed** by `112_5H5` (§10B). It is **not** carried as future debt. Only the capacity **runtime** (6K §54.5, IMPLEMENTATION-READINESS) and **inbound** capacity admission (6K §54.6, FUTURE) remain, and both are listed above.
+- `FAR-P1-06` (`CONCURRENT_CALLS` not representable) is **closed** by `112_5H5` (§10B). It is **not** carried as future debt. What remains is the capacity **runtime** (6K §54.5, IMPLEMENTATION-READINESS) and the **provider-facing inbound decline / busy / fallback signal** (6K §54.6, IMPLEMENTATION-READINESS); both are listed above.
+
+  *(Historical, superseded 2026-09-17 by `FAR-OD-05` = Option A:)* ~~and **inbound** capacity admission (6K §54.6, FUTURE) remain~~ — **inbound capacity admission is no longer a future item.** The inbound admission contract is **CLOSED**: inbound and outbound share one organization-level `CONCURRENT_CALLS` pool, and the inbound admission invariant is normative at the existing provider-driven admission point (§10B.10, 6K §54.6, 6D §42.3b). Only the provider-facing signalling remains, as IMPLEMENTATION-READINESS (§9.6).
+
+- **`FAR-P1-07`** (fractional `CONCURRENT_CALLS` admission arithmetic) is **closed** by document correction (§10B.11). It is **not** carried as future debt. The corrected invariant `(occupied + 1) <= hard_limit` is normative now; only its runtime implementation is IMPLEMENTATION-READINESS (6K §54.5, §54.14).
 
 ---
 
@@ -966,6 +1119,88 @@ Nothing was committed, stashed or reset by the closure pass.
 - `110_5C2` and `111_5H4` were **not** amended.
 - **No migration `113` exists.**
 
+> **Scope note (2026-09-17).** The working-tree description in this subsection describes the tree **at the close of the
+> `112_5H5` pass**. Those 15 paths have since been committed as `4fb80ea` ("final api changes"), which is the current
+> `HEAD`. The register rows themselves are unchanged. The current working tree is described in §12.5.
+
+### 12.5 Post-`112_5H5` additions to the change register (`FAR-OD-05` last contract remediation pass)
+
+This subsection records the **last contract remediation pass (2026-09-17)**: `FAR-OD-05` = Option A plus the four
+independent-review findings `FAR-P1-07`, `FAR-P2-10`, `FAR-P2-11` and `FAR-P3-08`.
+
+**What this pass is.** A **document and contract closure pass only.** It created **no** migration, edited **no**
+migration, ran **no** new live database validation and added **no** implementation code, OpenAPI output or evidence
+artifact. Database design was **not** reopened.
+
+**Files modified (7).** All are re-edits that fold into their existing register rows, so this pass adds **no new
+register group**:
+
+| Existing row | File | `FAR-OD-05`-pass edit | Change type |
+|---|---|---|---|
+| 17 | `5H-Billing-Usage-Schema.md` | Capacity-resolver source-literal box (`FAR-P2-10`: the capacity resolver returns `PLATFORM_CAPACITY_OVERRIDE`, not `PLATFORM_OVERRIDE`); new sub-subsections for the `FAR-OD-05` shared-pool scope, the `FAR-P1-07` post-admission arithmetic with its five boundary cases, and the `FAR-P3-08` NULL-`hard_limit` erratum; three "Amendments to earlier statements" rows | Additive amendment + 1 in-place literal correction |
+| 11 | `5K/MIGRATION_MANIFEST.md` | Row 112 capacity-slot-lifecycle paragraph rewritten with the superseded text struck rather than deleted; new "Controlled errata — Final API Reconciliation last contract remediation pass" section covering `FAR-P3-08`, `FAR-P2-10`, `FAR-OD-05` and `FAR-P1-07`; four new Current Authoritative State rows | Additive + controlled notes |
+| 5 / 6 | `6D-Voice-Call-Agent-APIs.md` | §10.4 / §10.5 controlled notes ("**no new public endpoint is added**"); §42 heading; **new §42.3b** inbound capacity admission at the existing provider-driven admission point; §42.4 directional scope with the outbound-only paragraph struck as historical; §42.7 clarification | Additive amendment + controlled notes |
+| 3 / 6 | `6H-Campaign-APIs.md` | §21.1 extension; §54 heading; §54.2 step 5 `remaining < 1` pre-flight plus the fractional-arithmetic blockquote deferring to 6K §54.5 rule 2; §54.4 table rows; **new §54.9** directional scope | Additive amendment + in-place corrections |
+| 2 | `6K-Billing-Usage-APIs.md` | **Capacity contract of record.** §54.2 source literal (`FAR-P2-10`); §54.3 case C; §54.4 the admitting paths; §54.5 rule 2 rewritten as the normative `(occupied + 1) <= hard_limit` invariant with the boundary matrix (`FAR-P1-07`); §54.5 rule 10; §54.6 rewritten as `FAR-OD-05` = Option A with the admission-point table, the normative inbound invariant, the consequences and what remains implementation-readiness; §54.7 error table extended to a fourth (inbound) column; §54.9 scope table; §54.12 evidence-scope note; **new §54.13** (`FAR-P3-08` erratum); **new §54.14** (capacity implementation-readiness test matrix, explicitly **not** executed) | Additive amendment + in-place corrections |
+| 4 / 7 | `6M-Admin-Platform-APIs.md` | §67 heading; §67.1 direction-neutral gauge wording; §67.2 `FR-TEN-005` row; §67.5 three consumers; §67.8 scoping rows; **new §67.10** directional scope | Additive amendment + in-place corrections |
+| 12 | `FINAL-API-RECONCILIATION.md` (this document) | §0 Document Control (`FAR-OD-05` entry, owner-decisions-outstanding row, scope and forbidden-artifact rows); §10.4 / §10.5 (`FAR-P2-11`); §10B heading, §10B.3, §10B.4, §10B.5; **new §10B.10–§10B.14**; §9.1 / §9.3 / §9.4 / §9.5 and **new §9.6** (handoff reclassification); §11 totals and registers; this §12.5; §13; §15; **new §16.5**; §17 | Controlled update |
+
+**Files created: none.**
+
+**Files explicitly NOT modified.** `112_5H5.sql` and `112_5H5.py` are **byte-identical** and their SHA-256 hashes are
+**stable** (§16.5). Migrations `001`–`112` and every Alembic wrapper are untouched. **No migration `113` exists.** The
+raw `FAR_112_*` evidence transcripts and the `112` validation report were **not** edited for prose consistency.
+`6E-AI-Agent-APIs.md` was searched for stale Agent-quota arithmetic and needed **no** edit — it already carries the
+corrected `FAR-P1-02` form.
+
+**Register total is unchanged at 29 change groups.** This pass re-edited seven files that already own rows 2, 3/6, 4/7,
+5/6, 11, 12 and 17. It added no row, and it removed none.
+
+**Working-tree reconciliation (current).** Commit `4fb80ea` is `HEAD` and contains the whole `112_5H5` pass.
+`git status --short` reports **7 paths, all unstaged modifications**, and all seven are the files listed above. There
+are **zero** staged paths, **zero** untracked paths and **zero** unexpected files. Nothing was committed, stashed or
+reset by this pass (§16.5).
+
+---
+
+### 12.6 Post-`112_5H5` additions to the change register (`FAR-P2-12` last static correction)
+
+This subsection records the **last static correction (2026-09-17)**: the single remaining issue raised by the final
+freeze-gate review, `FAR-P2-12` (§10B.15, §13).
+
+**What this pass is.** A **narrow wording reconciliation only.** It reopened **no** architecture, redesigned
+**nothing**, changed **neither** `FAR-OD-05` **nor** `FAR-OD-04`, created **no** migration, edited **no** migration,
+created **no** migration `113`, started **no** database, generated **no** database evidence, started **no** API Master
+Index or other next-phase artifact, and added **no** implementation code or OpenAPI output.
+
+**Files modified (2).** Both fold into their existing register rows, so this pass adds **no new register group**:
+
+| Existing row | File | `FAR-P2-12` edit | Change type |
+|---|---|---|---|
+| 5 / 6 | `6D-Voice-Call-Agent-APIs.md` | **§42.5 only.** The outbound-only sentence "Only new `POST /calls` and new campaign acquisitions are refused until occupancy falls below the new limit" replaced by the direction-neutral contract: **new capacity acquisitions** are refused (`REFUSED_AT_LIMIT`) at **all three** admission points — inbound provider-originated (§42.3b), direct outbound `POST /api/v1/calls` (§42.2), campaign-originated outbound (§42.3) — until `(occupied + 1) <= effective hard_limit` holds again; identical treatment for a lowered base quota and for read-time override **expiry**; a refused inbound acquisition is not a tenant-facing HTTP error and provider-facing decline signalling remains implementation-readiness; the campaign `concurrency_policy` remains a **campaign sub-ceiling** only. The four non-destructive guarantees already in §42.5 are **preserved verbatim**. | In-place correction of one sentence + clarifying paragraphs |
+| 12 | `FINAL-API-RECONCILIATION.md` (this document) | §0 Document Control (Depends on / Scope / Forbidden artifacts / Date); §10B.6 strengthened to state that "new acquisitions" is direction-neutral; **new §10B.15**; §13 `FAR-P2-12` row with the class arithmetic recomputed from the ledger (31 → **32** rows, P2 11 → **12**); §15 rows 143 / 144 corrected and **new row 147** (146 → **147** gate rows); **new §16.6**; this §12.6; §17 | Controlled update |
+
+**Files created: none.** No file was deleted.
+
+**Files explicitly NOT modified by this pass.** `6K-Billing-Usage-APIs.md` — §54.8 was **already** direction-neutral
+and needed no edit. `6H-Campaign-APIs.md` — §54.5 and the §21.2 `FAR-OD-03` note are current and correct, and the
+"outbound-only by construction" statement at §54.5 is correctly scoped to the **campaign sub-ceiling**, not to the
+tenant-wide pool. `6M-Admin-Platform-APIs.md`, `5H-Billing-Usage-Schema.md` and `5K/MIGRATION_MANIFEST.md` carry no
+lower-capacity direction claim to correct. `112_5H5.sql` and `112_5H5.py` are **byte-identical** with stable SHA-256
+hashes (§16.6). Migrations `001`–`112` and every Alembic wrapper are untouched; **no migration `113` exists**. The raw
+`FAR_112_*` evidence transcripts were **not** edited. No unrelated wording cleanup was performed.
+
+**Register total is unchanged at 29 change groups.** This pass re-edited two files that already own rows 5/6 and 12.
+It added no row, and it removed none.
+
+**Working-tree reconciliation (current — supersedes the §12.5 snapshot).** Commit `4fb80ea` is `HEAD`.
+`git status --short` reports **7 paths and no others**: five staged-only modifications (`5H-Billing-Usage-Schema.md`,
+`5K/MIGRATION_MANIFEST.md`, `6H-Campaign-APIs.md`, `6K-Billing-Usage-APIs.md`, `6M-Admin-Platform-APIs.md`) carried
+over from the `FAR-OD-05` pass, and **two** paths with both staged and unstaged modifications
+(`6D-Voice-Call-Agent-APIs.md`, `FINAL-API-RECONCILIATION.md`) — the unstaged part of those two is exactly this pass.
+There are **zero** untracked paths, **zero** deleted paths and **zero** unexpected files. No migration path appears in
+any of them. Nothing was committed, stashed or reset (§16.6).
+
 ---
 
 ## 13. Issue Ledger (FAR-P0 / P1 / P2 / P3)
@@ -988,31 +1223,39 @@ Nothing was committed, stashed or reset by the closure pass.
 | `FAR-P2-05` | P2 | **Overbroad privileged/superuser security wording.** Earlier text asserted, in effect, that there was "no privileged escape hatch". Stated absolutely that claim is **false for PostgreSQL**: a superuser or the table owner can always issue `ALTER TABLE … DISABLE TRIGGER`, `CREATE OR REPLACE FUNCTION` or direct DDL. Publishing an unbounded claim would misrepresent the guarantee to the independent reviewer | **Closed by adopting a precise, scoped security statement** in place of the absolute one, verbatim wherever the claim appears: *"Under normal SQL execution with the defined triggers/functions/ACLs enabled, the tested runtime principals and tested privileged session cannot bypass the application invariant; deliberate superuser DDL or trigger-disabling actions are outside the application guarantee."* Adopted in `5K/MIGRATION_MANIFEST.md` (Row 110 narrative, where the absolute phrase was removed), in the `111` validation report §6, and in §17 of this document. Live evidence for the in-scope half: `FAR_111_03` Batteries E, G, I, J | **CLOSED BY SCOPED RESTATEMENT** |
 | `FAR-OD-02` | **Owner decision** | Temporary quota overrides needed an authoritative persistence and fallback model. Option A (overwrite the base in place) is what `106`/`107` did and is the defect behind `FAR-P1-05`; Option B keeps the commercial baseline intact and computes the effective value | Owner decided **`FAR-OD-02` = Option B — temporary quota overrides with live baseline fallback.** Applied in full: recorded normatively in §10A (all sixteen contract points), carried by migration `111_5H4`, documented at source in 5H, 6E §43.12, 6K §53 and 6M §18/§66, and live-validated (§16.3) | **DECIDED AND APPLIED — no residual decision** |
 | `FAR-OD-03` | **Owner decision** | `CONCURRENT_CALLS` was cited as a per-organization limit by 6D, 6H and 6K, but it had no governed home. The options were to treat it as an accumulated usage metric in the 15-metric vocabulary (Option A) or as a separate instantaneous **capacity / entitlement** domain (Option B) | Owner decided **`FAR-OD-03` = Option B**: `CONCURRENT_CALLS` is a separate **CAPACITY** domain, and usage and capacity are not collapsed. Applied in full: normative text in §10B, carried by migration `112_5H5`, documented at source in 5H, 6K §54, 6D §42, 6H §54 and 6M §67, and live-validated (§16.4) | **RESOLVED / APPLIED — no residual decision** |
-| `FAR-OD-04` | **Owner decision** | The capacity reservation's counted lifetime had to be fixed against the frozen 6D call state machine: when a slot is acquired, when it is released, and what happens on transfer / resume | Owner confirmed **ADMISSION → TERMINAL**. One reservation per call is acquired once at outbound admission, idempotently. It is released once, idempotently, on setup failure or on entry to a frozen terminal state. Transfer and resume do **not** reacquire. Lowering the limit is non-destructive. Recorded in §10B.4, 6K §54.6, 6D §42.4 and 6H §54.2 / §54.5. **Status:** this is an API contract of record. The capacity runtime is IMPLEMENTATION-READINESS and is not claimed as implemented (§10B.4, §11) | **RESOLVED / APPLIED — no residual decision** |
+| `FAR-OD-04` | **Owner decision** | The capacity reservation's counted lifetime had to be fixed against the frozen 6D call state machine: when a slot is acquired, when it is released, and what happens on transfer / resume | Owner confirmed **ADMISSION → TERMINAL**. One reservation per call is acquired once at admission, idempotently. *(The `112_5H5`-pass wording ~~"at outbound admission"~~ is superseded by `FAR-OD-05` = Option A: admission is direction-agnostic and inbound acquires from the same pool at the same authority — §10B.10. The lifecycle itself is unchanged.)* It is released once, idempotently, on setup failure or on entry to a frozen terminal state. Transfer and resume do **not** reacquire. Lowering the limit is non-destructive. Recorded in §10B.4, 6K §54.6, 6D §42.4 and 6H §54.2 / §54.5. **Status:** this is an API contract of record. The capacity runtime is IMPLEMENTATION-READINESS and is not claimed as implemented (§10B.4, §11) | **RESOLVED / APPLIED — no residual decision** |
 | `FAR-P1-06` | **P1** | **Raised by the `112_5H5` pass.** `CONCURRENT_CALLS` was governed as a per-organization limit by three frozen API documents: 6D (`CheckQuota(CONCURRENT_CALLS)`), 6H (campaign dispatch fail-closed) and 6K (quota vocabulary, `429` mapping). It was **not representable in the database**. It sat outside the canonical 15-metric usage vocabulary, so `fn_platform_set_quota_override` could not write it and `fn_resolve_effective_quota` raised on it | Migration `112_5H5` creates the governed capacity domain: predicate, `billing.capacity_quota_overrides`, `fn_resolve_effective_capacity_quota`, and domain dispatch inside the unchanged 8-argument Platform-Admin setter. The controlled API amendments are 6K §54, 6D §42, 6H §54, 6M §67 and 5H. Evidence: `FAR_112_02` §§1–15 (§1 also records zero `%capacity%` billing functions at `111_5H4`), `FAR_112_03` §7; 112 report §2 | **CLOSED** (`112_5H5` + controlled API amendments) |
-| `FAR-P2-06` | P2 | The handoff register's "Zero open handoffs across all 8 rows" was **overbroad**. It described eight traced cross-document handoffs but read as a whole-corpus claim, while the corpus declares many future, release-train and implementation-readiness items | Whole-corpus classification with an explicit dedupe method (§9.1): 142 `DEP-*` IDs plus 85 non-DEP entries, minus 14 `same_as` duplicates, gives **213 unique items**. The split is **105 CLOSED / 84 FUTURE — NON-BLOCKING / 4 RELEASE-TRAIN / 20 IMPLEMENTATION-READINESS / 0 BLOCKER** (§9.4). Result: **ZERO BLOCKING HANDOFFS**, with 108 non-closed items disclosed (§9.5, §11). The overbroad line is struck and marked historical, not deleted. SIP trunk support stays **RELEASE-TRAIN (V1)** | **CLOSED** (213-item classification) |
-| `FAR-P2-07` | P2 | The route figures this document recorded (1,640 raw / 598 literal / 448 semantic / 55 groups / 32 multi-spelling) no longer matched the corpus. They were the intermediate state of the original pass, and the literal normalizations and the 112 amendments had since changed the text | **Current exact re-extraction** with the same extractor and matcher (no algorithm change) gives **1,683 / 595 / 448 / 55 / 31**. The 55-group set is **unchanged**: no group was added or removed, the arithmetic is A 0 + B 42 + C 3 + D 7 + E 0 + FP 3 = 55, and there is **zero Class E**. The only participation change is group 41 (`POST /calls`), which now spans 6D, 6E, 6H, 6K and 6M, with owner 6D and Class C. The old figures are kept and labelled historical / intermediate (§0, §1, §1.1, §2.1 row 41, §2.3) | **CLOSED** (current exact re-extraction) |
+| `FAR-P2-06` | P2 | The handoff register's "Zero open handoffs across all 8 rows" was **overbroad**. It described eight traced cross-document handoffs but read as a whole-corpus claim, while the corpus declares many future, release-train and implementation-readiness items | Whole-corpus classification with an explicit dedupe method (§9.1): 142 `DEP-*` IDs plus 86 non-DEP entries, minus 14 `same_as` duplicates, gives **214 unique items**. The split is **106 CLOSED / 83 FUTURE — NON-BLOCKING / 4 RELEASE-TRAIN / 21 IMPLEMENTATION-READINESS / 0 BLOCKER** (§9.4). Result: **ZERO BLOCKING HANDOFFS**, with 108 non-closed items disclosed (§9.5, §11). The overbroad line is struck and marked historical, not deleted. SIP trunk support stays **RELEASE-TRAIN (V1)**. *(`112_5H5`-pass figures ~~85 non-DEP / 213 unique / 105 / 84 / 4 / 20~~ superseded: `FAR-OD-05` closed the 6K §54.6 inbound-admission contract and split its provider-signalling residual out as a distinct IMPLEMENTATION-READINESS entry — §9.6. Non-closed is unchanged at 108.)* | **CLOSED** (214-item classification) |
+| `FAR-P2-07` | P2 | The route figures this document recorded (1,640 raw / 598 literal / 448 semantic / 55 groups / 32 multi-spelling) no longer matched the corpus. They were the intermediate state of the original pass, and the literal normalizations and the 112 amendments had since changed the text | **Current exact re-extraction** with the same extractor and matcher (no algorithm change) gives **1,683 / 595 / 448 / 55 / 31**. The 55-group set is **unchanged**: no group was added or removed, the arithmetic is A 0 + B 42 + C 3 + D 7 + E 0 + FP 3 = 55, and there is **zero Class E**. The only participation change is group 41 (`POST /calls`), which now spans 6D, 6E, 6H, 6K and 6M, with owner 6D and Class C. The old figures are kept and labelled historical / intermediate (§0, §1, §1.1, §2.1 row 41, §2.3). **Amended by the `FAR-OD-05` pass:** the same extractor, rerun unmodified after this pass's edits, gives **1,697 / 595 / 448 / 56 / 31**; the literal and semantic sets are byte-identical to the 112 state and one Class **B** group was added and adjudicated (§2.1 row 56, §15 row 146) | **CLOSED** (current exact re-extraction; figures refreshed by `FAR-OD-05`) |
 | `FAR-P2-08` | P2 | **NULL-unsafe vocabulary guard.** `p_metric = ANY(ARRAY[...])` yields `NULL`, not `FALSE`, for a `NULL` metric, and PL/pgSQL `IF NOT <NULL>` does not fire, so the guard silently let a `NULL` metric through | `112_5H5` wraps both predicates in `COALESCE(..., FALSE)`, and both resolvers check `p_metric IS NOT NULL` first. Evidence: `FAR_112_02` §2; `FAR_112_03` §7 H.5, H.5b, H.6 (both predicates return `f`) | **CLOSED BY `112_5H5`** |
 | `FAR-P2-09` | P2 | Override audit events changed `resource_type` from `QUOTA_CONFIG` (before 111) to `QUOTA_OVERRIDE` (111 and later, both domains at 112), while earlier text implied the audit shape was unchanged | Recorded as a **controlled audit-contract extension**, not as "unchanged". `action_kind` stays `QUOTA_OVERRIDE_SET`, and the domain is carried in `resource_snapshot.quota_domain`. No migration is needed because the `audit.audit_events` constraints are length-only. Evidence: `FAR_112_02` §14; `FAR_112_03` §10.3 P10, §10.4 P11, §10.5 atomicity; 6M §67.6; §10B.7 | **CLOSED** (controlled audit-contract extension) |
 | `FAR-P3-04` | P3 | **Overbroad security / superuser wording** in the capacity context: "unbypassable", and the implication that `FORCE ROW LEVEL SECURITY` binds a superuser | Scoped at every occurrence to the application runtime trust boundary (non-superuser application roles, normal SQL). Superuser / table-owner DDL, trigger disabling and `session_replication_role = replica` are stated as **outside** the guarantee. `BYPASSRLS` inventory unchanged (`app_migration`, `app_platform_admin` from `001_5B`, plus `postgres`). Recorded at: 5C (two controlled notes), 6K §54.10, 6M §67.7, 112 report §4, §10B.8 | **CLOSED** (security / superuser wording scoped) |
 | `FAR-P3-05` | P3 | **Stale head statements.** 5C, 6E and the manifest still read "`110_5C2` is the (new / current) head", "no `111`", or "`111_5H4` is the current head … no `112`" | Additive `FAR-P3-05` controlled notes mark each statement historical and state the progression `109_5B7` → `110_5C2` → `111_5H4` → **`112_5H5` (current single head)**, no `113`. Placement: 5C (two notes), 6E (two notes) and `5K/MIGRATION_MANIFEST.md` (Row 111 notes). Original sentences are preserved, not rewritten. In this document the same supersession is applied by historical labels in §12.1, §12.3, §13, §14, §14.1, §15 and §17, and by §12.4 | **CLOSED** (5C / head supersession) |
 | `FAR-P3-06` | P3 | **`111_5H4` over-attributes closure.** Its SQL header (`111_5H4.sql:13`) and Alembic docstring (`111_5H4.py:16`) list `FAR-P2-04` and `FAR-P2-05` among the tickets the migration closes. Neither needed DDL: `-04` was closed by evidence and `-05` by documentation | **Corrected by record, not by editing the frozen file.** `111_5H4` is untouched (222/222 frozen files byte-identical). The accurate attribution: the SQL implemented `FAR-OD-02` and closed `FAR-P1-04` / `-05`; `FAR-P2-04` closed by `FAR_111_03` Battery H; `FAR-P2-05` closed by scoped restatement. Recorded in the `FAR-P3-06` controlled note in `5K/MIGRATION_MANIFEST.md` Row 111, the 112 report §3.5 and this ledger | **CLOSED** (111 provenance correction without editing 111) |
 | `FAR-P3-07` | P3 | **Mislabelled function set in the 112 evidence.** The 112 report §3.9 said "the five functions 112 created or replaced". The `FAR_112_03` §8.1 heading said "EXECUTE ACLs on every function 112 created or replaced". `FAR_112_01` §2 said "the three pre-existing functions it forward-replaces". None of these labels matches the SQL | **Controlled erratum.** `112_5H5.sql` has **four** `CREATE OR REPLACE FUNCTION` statements. It **replaces** `fn_is_canonical_usage_metric` and `fn_platform_set_quota_override`, and **creates** `fn_is_canonical_capacity_quota_metric` and `fn_resolve_effective_capacity_quota` (SQL lines 147, 199, 373, 518). The fifth probed function, `fn_resolve_effective_quota`, belongs to `111_5H4` and is not modified by 112. Correct label: **"the five governed quota functions at head `112_5H5`"**. The measured result is unchanged. Erratum block in the 112 report §3.9; the raw transcripts are left verbatim (§10B.7, §16.4) | **CLOSED BY CONTROLLED ERRATUM** |
+| `FAR-OD-05` | **Owner decision** | **Raised by the final freeze-gate review as the last unresolved owner decision.** `CONCURRENT_CALLS` was governed as an organization capacity limit, but the documents did not state unambiguously whether it bounded **outbound only** or **all admitted concurrent calls**. 6K §54.6 carried inbound as a FUTURE item, which left the platform free to read `CONCURRENT_CALLS = 10` as "10 outbound plus unlimited inbound" | Owner decided **`FAR-OD-05` = OPTION A — one organization-level capacity pool shared by inbound and outbound.** Direct outbound (`POST /api/v1/calls`), campaign-originated outbound and inbound provider-originated calls all consume the **same** pool. There is **no** separate inbound pool, **no** separate campaign tenant pool, **no** direction-specific quota in V1 and **no** reserved or priority slots; the capacity authority serializes final-slot acquisitions atomically. Applied in full: normative text at §10B.10 of this document and at 6K §54.6, with the inbound admission invariant bound to the **existing** provider-driven admission point (frozen 4B §14.1 → `CallApplicationService.initiate_call`, documented at 6D §42.3b) — **no new endpoint, no new route, no new DTO**. Consumers aligned: 6H §54.9, 6M §67.10, 5H, `5K/MIGRATION_MANIFEST.md`. **No migration was created or edited** | **RESOLVED / APPLIED — no residual decision** |
+| `FAR-P1-07` | **P1** | **Raised by the final freeze-gate review.** The admission arithmetic was documented as `occupied < hard_limit`. `hard_limit` is `NUMERIC(18,4)`, so that predicate **over-admits** on any fractional limit: at `hard_limit = 1.5000` with one call already occupied, `1 < 1.5` is true and a second call is admitted, taking occupancy to `2 > 1.5`. It is the same defect class as `FAR-P1-02` on the usage side | **Closed by document correction.** The normative invariant is now **ADMIT iff `(occupied + 1) <= effective_hard_limit`**, **REFUSE iff `(occupied + 1) > effective_hard_limit`** — the **post-admission** occupancy is what must satisfy the ceiling. Values are compared **as stored**, with **no** rounding, `FLOOR`, `CEIL` or integer coercion. The normative boundary matrix is `(1.5000, 0) → ADMIT`, `(1.5000, 1) → REFUSE`, `(0.5000, 0) → REFUSE` (a sub-unit limit admits **no** call), `(2.0000, 1) → ADMIT`, `(2.0000, 2) → REFUSE`. Atomic final-slot acquisition evaluates the same post-admission predicate. Authority: 6K §54.5 rule 2; restated at §10B.11; 6H's `remaining < 1` is a non-authoritative pre-flight only. **No SQL change** — `112_5H5` stores the limit and does not implement the runtime admission predicate | **CLOSED** (document correction) |
+| `FAR-P2-10` | P2 | **Raised by the final freeze-gate review.** Documentation stated that the **capacity** resolver returns source `PLATFORM_OVERRIDE`. `112_5H5.sql` line 435 returns `'PLATFORM_CAPACITY_OVERRIDE'::TEXT`, so the documented literal did not match executed SQL | **Closed by document correction, not by SQL change.** The two domains return **two distinct literals**: usage `billing.fn_resolve_effective_quota` → `PLATFORM_OVERRIDE`; capacity `billing.fn_resolve_effective_capacity_quota` → `PLATFORM_CAPACITY_OVERRIDE`. Neither is an alias for the other. Every occurrence of `PLATFORM_OVERRIDE` was enumerated and classified by domain: exactly **two** were capacity-domain and wrong (5H, 6K §54.2) and both were corrected; every usage-domain occurrence is correct and was **left unchanged** — no global replacement was performed. Recorded at §10B.12 | **CLOSED** (document correction) |
+| `FAR-P2-11` | P2 | **Raised by the final freeze-gate review.** This master document still carried the **superseded** Agent-admission algorithm in normative voice at §10.4 / §10.5: resolve `billing.quota_configs.hard_limit` directly, and reject when `counted >= hard_limit`. Both clauses are stale — the source is the resolver, not the base table (`FAR-OD-02` / `111_5H4`), and the arithmetic is the post-insert form (`FAR-P1-02`) | **Closed by correcting this document.** Effective source is **`billing.fn_resolve_effective_quota(p_organization_id, 'ACTIVE_AGENTS')`**; the guard **REFUSES iff the effective `hard_limit` is not `NULL` and `(counted + 1) > hard_limit`**; a `NULL` effective `hard_limit` is **explicitly uncapped** per the usage contract. The defect was confined to this document — 6E already carried the corrected form and needed no edit. All other properties are preserved unchanged: DRAFT + PUBLISHED counted, DEPRECATED excluded, `deleted_at IS NULL`, database advisory serialization, revoked raw `INSERT`, and create + clone behind the same guard. Historical references to the superseded algorithm remain, explicitly labelled historical (§13 `FAR-P1-02` row) | **CLOSED** (master-document correction) |
+| `FAR-P3-08` | P3 | **Raised by the final freeze-gate review.** `112_5H5.py` line 142 describes a `NULL` `hard_limit` as "still meaning overage-allowed". In the **capacity** domain that is the wrong terminology: `NULL` means **explicitly uncapped**, and `CONCURRENT_CALLS` has no overage concept at all | **Closed by controlled erratum — the frozen file was not edited.** `112_5H5.py` is byte-identical, its SHA-256 is stable, and **no migration `113`** was created. The erratum records: in the **USAGE** domain a `NULL` `hard_limit` may mean overage / no hard stop; in the **CAPACITY** domain a `NULL` `hard_limit` means **EXPLICITLY UNCAPPED — not billable overage**. `CONCURRENT_CALLS` is **not** metered usage, **not** rated usage, **not** invoice overage and **not** billable overage. The wording is terminology-only and does **not** alter the executed SQL or any measured result. Erratum blocks: 6K §54.13, 5H, `5K/MIGRATION_MANIFEST.md`; restated at §10B.13 | **CLOSED BY CONTROLLED ERRATUM** |
+| `FAR-P2-12` | P2 | **Raised by the final freeze-gate review as the last remaining open issue.** After `FAR-OD-05` = Option A made `CONCURRENT_CALLS` **direction-neutral** (one organization-level pool consumed by inbound provider-originated admission, direct outbound and campaign-originated outbound alike), **6D §42.5 retained outbound-only lower-capacity wording**: "Only new `POST /calls` and new campaign acquisitions are refused until occupancy falls below the new limit." That sentence names only the **two outbound** admission paths and is silent on the **inbound** path, so it could be read as exempting new inbound admission from the tenant-wide limit after a lowered base quota or an expired override — contradicting `FAR-OD-05`, 6D §42.3b and 6K §54.8, which is already direction-neutral ("Only **new** acquisitions are refused") | **Closed by controlled document reconciliation — no architecture change, no migration, no runtime change.** 6D §42.5 rewritten so lower-capacity / override-expiry admission blocking applies to **all new capacity acquisitions** across **all three** admission points: inbound provider-originated (§42.3b), direct outbound `POST /api/v1/calls` (§42.2), and campaign-originated outbound (§42.3). The non-destructive guarantees are preserved verbatim — no in-progress call terminated, no provider call acted on, no `voice.call_sessions` row mutated, no reservation revoked — and the normative release condition is stated as `(occupied + 1) <= effective hard_limit` (`FAR-P1-07`, 6K §54.5 rule 2). The campaign `concurrency_policy` sub-ceiling is restated as a campaign sub-ceiling only. **No new endpoint** and **no provider-specific inbound signalling** were introduced; provider busy / reject / fallback mechanics remain implementation-readiness (6K §54.6). `FAR-OD-04` and `FAR-OD-05` are unchanged; migrations 001–112 untouched; no `113` | **CLOSED BY CONTROLLED DOCUMENT RECONCILIATION** |
 
 *(Historical — 111 pass: "The table holds 15 rows: 5 P1, 5 P2, 3 P3, 1 blocker, 1 owner decision." Superseded by the recomputation below.)*
 
-**Ledger arithmetic — computed from the rows above, not asserted.** The table holds **26** rows (the original 15 plus 11 added by the `112_5H5` pass and the master-FAR closure): **6 P1, 9 P2, 7 P3, 1 blocker, 3 owner-decision rows** (6 + 9 + 7 + 1 + 3 = 26). The owner-decision **class** counts **4** decisions: `FAR-OD-01` has no standalone row. It is recorded in the `FAR-P2-01` row it closed and in §10. So the class tally below is 4 while the row count is 3.
+**Ledger arithmetic — computed from the rows above, not asserted.** The table holds **32** rows (the original 15, plus 11 added by the `112_5H5` pass and the master-FAR closure, plus 5 added by the `FAR-OD-05` last contract remediation pass, plus 1 added by the `FAR-P2-12` last static correction): **7 P1, 12 P2, 8 P3, 1 blocker, 4 owner-decision rows** (7 + 12 + 8 + 1 + 4 = 32). The owner-decision **class** counts **5** decisions: `FAR-OD-01` has no standalone row. It is recorded in the `FAR-P2-01` row it closed and in §10. So the class tally below is 5 while the row count is 4.
+
+*(Historical — `112_5H5` pass: "The table holds **26** rows … 6 P1, 9 P2, 7 P3, 1 blocker, 3 owner-decision rows … the class tally below is 4 while the row count is 3." Superseded by the recomputation above, which adds `FAR-OD-05`, `FAR-P1-07`, `FAR-P2-10`, `FAR-P2-11` and `FAR-P3-08`.)*
 
 | Class | Raised | Closed / resolved / superseded | **Open** |
 |---|---|---|---|
 | **FAR-P0** | 0 | 0 | **0** |
-| **FAR-P1** | 6: `FAR-P1-01` … `-06` | 6: `-01` by `110_5C2`; `-02`, `-03` by amended `110_5C2`; `-04`, `-05` by `111_5H4`; `-06` by `112_5H5` + controlled API amendments | **0** |
-| **FAR-P2** | 9: `FAR-P2-01` … `-09` | 9: `-01`, `-02` closed at source; `-03` by amended `110_5C2`; `-04` by `FAR_111_03` Battery H; `-05` by scoped restatement; `-06` by the 213-item classification; `-07` by current exact re-extraction; `-08` by `112_5H5`; `-09` as a controlled audit-contract extension | **0** |
-| **FAR-P3** | 7: `FAR-P3-01` … `-07` | 7: `-01` resolved (no route collision); `-02` superseded by `FAR-P1-01`; `-03` closed at source; `-04` security wording scoped; `-05` head supersession notes; `-06` corrected by record; `-07` controlled erratum | **0** |
+| **FAR-P1** | 7: `FAR-P1-01` … `-07` | 7: `-01` by `110_5C2`; `-02`, `-03` by amended `110_5C2`; `-04`, `-05` by `111_5H4`; `-06` by `112_5H5` + controlled API amendments; `-07` by document correction of the fractional admission arithmetic (§10B.11) | **0** |
+| **FAR-P2** | 12: `FAR-P2-01` … `-12` | 12: `-01`, `-02` closed at source; `-03` by amended `110_5C2`; `-04` by `FAR_111_03` Battery H; `-05` by scoped restatement; `-06` by the 214-item classification; `-07` by current exact re-extraction; `-08` by `112_5H5`; `-09` as a controlled audit-contract extension; `-10` by correcting the capacity source literal to `PLATFORM_CAPACITY_OVERRIDE` (§10B.12); `-11` by correcting this document's stale `ACTIVE_AGENTS` resolver and arithmetic (§10.4); `-12` by correcting 6D §42.5's outbound-only lower-capacity wording to cover all three admission points (§10B.15) | **0** |
+| **FAR-P3** | 8: `FAR-P3-01` … `-08` | 8: `-01` resolved (no route collision); `-02` superseded by `FAR-P1-01`; `-03` closed at source; `-04` security wording scoped; `-05` head supersession notes; `-06` corrected by record; `-07` controlled erratum; `-08` controlled erratum (capacity `NULL hard_limit` terminology; `112_5H5.py` **not** edited, §10B.13) | **0** |
 | **Database blockers** | 1: `DB-BLOCKER-FINAL-API-001` | 1: resolved by `110_5C2` (amended in place) | **0** |
-| **Owner decisions** | 4: `FAR-OD-01`, `-02`, `-03`, `-04` | 4: `-01`, `-02`, `-03` decided **Option B**; `-04` decided **ADMISSION → TERMINAL**; all applied (§10, §10A, §10B) | **0 unresolved** |
+| **Owner decisions** | 5: `FAR-OD-01`, `-02`, `-03`, `-04`, `-05` | 5: `-01`, `-02`, `-03` decided **Option B**; `-04` decided **ADMISSION → TERMINAL**; `-05` decided **Option A — one shared inbound + outbound capacity pool**; all applied (§10, §10A, §10B, §10B.10) | **0 unresolved** |
 
-**FAR-P0 = 0. Open FAR-P1 = 0. Open FAR-P2 = 0. Open FAR-P3 = 0. Unresolved owner decisions = 0. Open database blockers = 0.** Each `0` is the result of the row-by-row tally above, not a bare declaration, and every row names the artifact and evidence that closes it. No **ticket in this ledger** is left open or deferred to a later document. That is a statement about FAR tickets only. The corpus **does** carry disclosed non-blocking debt, which this ledger does not hide: **108** non-closed handoff items (84 FUTURE — NON-BLOCKING, 4 RELEASE-TRAIN including V1 SIP trunk support, 20 IMPLEMENTATION-READINESS including the capacity runtime), registered in §9 and §11. *(Historical — 111 pass: the earlier sentence "No item in this ledger is carried forward as future debt" was accurate for the ledger rows but read as corpus-wide; it is superseded by this scoping.)*
+**FAR-P0 = 0. Open FAR-P1 = 0. Open FAR-P2 = 0. Open FAR-P3 = 0. Unresolved owner decisions = 0. Open database blockers = 0.** Each `0` is the result of the row-by-row tally above, not a bare declaration, and every row names the artifact and evidence that closes it. No **ticket in this ledger** is left open or deferred to a later document. That is a statement about FAR tickets only. The corpus **does** carry disclosed non-blocking debt, which this ledger does not hide: **108** non-closed handoff items (83 FUTURE — NON-BLOCKING, 4 RELEASE-TRAIN including V1 SIP trunk support, 21 IMPLEMENTATION-READINESS including the capacity runtime and the provider-facing inbound decline signal), registered in §9 and §11. *(Historical — 111 pass: the earlier sentence "No item in this ledger is carried forward as future debt" was accurate for the ledger rows but read as corpus-wide; it is superseded by this scoping.)*
 
 **Disclosure — second independent review.** An earlier revision of this document declared READY FOR INDEPENDENT REVIEW with this ledger ending at `DB-BLOCKER-FINAL-API-001`. A second independent review of that revision found **P0 = 0, P1 = 2, P2 = 1**: `FAR-P1-02` (a fractional `hard_limit` admitted one Agent too many), `FAR-P1-03` (a raw `UPDATE` could re-enter the counted set) and `FAR-P2-03` (`created_by` was trusted without a tenant cross-check). It also judged the earlier claim that the quota was "structurally un-bypassable" overstated, because that claim rested on the `INSERT` revoke alone. All three findings were remediated by amending `110_5C2` **in place** (no migration `111` at that time; *historical, superseded by §12.3 / §12.4*) and re-validated live on disposable PostgreSQL 18.6 databases. They are recorded as their own rows above rather than folded silently into the earlier rows. All pre-amendment `110_5C2` hashes and transcripts are **SUPERSEDED** (§16.1).
 
@@ -1068,9 +1311,9 @@ No document in the corpus reports an unresolved P0/P1 blocker of its own. Docume
 | # | Check | Result |
 |---|---|---|
 | 1 | All 13 Phase 6 documents reconciled (targeted verification reads, not a from-scratch re-read) | ✅ |
-| 2 | Route extraction reproducible and stated in both dimensions (1,640 / 598 literal / 448 semantic) | ✅. *(Historical / intermediate figures.)* ***Superseded by row 120***: the current exact re-extraction, with the same extractor and matcher, gives **1,683 / 595 / 448 / 55 / 31** (`FAR-P2-07`, §1.1) |
-| 3 | Every cross-document collision group has its **own row** — no grouping, no "~", no "etc." | ✅ — 55 rows (§2.1) |
-| 4 | Classification counts sum exactly to the total | ✅ — 0+42+3+7+0+3 = 55 (§2.2) |
+| 2 | Route extraction reproducible and stated in both dimensions (1,640 / 598 literal / 448 semantic) | ✅. *(Historical / intermediate figures.)* ***Superseded by rows 120 and 146***: the current exact re-extraction, with the same extractor and matcher, gives **1,697 / 595 / 448 / 56 / 31** (`FAR-P2-07`, §1.1); ~~1,683 / 595 / 448 / 55 / 31~~ was the 112 state |
+| 3 | Every cross-document collision group has its **own row** — no grouping, no "~", no "etc." | ✅ — **56** rows (§2.1). *(~~55 rows~~ at the 112 state; row 56 was appended by the `FAR-OD-05` pass — row 146.)* |
+| 4 | Classification counts sum exactly to the total | ✅ — *(Historical — `112_5H5` state: 0+42+3+7+0+3 = 55.)* ***Superseded by row 146***: 0+43+3+7+0+3 = **56** (§2.2) |
 | 5 | Fresh total differing from the prior "52" explained, not forced | ✅ (§2.3) |
 | 6 | Every group has exactly one named canonical owner (or is a proven false positive) | ✅ |
 | 7 | Zero Class-E true contradictions | ✅ |
@@ -1079,7 +1322,7 @@ No document in the corpus reports an unresolved P0/P1 blocker of its own. Docume
 | 10 | Zero cross-document DTO conflicts | ✅ (§6) |
 | 11 | Event/audit/outbox single-mechanism discipline verified | ✅ (§7) |
 | 12 | `DEP-6E-20` explicitly present in the Handoff ledger and **CLOSED** | ✅ (§9 row 1) |
-| 13 | All other handoffs closed | ✅ (§9). *(Historical — this referred to the 8 traced register rows only.)* ***Superseded by rows 122–123***: a whole-corpus classification of **213** unique items gives **0 BLOCKER** and 108 disclosed non-closed items. It does **not** say all handoffs are closed (`FAR-P2-06`, §9) |
+| 13 | All other handoffs closed | ✅ (§9). *(Historical — this referred to the 8 traced register rows only.)* ***Superseded by rows 122–123***: a whole-corpus classification of **214** unique items (213 at the `112_5H5` pass, §9.6) gives **0 BLOCKER** and 108 disclosed non-closed items. It does **not** say all handoffs are closed (`FAR-P2-06`, §9) |
 | 14 | `FAR-OD-01` = Option B applied: hard synchronous enforcement, server-side, in-transaction | ✅ (§10, 6E §43) |
 | 15 | Naïve `COUNT`→compare→`INSERT` explicitly rejected; concurrency safety proven for quota N | ✅ (§10.1, §10.4) |
 | 16 | Serialization mechanism follows the established project pattern rather than an invented one | ✅ — `SECURITY DEFINER` guarded function + `pg_advisory_xact_lock(hashtext(...))` + `REVOKE INSERT`, exactly the `041_5G.sql` shape |
@@ -1116,7 +1359,7 @@ No document in the corpus reports an unresolved P0/P1 blocker of its own. Docume
 | 47 | `FAR-P3-03` **closed at source**, not left as an open ticket for the API Master Index | ✅ (§3.3, §13) |
 | 48 | Evidence capped at one report + three compact files; no per-statement execution-log sprawl; the micro-remediation rewrote those four files **in place** and created no new evidence file | ✅ *for the `110_5C2` evidence set* (§12.2, §16). ***Superseded by row 91***: the `111_5H4` pass added its own capped set — one report plus three compact files (`FAR_111_01/02/03`) — and rewrote none of the `110` evidence except to add scope notices. The repository now holds **two reports and six evidence files**, one capped set per pass; still no per-statement execution-log sprawl (§12.3) |
 | 49 | Supporting ledgers expanded to the required coverage — Auth Contradiction (17 rows), Error Semantic (16), DTO / Contract (16), Event / Audit / Outbox (16, with an explicit five-class vocabulary), Handoff Closure (8) — each adjudicating **conflicts**, not enumerating a corpus-wide matrix or catalog | ✅ (§4–§7, §9). *(Historical — the Handoff Closure ledger's 8 rows were traced handoffs, not the corpus.)* ***Superseded for corpus coverage by rows 122–123*** (213-item classification, §9.1–§9.5) |
-| 50 | The accepted **55-row** Endpoint Collision Ledger was **not** redone, and no global Authorization Matrix or Error Catalog was created in place of the ledgers | ✅ — §2.1 carries the same 55 groups this pass inherited; §4 and §5 each state the scope boundary explicitly |
+| 50 | The accepted Endpoint Collision Ledger was **not** redone, and no global Authorization Matrix or Error Catalog was created in place of the ledgers | ✅ — §2.1 carries every group this pass inherited, unchanged in class, owner and resolution; §4 and §5 each state the scope boundary explicitly. *(The `112_5H5`-pass wording ~~"the accepted **55-row** ledger … the same 55 groups"~~ is superseded by row 146: the `FAR-OD-05` rerun detected **one** additional group, appended as row 56 and adjudicated, while all 55 inherited rows are untouched.)* |
 | 51 | No forbidden artifact created (`API-MASTER-INDEX.md`, `AUTHORIZATION-MATRIX.md`, `ERROR-CATALOG.md`, `API-VERSIONING-STRATEGY.md`), no implementation code, no OpenAPI document | ✅ — `find` count = **0** (§16.1) |
 | 52 | No extraction helper, `__pycache__`, `*.pyc` or `*.pyo` inside the repository; disposable validation containers destroyed | ✅ (§16.1). ***Re-verified after `111_5H4`*** — see row 96: the `111` containers `far_fresh` / `far_incr` are also destroyed and the repository is still free of cache and temporary-script artifacts (§16.3) |
 | 53 | This document self-declares no APPROVED / FROZEN status for itself or any Phase 6 document | ✅ (§0, §14) |
@@ -1158,16 +1401,16 @@ No document in the corpus reports an unresolved P0/P1 blocker of its own. Docume
 | 89 | **No migration `112`** exists | ✅ — `^112` count = **0** in both `5K/migrations` and `5K/alembic/versions` (§16.3). *(Historical — `111` state.)* ***Superseded by row 102***: `112_5H5` exists; ***row 103*** records that no `113` exists |
 | 90 | `111_5H4` identity recorded exactly | ✅ — SQL `5fe2bc96431236d637dbe2558c0c78d13ab17b7cce647aac3e61db2ac2f4c048`, **44,726 B**, 836 lines; Alembic `78b3fda47b22e9e5ef55b66ce4815a415578351a5e786f6977355cdd067e70ea`, **9,227 B**, 161 lines (§16.3). *(Still accurate: `111_5H4` is unchanged, see row 100.)* The `112_5H5` identity is recorded in row 101 |
 | 91 | Evidence set for this pass is capped at one report plus three compact files, and no `110` evidence file was rewritten except to add a scope notice | ✅ — `FAR_111_01`, `FAR_111_02`, `FAR_111_03` + `FINAL_API_RECONCILIATION_111_VALIDATION_REPORT.md` (§12.3 rows 20–23). Supersedes row 48 |
-| 92 | **No unresolved ticket** in the issue ledger: open P0 / P1 / P2 / P3 = **0 / 0 / 0 / 0**, computed from a 15-row tally rather than declared | ✅ (§13 arithmetic table). *(Historical — 15-row tally.)* ***Superseded by row 125***: a **26-row** tally, still 0 / 0 / 0 / 0 open |
-| 93 | **No owner decision left unresolved** — `FAR-OD-01` = Option B and `FAR-OD-02` = Option B, both applied in full | ✅ (§10, §10A, §13, §17). *(Historical — two decisions.)* ***Superseded by row 98***: all **four** owner decisions are resolved and applied |
+| 92 | **No unresolved ticket** in the issue ledger: open P0 / P1 / P2 / P3 = **0 / 0 / 0 / 0**, computed from a 15-row tally rather than declared | ✅ (§13 arithmetic table). *(Historical — 15-row tally.)* ***Superseded by row 125*** (a **26-row** tally) ***and then by row 143***: a **31-row** tally, still 0 / 0 / 0 / 0 open |
+| 93 | **No owner decision left unresolved** — `FAR-OD-01` = Option B and `FAR-OD-02` = Option B, both applied in full | ✅ (§10, §10A, §13, §17). *(Historical — two decisions.)* ***Superseded by row 98*** (four decisions) ***and then by row 131***: all **five** owner decisions (`FAR-OD-01` … `FAR-OD-05`) are resolved and applied |
 | 94 | **No database blocker open** — `DB-BLOCKER-FINAL-API-001` resolved; this pass raised no new blocker and no new `OWNER DECISION REQUIRED` item | ✅ (§13) |
 | 95 | **No forbidden next-phase artifact** created: no `API-MASTER-INDEX.md`, `AUTHORIZATION-MATRIX.md`, `ERROR-CATALOG.md` or `API-VERSIONING-STRATEGY.md`; no implementation-readiness artifact, no FastAPI/application code, no frontend code, no OpenAPI output | ✅ — `find` count = **0** (§16.3) |
 | 96 | Repository hygiene at close: no `__pycache__`, `*.pyc` or `*.pyo`; no temporary validation script or SQL file inside the repository (the harness stays in the session scratchpad); the disposable containers `far_fresh` and `far_incr` destroyed and **no unrelated container touched** | ✅ (§16.3). Re-verifies row 52 at the `111` state. *(Historical — `111` containers.)* ***Superseded for the `112` pass by rows 127–128*** |
 | 97 | This pass declares **no** phase, document or migration APPROVED or FROZEN — including `111_5H4` itself; that determination belongs to the independent reviewer | ✅ (§0, §14, §17; `5K/MIGRATION_MANIFEST.md` Row 111 closing statement). ***Re-affirmed at the `112` state by row 130*** |
-| **98** | **All four owner decisions are resolved and applied.** `FAR-OD-01` = B (hard synchronous `ACTIVE_AGENTS`). `FAR-OD-02` = B (temporary usage overrides with live baseline fallback). `FAR-OD-03` = B (`CONCURRENT_CALLS` is a separate CAPACITY domain). `FAR-OD-04` = ADMISSION → TERMINAL | ✅ (§10, §10A, §10B, §13) |
+| **98** | **All owner decisions are resolved and applied.** `FAR-OD-01` = B (hard synchronous `ACTIVE_AGENTS`). `FAR-OD-02` = B (temporary usage overrides with live baseline fallback). `FAR-OD-03` = B (`CONCURRENT_CALLS` is a separate CAPACITY domain). `FAR-OD-04` = ADMISSION → TERMINAL. `FAR-OD-05` = Option A (one organization-level `CONCURRENT_CALLS` pool shared by inbound and outbound) | ✅ (§10, §10A, §10B, §10B.10, §13). *(The `111_5H4`/`112_5H5`-pass wording ~~"All **four** owner decisions"~~ is superseded by row 131: the register carries **five**, all RESOLVED / APPLIED, unresolved = 0.)* |
 | 99 | Migrations `001`–`111` **byte-unchanged**: `110_5C2` and `111_5H4` were not amended by the `112` pass | ✅ — **222/222** frozen files (111 `.sql` + 111 `.py`) verified against the pre-authoring SHA-256 baseline: `FAR_112_01` §2, **OK = 222, FAILED = 0**. Also re-checked at master-FAR close against git `HEAD` (§16.4). Supersedes row 85 |
 | 100 | `111_5H4` is untouched, and its closure over-attribution is corrected **by record only** (`FAR-P3-06`) | ✅ — the `111_5H4.sql` / `.py` identity in row 90 is unchanged. The correction lives in the `5K/MIGRATION_MANIFEST.md` Row 111 `FAR-P3-06` note, the 112 report §3.5 and §13 |
-| 101 | Migration inventory and `112_5H5` identity | ✅ — **112** SQL files and **112** Alembic files. SQL `6c3c0e0c546ccfa845822e94781193f6a5516a0176de0ec3bd24449b1abfdb53`, **38,635 B**, 744 lines. Alembic `fb53b23ae715060fcffa987ee03b7411ae72f252f574e7ab8cd4241925f0e238`, **12,673 B**, 214 lines (§16.4) |
+| 101 | Migration inventory and `112_5H5` identity | ✅ — **112** SQL files and **112** Alembic files. SQL `6c3c0e0c546ccfa845822e94781193f6a5516a0176de0ec3bd24449b1abfdb53`, **38,635 B**, 744 lines. Alembic `fb53b23ae715060fcffa987ee03b7411ae72f252f574e7ab8cd4241925f0e238`, **12,673 B**, 214 lines (§16.4). **Re-verified byte-identical at the close of the `FAR-OD-05` pass** — both hashes, both byte sizes and both line counts are unchanged, and no migration was created or edited (§16.5, row 142) |
 | 102 | **Single current head `112_5H5`**, linear chain `109_5B7` → `110_5C2` → `111_5H4` → `112_5H5`, with no branch or merge point | ✅ — `FAR_112_01` §7 (`alembic heads` on both databases). `down_revision = '111_5H4'` and no other revision names `112_5H5` or `111_5H4` as its parent (§14.1, §16.4) |
 | 103 | **No migration `113`** | ✅ — `^113` count = **0** in both `5K/migrations` and `5K/alembic/versions` (`FAR_112_01` §4; re-checked §16.4) |
 | 104 | Live PostgreSQL **18.6** fresh path `001 → 112` on a disposable database | ✅ — **PASS** (`FAR_112_01` §5; 112 report §3.1) |
@@ -1182,21 +1425,43 @@ No document in the corpus reports an unresolved P0/P1 blocker of its own. Docume
 | 113 | **Platform Admin dispatcher**: the unchanged 8-argument `fn_platform_set_quota_override`, returning `UUID`, routes usage metrics to `billing.quota_overrides` and `CONCURRENT_CALLS` to `billing.capacity_quota_overrides`, and refuses anything else with `P0001`. `EXECUTE` to `app_platform_admin` only | ✅ — `FAR_112_02` §12; `FAR_112_03` §8 (§10B.2; 6M §67.3) |
 | 114 | **Audit transition** recorded as a controlled extension (`FAR-P2-09`): `QUOTA_CONFIG` → `QUOTA_OVERRIDE`, `quota_domain` in `resource_snapshot`, `action_kind` `QUOTA_OVERRIDE_SET`; audit is atomic with the write | ✅ — `FAR_112_02` §14; `FAR_112_03` §10.3–§10.5; 112 report §3.10 (rollback removes both rows) |
 | 115 | **`FAR-P3-07` label erratum** applied, with raw evidence left verbatim | ✅ — 112 report §3.9 erratum block: four `CREATE OR REPLACE FUNCTION` statements (SQL lines 147, 199, 373, 518); the correct label is "the five governed quota functions at head `112_5H5`". The measured ACL / `SECURITY DEFINER` / `search_path` results are unchanged (§10B.7, §13) |
-| 116 | **Admission → terminal lifecycle** (`FAR-OD-04`) recorded against the frozen 6D state machine with **no new state**: acquire once at the two outbound admission points before the provider is contacted, and hold across all 7 non-terminal states | ✅ — contract of record: §10B.4; 6K §54.6; 6D §42.2–§42.4. **Not claimed as implemented** (row 121) |
+| 116 | **Admission → terminal lifecycle** (`FAR-OD-04`) recorded against the frozen 6D state machine with **no new state**: acquire once at admission, before the provider is contacted or the inbound call is admitted into an AI voice session, and hold across all 7 non-terminal states | ✅ — contract of record: §10B.4; 6K §54.6; 6D §42.2–§42.4. *(The `112_5H5`-pass wording ~~"at the two outbound admission points"~~ is superseded by `FAR-OD-05`: there are **three** admission points across both directions — row 132.)* **Not claimed as implemented** (row 121) |
 | 117 | **Idempotent acquire / release**: `ALREADY_HELD` never takes a second slot, `NOT_HELD` never decrements twice, and `reservation_id` = `voice.call_sessions.id` | ✅ — contract: 6K §54.4–§54.5; §10B.4, §10B.5 |
 | 118 | **Setup-failure release, terminal release, and transfer / resume without reacquire** | ✅ — contract: release (A) on setup failure after `ADMITTED`; release (B) on entry to one of the 7 frozen terminal states; `ON_HOLD → ACTIVE` and `TRANSFERRING → ACTIVE` keep the slot (6K §54.6; 6D §42.4; §10B.4). Lowering the limit is non-destructive (6K §54.8; §10B.6) |
-| 119 | **6D and 6H consume the single 6K authority**; the **campaign sub-ceiling is separate**. 6H at the limit → contact `DEFERRED` / `TENANT_CALL_QUOTA_REACHED`. 6D at the limit → `429 QUOTA_EXCEEDED`, `details.metric = "CONCURRENT_CALLS"`. `campaign:concurrency:{tenant_id}:{campaign_id}` is never the tenant gauge | ✅ — 6D §42.2, §42.3, §42.7; 6H §54.2, §54.4, §54.6; 6K §54.4, §54.7 (§10B.5). No endpoint, field, permission or top-level error code added |
-| 120 | **Route counts are current**, from the exact re-extraction with the unchanged extractor and matcher: **1,683** raw, **595** literal, **448** semantic, **55** collision groups, **31** multi-spelling (`FAR-P2-07`) | ✅ — §1, §1.1. `1,640 / 598 / 448 / 55 / 32` is retained as historical / intermediate |
-| 121 | **55-group collision set unchanged**, with **zero Class E**. Arithmetic A 0 + B 42 + C 3 + D 7 + E 0 + FP 3 = 55. The only participation change is group 41 (`POST /calls`), which now spans 6D, 6E, 6H, 6K and 6M with owner 6D and Class C. Capacity runtime and inbound admission are registered as IMPLEMENTATION-READINESS and FUTURE, not as implemented | ✅ — §2.1 row 41, §2.2, §2.3; §10B.4 status; §11 |
-| 122 | **Handoff classification is whole-corpus and deduplicated**: 213 unique items = **105 CLOSED / 84 FUTURE / 4 RELEASE-TRAIN / 20 IMPLEMENTATION-READINESS / 0 BLOCKER** (`FAR-P2-06`) | ✅ — §9.1–§9.5. 105 + 84 + 4 + 20 + 0 = 213 |
-| 123 | **ZERO BLOCKING HANDOFFS**, with the **108** non-closed items disclosed rather than hidden. SIP trunk support remains **RELEASE-TRAIN (V1)** | ✅ — §9.5, §11.1. No FUTURE or IMPLEMENTATION-READINESS item is described as implemented |
+| 119 | **6D and 6H consume the single 6K authority on both directions** (row 133); the **campaign sub-ceiling is separate**. 6H at the limit → contact `DEFERRED` / `TENANT_CALL_QUOTA_REACHED`. 6D at the limit → `429 QUOTA_EXCEEDED`, `details.metric = "CONCURRENT_CALLS"`. `campaign:concurrency:{tenant_id}:{campaign_id}` is never the tenant gauge | ✅ — 6D §42.2, §42.3, **§42.3b (inbound)**, §42.7; 6H §54.2, §54.4, §54.6; 6K §54.4, §54.7 (§10B.5). No endpoint, field, permission or top-level error code added |
+| 120 | **Route counts are current**, from the exact re-extraction with the unchanged extractor and matcher: **1,697** raw, **595** literal, **448** semantic, **56** collision groups, **31** multi-spelling (`FAR-P2-07`) | ✅ — §1, §1.1, and row 146. *(The `112_5H5`-pass figures ~~1,683 / 595 / 448 / 55 / 31~~ are superseded by the post-`FAR-OD-05` rerun; `1,640 / 598 / 448 / 55 / 32` is retained as historical / intermediate.)* |
+| 121 | **Collision set carries zero Class E**. Arithmetic A 0 + B **43** + C 3 + D 7 + E 0 + FP 3 = **56**. *(The `112_5H5`-pass claim ~~"55-group collision set unchanged … A 0 + B 42 + C 3 + D 7 + E 0 + FP 3 = 55"~~ is superseded by row 146: one Class **B** group was added by the `FAR-OD-05` pass and adjudicated at §2.1 row 56; no inherited group changed class, owner, docs set or literal spelling.)* The only participation change among the inherited groups is group 41 (`POST /calls`), which now spans 6D, 6E, 6H, 6K and 6M with owner 6D and Class C. The capacity **runtime** is registered as IMPLEMENTATION-READINESS, not as implemented | ✅ — §2.1 row 41, §2.2, §2.3; §10B.4 status; §11. *(The `112_5H5`-pass clause ~~"and inbound admission are registered as IMPLEMENTATION-READINESS and FUTURE"~~ is superseded by `FAR-OD-05`: the inbound **admission contract** is CLOSED, and only the provider-facing decline signal remains IMPLEMENTATION-READINESS — rows 132, 141, §9.6.)* |
+| 122 | **Handoff classification is whole-corpus and deduplicated**: 214 unique items = **106 CLOSED / 83 FUTURE / 4 RELEASE-TRAIN / 21 IMPLEMENTATION-READINESS / 0 BLOCKER** (`FAR-P2-06`) | ✅ — §9.1–§9.6. 106 + 83 + 4 + 21 + 0 = 214. *(`112_5H5`-pass figures ~~213 = 105 / 84 / 4 / 20 / 0~~ superseded by the `FAR-OD-05` reclassification, row 141.)* |
+| 123 | **ZERO BLOCKING HANDOFFS**, with the **108** non-closed items (83 FUTURE + 4 RELEASE-TRAIN + 21 IMPLEMENTATION-READINESS) disclosed rather than hidden. SIP trunk support remains **RELEASE-TRAIN (V1)** | ✅ — §9.5, §9.6, §11.1. **BLOCKER = 0** before and after the `FAR-OD-05` reclassification. No FUTURE or IMPLEMENTATION-READINESS item is described as implemented |
 | 124 | **Security wording scoped** (`FAR-P3-04`): no claim that superuser, table-owner DDL, trigger disabling or `session_replication_role = replica` is inside the guarantee. **No new `BYPASSRLS`**; the inventory is `app_migration`, `app_platform_admin` (`001_5B`) and `postgres` | ✅ — §10B.8; 5C notes; 6K §54.10; 6M §67.7; 112 report §4; `FAR_112_03` §8.7 |
-| 125 | **Issue ledger**: 26 rows (6 P1, 9 P2, 7 P3, 1 blocker, 3 OD rows); 4 owner decisions; **open P0 / P1 / P2 / P3 = 0 / 0 / 0 / 0**; unresolved owner decisions **0**; open DB blockers **0** — computed, not declared | ✅ (§13 arithmetic table). Supersedes row 92 |
-| 126 | **Stale-statement sweep**: "no migration `112`", "`111_5H4` is the current project head", "1,640", "598", "32 groups", "zero open handoffs", "all 8 rows", "one authorized migration" and "exactly one migration" occur in this document **only** where labelled historical, superseded or pass-scoped. Every ticket ID from `FAR-P1-01` to `FAR-P3-07` and `FAR-OD-01` to `FAR-OD-04` is present | ✅ (§16.4) |
+| 125 | **Issue ledger**: 26 rows (6 P1, 9 P2, 7 P3, 1 blocker, 3 OD rows); 4 owner decisions; **open P0 / P1 / P2 / P3 = 0 / 0 / 0 / 0**; unresolved owner decisions **0**; open DB blockers **0** — computed, not declared | ✅ (§13 arithmetic table). Supersedes row 92. *(Historical — `112_5H5`-pass tally.)* ***Superseded by row 143***: **31** rows, **5** owner decisions, still 0 / 0 / 0 / 0 open |
+| 126 | **Stale-statement sweep**: "no migration `112`", "`111_5H4` is the current project head", "1,640", "598", "32 groups", "zero open handoffs", "all 8 rows", "one authorized migration" and "exactly one migration" occur in this document **only** where labelled historical, superseded or pass-scoped. Every ticket ID from `FAR-P1-01` to `FAR-P3-07` and `FAR-OD-01` to `FAR-OD-04` is present | ✅ (§16.4). ***Extended by row 144*** to the `FAR-OD-05`-pass patterns and to `FAR-P1-07`, `FAR-P2-10`, `FAR-P2-11`, `FAR-P3-08` and `FAR-OD-05` |
 | 127 | **Repository hygiene at master-FAR close**: no `__pycache__`, `*.pyc` or `*.pyo`; no temporary script or SQL harness in the repository; no pending-placeholder marker; no new to-do marker introduced by the `112` pass | ✅ (§16.4) |
 | 128 | **Disposable `112` validation containers** `far112_runner`, `far112_incr` and `far112_fresh` removed; network `far112_net` removed only if exclusive and unused; **no unrelated container touched** | ✅ — see the cleanup record in §16.4 |
 | 129 | **No forbidden next-phase artifact**: no `API-MASTER-INDEX.md`, `AUTHORIZATION-MATRIX.md`, `ERROR-CATALOG.md` or `API-VERSIONING-STRATEGY.md`; no application code; no OpenAPI output; the next phase not started | ✅ — `find` count = **0** (§16.4) |
-| 130 | This pass declares **no** phase, document or migration APPROVED or FROZEN, including `112_5H5` and this document. Nothing was committed, stashed or reset | ✅ (§0, §14, §17) |
+| 130 | This pass declares **no** phase, document or migration APPROVED or FROZEN, including `112_5H5` and this document. Nothing was committed, stashed or reset | ✅ (§0, §14, §17). ***Re-affirmed for the `FAR-OD-05` pass by row 145*** |
+
+**Rows 131–145 — added by the `FAR-OD-05` last contract remediation pass (2026-09-17).** These rows are **contract and static-evidence** gates. None of them asserts a live execution of the capacity runtime: the runtime does not exist yet, so every runtime expectation below is recorded as an **implementation-readiness contract**, kept separate from the **DB-validated** gates (rows 1–97, 101–115) that were executed against PostgreSQL 18 during the `112_5H5` pass.
+
+| # | Final acceptance criterion (`FAR-OD-05` pass) | Evidence — class |
+|---|---|---|
+| 131 | **`FAR-OD-05` is resolved and applied as OPTION A**: `CONCURRENT_CALLS` is the organization's **total admitted simultaneous call capacity across both directions**. With this, **all five** owner decisions are RESOLVED / APPLIED — `FAR-OD-01` = Option B, `FAR-OD-02` = Option B, `FAR-OD-03` = Option B, `FAR-OD-04` = ADMISSION → TERMINAL, `FAR-OD-05` = Option A — and **unresolved owner decisions = 0** | ✅ **Contract** — §0 Document Control; §10B heading; §10B.10; §13 owner-decision rows; 6K §54.6; 5H capacity-scope sub-subsection. Supersedes row 93 |
+| 132 | **The inbound admission point is the EXISTING provider-driven one — no new public endpoint was invented.** The canonical point is `POST /webhooks/voice/{provider_slug}/events` → Telephony ACL `process_inbound_webhook` → `CallApplicationService.initiate_call` step 2 `ConcurrentCallQuotaNotExceeded` (frozen 4B §14.1). There are therefore **three** admission points — direct outbound `POST /calls`, campaign-originated outbound dispatch, and inbound provider-originated — not "two outbound" | ✅ **Contract** — 6D §42.3b, §10.4 ("No new public endpoint is added"); 6K §54.4, §54.6; §10B.10 admission-point table and the proof that the point is pre-existing. Supersedes rows 116, 121 |
+| 133 | **Inbound and outbound share ONE organization-level capacity pool.** `CONCURRENT_CALLS = 10` does **not** mean "10 outbound plus unlimited inbound". No separate inbound pool, no separate campaign tenant pool, no direction-specific quota and no reserved or priority slots exist in V1. The campaign sub-ceiling remains a **narrower** ceiling inside the same pool, never an additional pool | ✅ **Contract** — 6K §54.6 consequences table; 6H §54.9; 6M §67.10; 6D §42.4; §10B.10; row 119 |
+| 134 | **Fractional post-admission arithmetic (`FAR-P1-07`)**: ADMIT **iff `(occupied + 1) <= effective_hard_limit`**; REFUSE **iff `(occupied + 1) > effective_hard_limit`**. `hard_limit` is `NUMERIC(18,4)` and is compared **as stored** — no rounding, no `FLOOR`, no `CEIL`, no integer coercion. The pre-`FAR-OD-05` form `occupied < hard_limit` appears only where labelled historical or superseded | ✅ **Contract** — §10B.11; 6K §54.5 rule 2; 5H `FAR-P1-07` sub-subsection; 6H §54.2 step 5 (`remaining < 1`). **No SQL change**: `112_5H5` never executed the defective predicate |
+| 135 | **Fractional boundary — 0.5000**: `hard_limit = 0.5000` with `occupied = 0` **REFUSES**, because `0 + 1 = 1.0000 > 0.5000`. A sub-unit allowance admits **no** call; it never rounds up to one | ✅ **Contract** — §10B.11 boundary matrix row 3; 6K §54.5 rule 2; 5H boundary case 3 |
+| 136 | **Fractional boundary — 1.5000**: `hard_limit = 1.5000` with `occupied = 0` **ADMITS** (`1.0000 <= 1.5000`) and with `occupied = 1` **REFUSES** (`2.0000 > 1.5000`) — exactly **one** concurrent call, never two. The integer cases `2.0000 / 1 → admit` and `2.0000 / 2 → refuse` are preserved unchanged | ✅ **Contract** — §10B.11 boundary matrix rows 1–2 and 4–5; 6K §54.5 rule 2; 5H boundary cases 1–2, 4–5 |
+| 137 | **Final-slot competition is direction-agnostic and atomic.** When the last slot is contested — two outbound, one inbound + one outbound, or two inbound — the capacity authority serializes the acquisitions so that **exactly one** acquisition succeeds and the other is refused at the limit; the losing side follows its own direction's exhausted-capacity behaviour. The full capacity test matrix (5 fractional boundary cases, 3 concurrency cases, 5 replay / idempotence cases) is recorded as expectations | ✅ **Implementation-readiness contract, explicitly NOT executed** — 6K §54.14; §10B.10 final-slot paragraph; §10B.14. The capacity runtime is not implemented; **no live execution is claimed** and no `FAR_113` evidence exists |
+| 138 | **Capacity source literal is `PLATFORM_CAPACITY_OVERRIDE` (`FAR-P2-10`)**, as returned by `billing.fn_resolve_effective_capacity_quota` (migration `112_5H5.sql` line 435). The **usage**-domain literal `PLATFORM_OVERRIDE`, returned by `billing.fn_resolve_effective_quota`, is **correct and unchanged** — exactly the two capacity-domain occurrences were corrected and **no global replacement** was performed | ✅ **Static evidence + contract** — §10B.12; 6K §54.2; 5H capacity-resolver box; `grep` of `112_5H5.sql` line 435. SQL unchanged |
+| 139 | **Master-document `ACTIVE_AGENTS` arithmetic corrected (`FAR-P2-11`)**: effective source is **`billing.fn_resolve_effective_quota(organization_id, 'ACTIVE_AGENTS')`**, and a create or clone is **REFUSED iff `(counted + 1) > hard_limit`** where `hard_limit IS NOT NULL`; `NULL` = explicitly uncapped. The stale normative forms `billing.quota_configs.hard_limit` and `counted >= hard_limit` remain only where labelled historical or superseded. DRAFT + PUBLISHED counted, DEPRECATED excluded, `deleted_at IS NULL`, advisory-lock serialization, raw-`INSERT` revocation and the identical create / clone guard are all preserved | ✅ **Contract** — §10.4, §10.5; §13 `FAR-P2-11` row. 6E §30.4 already carried the correct arithmetic and needed **no** edit; `voice.fn_assert_agent_quota_admission()` in `111_5H4` is unchanged |
+| 140 | **`FAR-P3-08` is closed by controlled erratum, not by a code edit.** The `112_5H5.py` wrapper docstring wording ("NULL `hard_limit` still meaning overage-allowed") is terminology-only and does **not** alter the executed SQL; the erratum states that in the **CAPACITY** domain `NULL` means **EXPLICITLY UNCAPPED**, not billable overage, and that `CONCURRENT_CALLS` is not metered usage, rated usage, invoice overage or billable overage. **`112_5H5.py` is byte-identical** and **no migration `113` was created** | ✅ **Static evidence + contract** — 6K §54.13; 5H erratum sub-subsection; `5K/MIGRATION_MANIFEST.md` controlled-errata section; §10B.13. Hash `fb53b23a…e238`, 12,673 B, 214 lines — unchanged (row 101) |
+| 141 | **The affected handoff item was reclassified and the ledger recalculated from the rows, not assumed.** The single 6K §54.6 entry split into the **normative inbound admission invariant → CLOSED** and the **provider-facing decline / busy / fallback signalling → IMPLEMENTATION-READINESS**: 85 → **86** non-`DEP` entries, 213 → **214** unique items, CLOSED 105 → **106**, FUTURE 84 → **83**, RELEASE-TRAIN **4**, IMPLEMENTATION-READINESS 20 → **21**, **BLOCKER = 0**, non-closed **108** (coincidentally unchanged). No `DEP-*` item changed class and no item was deleted | ✅ **Recomputed** — §9.1, §9.3, §9.4, §9.5, **§9.6**; §11.2 Σ row; §13 `FAR-P2-06` row. 106 + 83 + 4 + 21 + 0 = **214**. Supersedes rows 122–123 |
+| 142 | **This pass created and edited no migration and ran no new database validation.** `112` SQL files and `112` Alembic files; single head `112_5H5`; linear chain `109_5B7 → 110_5C2 → 111_5H4 → 112_5H5`; **no `113`**; both `112_5H5` hashes re-verified byte-identical; the PostgreSQL 18 fresh and incremental evidence from the `112_5H5` pass is **reused, not rerun**, and no container was created | ✅ **Static evidence** — §16.5. Clean separation: rows 1–115 are **DB validated**; rows 131–141 and 143–145 are **contract / static** |
+| 143 | **Issue ledger recomputed from the actual rows**: **32** rows = 7 P1 + 12 P2 + 8 P3 + 1 DB blocker + 4 owner-decision rows; the owner-decision **class** counts **5** (`FAR-OD-01` is recorded in §10B and §0 without a standalone ledger row). **Open P0 / P1 / P2 / P3 = 0 / 0 / 0 / 0**, unresolved owner decisions **0**, open DB blockers **0** — computed, not declared | ✅ **Recomputed** — §13 arithmetic table and per-class table. Supersedes rows 92 and 125 |
+| 144 | **Extended stale-claim sweep**: every current normative occurrence of `occupied < hard_limit`, `counted < hard_limit`, `counted >= hard_limit`, `billing.quota_configs.hard_limit`, `PLATFORM_OVERRIDE`, "inbound capacity future", "outbound-only", "two outbound admission points", "overage-allowed", "no migration `112`" and "`111_5H4` current head" was classified as **(A) historical / superseded**, **(B) current and correct** or **(C) stale current claim** — and **zero category-C matches remain**, including backticked and spaced operator spellings. Every ticket ID `FAR-P1-01`…`FAR-P1-07`, `FAR-P2-01`…`FAR-P2-12`, `FAR-P3-01`…`FAR-P3-08`, `FAR-DB-01` and `FAR-OD-01`…`FAR-OD-05` is present | ✅ **Static evidence** — §16.5 sweep table. Extends row 126 |
+| 145 | **This pass declares nothing APPROVED and nothing FROZEN** — not `112_5H5`, not any Phase 5 or Phase 6 document, not this document. Repository hygiene holds (no `__pycache__`, `*.pyc`, `*.pyo`, `@@PENDING@@`), the four forbidden next-phase artifacts remain absent, no implementation code and no OpenAPI output were produced, and **nothing was committed, stashed or reset** | ✅ **Static evidence** — §16.5 hygiene, forbidden-artifact and git-audit blocks; §17. Re-affirms rows 127, 129, 130 |
+| 146 | **The route extraction was rerun with the EXACT previously recovered extractor, unmodified, AFTER every document edit of this pass**, and the actual figures were recorded rather than the previous totals preserved. Current: **1,697** raw / **595** literal / **448** semantic / **56** collision groups / **31** literal-variance. The pre-pass state (`4fb80ea`) reproduces **1,683 / 595 / 448 / 55 / 31** exactly under the same run, proving the delta comes only from this pass's edits. The **literal set and the semantic set are identical** across the two runs (symmetric difference empty in both dimensions), so **no route and no new spelling of a route was introduced**. The collision-group **set** diff is **one added, zero removed**, with **zero** docs-set changes and **zero** literal-spelling changes on the 55 inherited groups. The one added group — `POST PUBLIC /webhooks/voice/{param}/events`, documents 6D and 6K, single literal spelling `POST /webhooks/voice/{provider_slug}/events` — is **adjudicated, not suppressed**: 6D owns and declares the route (6D lines 404, 2052), 6K now cites it (6K lines 3752, 3801) as the transport preceding the existing in-process inbound admission point, and carried **zero** occurrences of it at `4fb80ea`. Class **B** (canonical owner + consumer reference), **not** Class E, **not** a new endpoint. Arithmetic re-summed: A 0 + B 43 + C 3 + D 7 + E 0 + FP 3 = **56** | ✅ **Static evidence** — §1, §1.1, §2.1 row 56, §2.2, §2.3; supersedes the route figures in rows 2, 50, 120 and 121 |
+| 147 | **`FAR-P2-12` — lower-capacity behaviour is direction-neutral.** 6D §42.5 no longer refuses only "new `POST /calls` and new campaign acquisitions". The corrected contract refuses **all new capacity acquisitions** at **all three** admission points of the single organization-level pool — **inbound provider-originated** (§42.3b), **direct outbound** `POST /api/v1/calls` (§42.2) and **campaign-originated outbound** (§42.3) — until enough existing reservations are released for `(occupied + 1) <= effective hard_limit` to hold again (`FAR-P1-07`, 6K §54.5 rule 2). Inbound, direct outbound and campaign admission therefore all obey the **same tenant-wide capacity authority**, and **no direction is exempt** after a lowered base quota or an **expired override**. **Existing admitted calls in every direction are not terminated**: no provider call is acted on, no `voice.call_sessions` row is mutated, no reservation is revoked — capacity returns only as reservations are released at the §42.4 counted lifetime's end. The campaign `concurrency_policy` remains a **campaign sub-ceiling** only. **No new endpoint**, **no provider-specific inbound signalling** (that stays 6K §54.6 implementation-readiness), **no database or runtime change is claimed**, `FAR-OD-04` / `FAR-OD-05` unchanged, migrations 001–112 untouched, **no `113`**. The extractor was rerun unmodified after the edit: **1,697 raw / 595 literal / 448 semantic / 56 groups / 31 variance** — **identical in every dimension to the pre-edit state**, so this correction introduced **no route** | ✅ **Static evidence** — 6D §42.5; §10B.15; §13 row `FAR-P2-12`; §16.6 |
 
 ---
 
@@ -1519,15 +1784,22 @@ The full PostgreSQL validation and the DB batteries were **not** run again at cl
     vs behavioural instances, `NOW()` as transaction timestamp, two mislabelled probe columns, two
     first attempts pointed at the wrong target, cumulative fixture state, owner-run cases and disposable
     single-node containers. Report §4 ("not claimed") also stands. The capacity **runtime**
-    (reservation acquire/release) is **IMPLEMENTATION-READINESS**, not implemented. Inbound admission
-    is **FUTURE**. The SIP trunk is **V1 RELEASE-TRAIN** (§10B.4, §11).
+    (reservation acquire/release) is **IMPLEMENTATION-READINESS**, not implemented. ~~Inbound admission
+    is **FUTURE**.~~ *(Historical — `112_5H5` pass. **Superseded by `FAR-OD-05` = Option A**: the inbound
+    admission **contract** is normative and CLOSED (§10B.10, §17); only provider-specific busy / reject /
+    fallback **signalling** remains IMPLEMENTATION-READINESS.)* The SIP trunk is **V1 RELEASE-TRAIN**
+    (§10B.4, §11).
 15. **Report verdict.** Report §3 rows 1–12: **all PASS**. Report §7 submits for independent review and
     does not approve, accept or freeze anything.
-16. **API-side closure measured by this document.** Routes 1,683 raw / 595 literal / 448 semantic /
-    55 collision groups / 31 multi-spelling, same extractor and matcher, collision set unchanged, zero
-    Class E (§1.1, §15 rows 120–121). Handoffs 213 classified, **0 blocking**, 108 open and disclosed
-    (84 FUTURE, 4 RELEASE-TRAIN, 20 IMPLEMENTATION-READINESS) (§15 rows 122–123). Ledger 26 rows,
-    **0 open** (§13).
+16. **API-side closure measured by this document — *as measured at the `112_5H5` close*.**
+    ~~Routes 1,683 raw / 595 literal / 448 semantic / 55 collision groups / 31 multi-spelling … Handoffs
+    213 classified, **0 blocking**, 108 open and disclosed (84 FUTURE, 4 RELEASE-TRAIN, 20
+    IMPLEMENTATION-READINESS) … Ledger 26 rows, **0 open**.~~
+    ***Superseded by the `FAR-OD-05` pass (§16.5, §17):*** routes **1,697** raw / **595** literal /
+    **448** semantic / **56** collision groups / **31** multi-spelling, same extractor rerun unmodified,
+    one Class-**B** group added and zero removed, zero Class E (§1.1, §2.1 row 56, §15 row 146). Handoffs
+    **214** classified, **0 blocking**, **108** open and disclosed (**83** FUTURE, **4** RELEASE-TRAIN,
+    **21** IMPLEMENTATION-READINESS) (§9.6, §15 row 141). Ledger **31** rows, **0 open** (§13, §15 row 143).
 17. **Disposable infrastructure — cleanup at close (actual record).** Before: `far112_runner` (Exited 255,
     `python:3.11-slim`, network `far112_net`, bind mount of the repository) and `far112_incr` /
     `far112_fresh` (Exited 255, `pgvector/pgvector:pg18`, network `far112_net`, one anonymous volume
@@ -1564,12 +1836,298 @@ The full PostgreSQL validation and the DB batteries were **not** run again at cl
 
 ---
 
+### 16.5 `FAR-OD-05` last contract remediation pass — static evidence only (2026-09-17)
+
+> **SCOPE — THIS SUBSECTION IS STATIC EVIDENCE. NO DATABASE WAS STARTED, MIGRATED OR QUERIED BY THIS PASS.**
+> No PostgreSQL 18 container was created. No fresh run, no incremental run, no object dump, no battery
+> was executed. The live database evidence that this document relies on is the evidence already recorded
+> in **§16.3** (`111_5H4`) and **§16.4** (`112_5H5`); it is **reused, not re-run**, because nothing in the
+> repository contradicts it — migrations `001`–`112` are byte-unchanged, and this pass edited **documentation
+> only**. Every check below is a filesystem, hash, inventory, text or `git` check. Where this subsection and
+> §16.4 differ as a description of the current repository, **this subsection governs**; §16.4's *database*
+> findings are not superseded and are not restated as if re-executed.
+
+**1. Migration `112_5H5` is byte-identical to the `112_5H5` pass (re-verified this pass).**
+
+| File | SHA-256 | Size | Lines | Result |
+|---|---|---|---|---|
+| `docs/phase-05-database-design/5K/migrations/112_5H5.sql` | `6c3c0e0c546ccfa845822e94781193f6a5516a0176de0ec3bd24449b1abfdb53` | **38,635 B** | 744 | ✅ **UNCHANGED** — identical to §16.4 |
+| `docs/phase-05-database-design/5K/alembic/versions/112_5H5.py` | `fb53b23ae715060fcffa987ee03b7411ae72f252f574e7ab8cd4241925f0e238` | **12,673 B** | 214 | ✅ **UNCHANGED** — identical to §16.4 |
+
+Both hashes match the values recorded before this pass began. **`112_5H5.py` was deliberately not edited**,
+including at line 142, whose "overage-allowed" wording is closed by controlled erratum (`FAR-P3-08`, §10B.13)
+rather than by a code change — which is precisely why the hash above had to stay stable.
+
+**2. Migration inventory, chain and head — unchanged.**
+
+| Check | Command basis | Result |
+|---|---|---|
+| SQL migration files | `ls 5K/migrations/*.sql \| wc -l` | **112** |
+| Alembic revision files | `ls 5K/alembic/versions/*.py \| wc -l` | **112** |
+| Revisions parsed | `revision =` across all 112 wrappers | **112** distinct |
+| Alembic heads | revisions never named as another file's `down_revision` | **exactly 1 → `112_5H5`** |
+| Terminal chain | `109_5B7 → 110_5C2 → 111_5H4 → 112_5H5` | ✅ linear, no branch, no merge point |
+| Migration `113` | `ls` on both directories, prefix `113` | **0 files — none created** ✅ |
+| Migrations `001`–`112` | modified-path list from `git status --short` | **none appears — zero migrations touched** ✅ |
+
+**3. Repository hygiene.**
+
+| Check | Result |
+|---|---|
+| `__pycache__` directories | **0** |
+| `*.pyc` / `*.pyo` | **0** |
+| `@@PENDING@@` placeholders | **0 real placeholders.** The single textual match is inside §15 row 145, where the token is quoted as part of the hygiene rule itself |
+| Newly created implementation code | **none** — no `.py` outside `5K/alembic/versions/`, and none created there |
+| OpenAPI / schema output | **none generated** |
+
+**4. Forbidden next-phase artifacts — still absent.**
+
+| File | State |
+|---|---|
+| `API-MASTER-INDEX.md` | **ABSENT** ✅ |
+| `AUTHORIZATION-MATRIX.md` | **ABSENT** ✅ |
+| `ERROR-CATALOG.md` | **ABSENT** ✅ |
+| `API-VERSIONING-STRATEGY.md` | **ABSENT** ✅ |
+
+None was started, stubbed, outlined or referenced as existing.
+
+**5. `git` audit — actual output of this pass.**
+
+```
+$ git log --oneline -1
+4fb80ea final api changes
+
+$ git status --short
+M  docs/phase-05-database-design/5H-Billing-Usage-Schema.md
+M  docs/phase-05-database-design/5K/MIGRATION_MANIFEST.md
+M  docs/phase-06-api-design/6D-Voice-Call-Agent-APIs.md
+M  docs/phase-06-api-design/6H-Campaign-APIs.md
+M  docs/phase-06-api-design/6K-Billing-Usage-APIs.md
+M  docs/phase-06-api-design/6M-Admin-Platform-APIs.md
+MM docs/phase-06-api-design/FINAL-API-RECONCILIATION.md
+
+$ git diff --cached --stat | tail -1
+ 7 files changed, 938 insertions(+), 134 deletions(-)
+
+$ git diff --stat | tail -1          # unstaged: this document only
+ 1 file changed, <n> insertion(s)(+), <m> deletion(s)(-)
+```
+
+**7 modified paths, 7 staged, 0 untracked, 0 deleted, 0 renamed, 0 created.** *(Historical — as first
+recorded in the `FAR-OD-05` pass:)* ~~7 modified paths, **0 staged**, shown with unstaged ` M` markers.~~
+**Corrected by the final static-closure sweep:** all seven paths are now in the index (`M ` in the
+staging column). `FINAL-API-RECONCILIATION.md` shows `MM` because the final-closure corrections to §17
+and to this subsection are not staged; that unstaged diffstat is deliberately **not** pinned to a number
+here, because the block would otherwise invalidate itself on its own next edit. Staging is **not** a content change — `HEAD` is still `4fb80ea`,
+`git stash list` is empty, and no `commit`, `stash` or `reset` was executed at any point; the staged
+diff is byte-identical in content to what the previous audit described as unstaged. Every one is a
+documentation file already named in the §12.5 change register. `6E-AI-Agent-APIs.md` is **not** in the
+list: it was inspected for stale Agent-quota arithmetic (§43.3's superseded sentence carries its own
+`111_5H4` amendment blockquote, and §43.4b already states the corrected `(counted + 1) <= hard_limit`
+form), found correct, and therefore **not edited**. Nothing was committed, stashed or reset.
+
+**6. Extended stale-claim sweep — every current normative occurrence classified.**
+
+Search corpus: the **eight** documents in scope (5H, `5K/MIGRATION_MANIFEST.md`, 6D, 6E, 6H, 6K, 6M and
+this document). **The line range of this subsection §16.5 is excluded from every count**, because the
+Pattern column below contains the search strings themselves; counting them would inflate every row.
+Counts are **per matching line**; the raw occurrence count is given separately where a line carries the
+pattern more than once.
+
+Classification, applied per line by reading the match in context:
+
+- **(A)** — the line is struck through, is explicitly labelled historical / superseded / pass-scoped, or
+  quotes the pattern only in order to correct it (an amendment row, a ledger finding, a controlled note,
+  or the sweep list itself).
+- **(B)** — the line asserts the pattern as a **current** statement **and the assertion is correct**.
+- **(C)** — the line asserts the pattern as a current statement **and the assertion is stale**.
+  **Zero category-C matches may remain.**
+
+| Pattern (regular expression, case-insensitive where marked) | Lines | Raw occ. | (A) | (B) | (C) | Basis |
+|---|---|---|---|---|---|---|
+| `occupied\s*`?\s*<\s*`?\s*(hard_limit\|effective…)` — deliberately tolerant of the backticked and spaced spelling `` occupied `<` `hard_limit` `` | 9 | 9 | 9 | 0 | **0** | Every line states that this **pre**-admission form is wrong and is superseded by `(occupied + 1) <= effective_hard_limit` (5H, manifest Row 112 errata, 6K §54.5 / §54.12, §10B.11, §10B.13) |
+| `counted\s*`?\s*<\s*`?\s*hard_limit` | 1 | 1 | 1 | 0 | **0** | The one line is §10B.13's own sweep list |
+| `counted\s*`?\s*>=\s*`?\s*hard_limit` | 7 | 7 | 7 | 0 | **0** | Each is an "an earlier revision compared …, which is wrong" statement or a `FAR-P1-02` / `FAR-P2-11` correction (6E §43.4b, 6K §52.3a, §10.4's correction box ×2, `FAR-P2-11` ledger row, §10B.13 ×2) |
+| `v_active\s*`?\s*>=\s*`?\s*v_hard_limit` | 4 | 4 | 4 | 0 | **0** | Manifest Row 110 narrative ×2 and §10B.9 / `FAR-P1-02` ledger row ×2 — all four state that the condition **was** wrong and is replaced by `(v_active + 1) > v_hard_limit` |
+| `billing\.quota_configs\.hard_limit` | 15 | 15 | 9 | 6 | **0** | **(B) ×6** are correct current references to the **column's type and meaning** — `NUMERIC(18,4)`, `106_5H3.sql` — which neither `111_5H4` nor `112_5H5` changed (manifest Row 110 ×2, 6E §43.4b, 6K §52.3a, 6K §54.5, `FAR-P1-02` ledger row). **(A) ×9** are the superseded "resolved directly from `quota_configs`" source statements, each carrying an in-place `111_5H4` amendment or an explicit cross-reference to the section that carries it — 6E §43.3's `AMENDED BY 111_5H4` blockquote, the two 6E lines that cite §43.3 (`DEP-6E-20` row and the `fn_create_agent` call-sequence comment), 6K §52.2's in-paragraph *(Amended by `111_5H4`, §53 …)*, manifest **Row 110**'s object table (superseded by **Row 111** object 5: "admission now resolves the **effective** quota through object 3 instead of reading `billing.quota_configs` directly"), §10.4's correction box, the `FAR-P2-11` ledger row, §10B.13 ×2. None of the nine states admission **arithmetic**; all nine concern the **source**, closed by `FAR-OD-02` in the `111_5H4` pass |
+| `PLATFORM_OVERRIDE` (the exact token; `PLATFORM_CAPACITY_OVERRIDE` does not contain it) | 28 | 34 | 10 | 18 | **0** | **(B) ×17** are correct current statements about the **USAGE** resolver `billing.fn_resolve_effective_quota`, which genuinely returns `PLATFORM_OVERRIDE` (5H §…, manifest ×3, 6E §43.3, 6K §53.2 and §54.2's contrast sentence, 6M ×2, and this document's domain table, live `FAR_111_02` / `FAR_112_03` evidence and gate rows). **(A) ×9** are `FAR-P2-10` correction lines that quote the wrong capacity-domain literal in order to correct it. **No global replacement was performed**, exactly as required: exactly **two** capacity-domain occurrences were stale and both were corrected (5H's `fn_resolve_effective_capacity_quota` subsection, 6K §54.2). *(Recount, final static closure: +1 (A) and +1 (B) — §17's `FAR-P2-10` bullet quotes the wrong capacity literal to correct it, and its companion line states that `PLATFORM_OVERRIDE` remains correct in the USAGE domain.)* |
+| `outbound[- ]only` *(case-insensitive)* | 8 | 8 | 4 | 4 | **0** | **(B) ×3** are correct current: 6D §10.5's "capacity admission … is **not** outbound-only", 6H §54.1's `FAR-OD-05` extension note, and 6H §54.9's campaign sub-ceiling, which **is** outbound-only by construction because a campaign never receives inbound calls. **(A) ×4** describe the narrowing that `FAR-OD-05` reversed (§10B.10, §12.5 register, `FAR-OD-05` ledger row, §10B.13). *(Recount, final static closure: +1 (B) — §17's "it is **not** an outbound-only budget".)* |
+| `two\s+\**outbound\**\s+admission\s+points` *(case-insensitive)* | 5 | 5 | 5 | 0 | **0** | All five are supersession statements: 6D §42.4's struck paragraph, 6K §54.12's "no longer current", 6K §54.12's amendment row, gate row 116's strike, §10B.13 |
+| `overage-allowed` *(case-insensitive; the identifier `overage_allowed` is a different token and is out of scope)* | 8 | 8 | 8 | 0 | **0** | Every line is part of the `FAR-P3-08` erratum chain, which states that the phrase is borrowed from the USAGE domain and is wrong for CAPACITY (5H, manifest errata, 6K §54.12 and §54.13, §10B.8, the `FAR-P3-08` ledger row, §10B.13 ×2) |
+| `inbound[^.]{0,120}(FUTURE\|not enforced\|out of scope\|neither admitted nor refused)` *(case-insensitive)* | 17 | 22 | 12 | 5 | **0** | **(B) ×4** are correct current statements: three **negative findings** recorded this pass ("no such statement exists in this document" — 5H's amendment table, 6H §54.9, 6M §67.10) and §10B.10's normative inbound row, which states what **is** admitted. **(A) ×11** are struck or explicitly historical (manifest Row 112 errata, 6D §42.4, 6K §54.6 and §54.12, §9.6's before-column, §9.6's reclassification table, §10A.4, the `FAR-OD-05` ledger row, gate row 121's superseded claim, §10B.13). *(Recount, final static closure: +1 (B) — §17's "the inbound capacity **contract** is now **CLOSED**" — and +1 (A) — §17's struck ~~"Inbound admission is **FUTURE**"~~.)* |
+| ``no\s+\**migration\**\s+`?112`` *(case-insensitive)* | 16 | 16 | 16 | 0 | **0** | Every line is struck, carries a `FAR-P3-05` / `FAR-OD-03` controlled note naming `112_5H5`, or is a gate row explicitly marked *(Historical — `111` state)* and superseded (manifest ×3, 6M ×3, this document ×10 incl. gate rows 89 and 126 and §16.3 item 8) |
+| ``111_5H4`?[^.]{0,60}current\s+(single\s+\|project\s+)?head`` *(case-insensitive)* | 12 | 13 | 9 | 3 | **0** | **(A) ×9** each carry a controlled note or strike naming `112_5H5` as the current single head (6E §43.13 + its note, 6M §66.7 + its note, 6M §67's amendment table, the `FAR-P3-05` ledger row ×2, gate row 126, §10B.13, §16.4's struck head-chain paragraph). **(B) ×3** are **pattern false positives** whose sentences in fact name `112_5H5` as the head (6M §66's controlled note, §14.1's head-chain answer, §16.4's "`110_5C2` and `111_5H4` are ancestors of the current head") |
+| **Total** | **130** | **142** | **94** | **36** | **0** ✅ | 94 + 36 = **130** matching lines |
+
+> **Recount erratum — final static closure.** The table above was first tallied as **125 / 137 / 92 (A) / 33 (B) / 0 (C)**.
+> Re-running all **twelve** patterns mechanically over the eight in-scope documents, under this subsection's own
+> stated exclusion rule (**only the §16.5 line range is excluded**), now yields **130 / 142 / 94 / 36 / 0**. The
+> difference is exactly **five lines** in **§17**, which was extended after the first tally: three are **(B)** correct
+> current statements and two are **(A)** correction or struck-historical lines, itemised in the three affected rows.
+> The counts were recomputed from the matching rows, **not** forced to the previously recorded figure. **Category C is
+> unchanged at 0**, which is the binding result.
+
+**Result: zero category-C matches.** No stale current normative claim about capacity arithmetic, capacity
+direction, capacity source literal, Agent-quota arithmetic, migration head or migration inventory remains
+in any document in scope. The two categories that carry current assertions — (B) 33 lines — were each
+read in context and are correct as written.
+
+**7. What this pass did *not* do.**
+
+- Did **not** create, edit or delete any migration, and did **not** create `113`.
+- Did **not** rerun PostgreSQL 18 fresh or incremental validation, and did **not** create `FAR_113`
+  evidence or any other new evidence transcript.
+- Did **not** edit the raw `FAR_112_01/02/03` evidence transcripts for prose consistency.
+- Did **not** edit `112_5H5.sql` or `112_5H5.py`.
+- Did **not** produce implementation code or OpenAPI output.
+- Did **not** claim live execution of any capacity-runtime test: §10B.14, 6K §54.14 and §15 row 137 all
+  state explicitly that the capacity runtime is **not implemented** and the matrix is a contract to be
+  executed at build time.
+- Did **not** commit, stash or reset.
+
+---
+
+### 16.6 `FAR-P2-12` last static correction — static evidence only (2026-09-17)
+
+> **SCOPE — THIS SUBSECTION IS STATIC EVIDENCE. NO DATABASE WAS STARTED, MIGRATED OR QUERIED BY THIS PASS.**
+> No PostgreSQL 18 container was created; no fresh run, no incremental run, no object dump, no battery was
+> executed; no `FAR_113` evidence was created and no `FAR_112_01/02/03` raw transcript was edited. The live
+> database evidence remains the evidence already recorded in **§16.3** (`111_5H4`) and **§16.4** (`112_5H5`);
+> it is **reused, not re-run**, because migrations `001`–`112` are byte-unchanged and this pass edited
+> **documentation only** (two files). Every check below is a filesystem, hash, inventory, text or `git` check.
+
+**1. Migration integrity re-verified (unchanged by this pass).**
+
+| File | SHA-256 | Size | Lines | Result |
+|---|---|---|---|---|
+| `docs/phase-05-database-design/5K/migrations/112_5H5.sql` | `6c3c0e0c546ccfa845822e94781193f6a5516a0176de0ec3bd24449b1abfdb53` | 38,635 bytes | 744 | ✅ identical to the `FAR-OD-05` pass |
+| `docs/phase-05-database-design/5K/alembic/versions/112_5H5.py` | `fb53b23ae715060fcffa987ee03b7411ae72f252f574e7ab8cd4241925f0e238` | 12,673 bytes | 214 | ✅ identical to the `FAR-OD-05` pass |
+
+SQL migrations = **112**; Alembic revisions = **112**; root = `001_5B`; **single head = `112_5H5`**; migration `113`
+does **not** exist. Migration files modified by this pass = **0**; migration files created = **0**.
+
+**2. The single wording change (6D §42.5).**
+
+| | Text |
+|---|---|
+| **Before** (outbound-only, the `FAR-P2-12` finding) | "Only new `POST /calls` and new campaign acquisitions are refused until occupancy falls below the new limit (6K §54.8)." |
+| **After** (direction-neutral) | "Only **new capacity acquisitions** are refused (`REFUSED_AT_LIMIT`) until enough existing reservations have been released for the post-admission invariant `(occupied + 1) <= effective hard_limit` to hold again … This applies **equally** to all three admission points of the one organization-level pool (`FAR-OD-05` = Option A, §42.4): **inbound provider-originated admission** (§42.3b), **direct outbound `POST /api/v1/calls`** (§42.2), and **campaign-originated outbound admission** (§42.3). No direction is exempt, and no direction has reserved slots or priority …" |
+
+The four non-destructive guarantees already in §42.5 ("no in-progress call is terminated; no provider call is acted
+on; no `voice.call_sessions` row is mutated; no reservation is revoked") were **preserved verbatim**. No endpoint was
+added; no provider-specific inbound signalling was invented; provider busy / reject / fallback mechanics remain
+**IMPLEMENTATION-READINESS** (6K §54.6, §9.4).
+
+**3. Related-wording sweep across 6D / 6K / 6H / 6M / this document — Category C = 0.**
+
+Every current or historical passage matching `Only new POST /calls`, `new campaign acquisitions`, `new acquisitions`,
+`new capacity acquisitions`, `outbound-only` / `only outbound`, `lowering the limit`, `override expiry`, and every
+line where `inbound` co-occurs with an exemption phrase (`exempt`, `not subject`, `does not count`, `never counts`,
+`bypass`) was classified. (This subsection and §16.5's self-referential pattern listings are excluded from their own
+sweep, as §16.5 already states.)
+
+| Location | Wording | Category |
+|---|---|---|
+| 6D §42.5 (§42.5 body) | Corrected direction-neutral refusal contract at all three admission points | **B — current and correct** |
+| 6D §14 controlled note (line ~429) | "Capacity admission … is **not** outbound-only"; explicitly marks the outbound-only reading as **historical** | **B — current and correct** |
+| 6D §11 reconciliation note (line ~1493) | "inbound provider status callback" — authorization scope, not capacity | **B — unrelated to capacity direction** |
+| 6K §54.8 | "Only **new** acquisitions are refused (`REFUSED_AT_LIMIT`) until enough existing reservations are released" | **B — already direction-neutral before this pass; unchanged** |
+| 6K §54.9 | Scope-of-earlier-text supersession rows (`FAR-OD-05`, `FAR-P1-07`, `FAR-P2-10`, `FAR-P3-08`) | **A — historical, labelled** |
+| 6H §21.2 `FAR-OD-03` note (line ~1197) | Lowered / expired override is non-destructive; blocks only new acquisitions | **B — current and correct** |
+| 6H §21.2 `FAR-OD-05` extension (line ~1191) | Tenant-wide ceiling is total across **both directions** | **B — current and correct** |
+| 6H §54.5 | Lowering mid-campaign is non-destructive; campaign executor defers | **B — current and correct** |
+| 6H §54.5 (line ~2790) | Campaign sub-ceiling is "outbound-only by construction because a campaign never receives inbound calls" | **B — correct and *scoped to the campaign sub-ceiling only*, not to the tenant-wide pool** |
+| 6M | No lower-capacity / direction wording; Platform Admin override surface only | **B — no claim to correct** |
+| §10B.6 (this document) | "Only **new** acquisitions are refused … **\"New acquisitions\" is direction-neutral**" | **B — current and correct (strengthened this pass)** |
+| §10B.15 (this document) | Quotes the superseded 6D §42.5 sentence, explicitly labelled as what "**6D §42.5 was not**" | **A — historical, labelled** |
+| §13 `FAR-P2-12` ledger row | Quotes the superseded sentence as the raised finding | **A — historical, labelled** |
+| §15 row 147 | Quotes the superseded sentence as what 6D §42.5 "no longer" says | **A — historical, labelled** |
+| §17 (line ~2087) | "`CONCURRENT_CALLS` … is **not** an outbound-only budget" | **B — current and correct** |
+| §17 (line ~2051) | `FAR-P1-05` "fail-open on override expiry" — a different, closed P1 | **B — current and correct** |
+
+**Category A (historical / superseded, clearly labelled) = 4. Category B (current and correct) = 12.
+Category C (stale current contradiction) = 0.** No current normative sentence in any of the five documents implies
+that new **inbound** admission is exempt from the tenant-wide `CONCURRENT_CALLS` limit after a lowered limit or an
+override expiry. No unrelated wording cleanup was performed.
+
+**4. Route inventory re-extracted with the exact §1 extractor — unchanged by this pass.**
+
+| Metric | Before `FAR-P2-12` | After `FAR-P2-12` | Δ |
+|---|---|---|---|
+| Raw matches | 1,697 | **1,697** | 0 |
+| Distinct literal routes | 595 | **595** | 0 |
+| Distinct semantic routes | 448 | **448** | 0 |
+| Cross-document collision groups | 56 | **56** | 0 |
+| Literal − semantic variance | 31 | **31** | 0 |
+
+Literal-route set delta = **∅**; semantic-route set delta = **∅**. This was proved by a controlled A/B run: a
+scratchpad copy of 6D with §42.5 reverted to the pre-edit sentence extracts to exactly the same five numbers and the
+same route sets. The correction is prose inside an existing subsection and defines **no** endpoint. The extractor was
+re-run unmodified (Pass A literal / Pass B semantic, `PUBLIC` / `INTERNAL` prefix normalization, `(file, line,
+literal)` dedupe); it was validated against the documented `FAR-OD-05` pre-pass baseline `1683 / 595 / 448 / 55 / 31`
+before use, which it reproduces exactly. No new matcher was introduced and no count was forced.
+
+**5. Handoff ledger unchanged.**
+
+**214** unique items: **106** CLOSED, **83** FUTURE — NON-BLOCKING, **4** RELEASE-TRAIN, **21**
+IMPLEMENTATION-READINESS, **0** BLOCKER; **108** non-closed. `FAR-P2-12` is a wording correction inside an already
+CLOSED contract and registers **no** new handoff item, no reclassification and no new IMPLEMENTATION-READINESS entry:
+inbound provider-facing decline signalling was already recorded as IMPLEMENTATION-READINESS by the `FAR-OD-05` pass.
+
+**6. Repository state.**
+
+`API-MASTER-INDEX.md`, `AUTHORIZATION-MATRIX.md`, `ERROR-CATALOG.md` and `API-VERSIONING-STRATEGY.md` remain
+**absent** (0 occurrences each). No `__pycache__`, `*.pyc` or `*.pyo` anywhere in the repository. No real
+`@@PENDING@@` placeholder outside this document's own pattern listings. No implementation code and no OpenAPI output
+was produced. Files modified by this pass = **2** (`6D-Voice-Call-Agent-APIs.md`,
+`FINAL-API-RECONCILIATION.md`); files created = **0**; nothing was committed, stashed or reset.
+
+**7. What this pass did *not* do.**
+
+- Did **not** reopen the architecture, redesign `CONCURRENT_CALLS`, or change `FAR-OD-05` or `FAR-OD-04`.
+- Did **not** create, edit or delete any migration, and did **not** create `113`.
+- Did **not** start PostgreSQL, create a validation container, rerun fresh or incremental migrations, create
+  `FAR_113` evidence, or modify `FAR_112` raw evidence.
+- Did **not** introduce a new endpoint or invent provider-specific inbound signalling.
+- Did **not** start the API Master Index or any other next-phase artifact.
+- Did **not** produce implementation code or OpenAPI output.
+- Did **not** perform unrelated wording cleanup.
+- Did **not** commit, stash or reset.
+
+---
+
 ## 17. Result
 
-All **130** acceptance-gate checks pass (§15). They are:
+All **147** acceptance-gate checks pass (§15). The count is **derived from the table**, not carried
+forward as a target. They are:
 - the 60 checks carried forward from the `110_5C2` closure;
 - the 37 added by the `111_5H4` billing / quota-override closure (rows 61–97);
-- the **33** added by the `112_5H5` capacity-quota closure and this master-FAR closure (rows 98–130).
+- the 33 added by the `112_5H5` capacity-quota closure and the first master-FAR closure (rows 98–130);
+- the 16 added by the `FAR-OD-05` last contract remediation pass (rows 131–146);
+- the **1** added by the `FAR-P2-12` last static correction (row 147).
+
+*(Historical — first master-FAR close:)* ~~All **130** acceptance-gate checks pass (§15) — 60 + 37 + 33 (rows 98–130).~~
+
+Rows 131–146 are, in order: **131** `FAR-OD-05` = Option A applied; **132** the existing provider-driven
+inbound admission point, no new public endpoint; **133** one shared organization-level pool for both
+directions; **134** the fractional **post-admission** invariant (`FAR-P1-07`); **135** the `0.5000` boundary;
+**136** the `1.5000` boundary; **137** direction-agnostic atomic final-slot competition; **138** the capacity
+source literal `PLATFORM_CAPACITY_OVERRIDE` (`FAR-P2-10`); **139** the corrected master `ACTIVE_AGENTS`
+resolver and arithmetic (`FAR-P2-11`); **140** the `FAR-P3-08` controlled erratum with `112_5H5.py`
+unmodified; **141** the affected handoff reclassification and recalculated ledger; **142** no migration
+created or edited and no new database validation; **143** the recomputed issue ledger; **144** the extended
+stale-claim sweep with zero category-C; **145** nothing declared APPROVED or FROZEN, plus repository hygiene;
+**146** the final route re-extraction with the unmodified extractor and the collision-set delta.
+
+Row **147** is the `FAR-P2-12` last static correction: 6D §42.5's lower-capacity behaviour made
+direction-neutral across all three admission points, with the route extraction rerun unmodified and
+unchanged in every dimension (§10B.15, §16.6).
+
+Every row's Evidence column states its **class**, and the two classes are never mixed: rows 1–115 are
+**DB validated** against the live transcripts in §16.2, §16.3 and §16.4, while rows 116–130, 131–146 and 147 are
+**contract / static evidence** (row 142). **No gate in §15 claims live execution of any capacity-runtime
+test.** The capacity runtime is not implemented; rows 134–137 are labelled contract or
+implementation-readiness assertions, not transcripts, and no `FAR_113` evidence exists.
 
 Earlier rows that later passes overtook are scope-marked as historical and superseded, not deleted. Each carries a pointer to the row that replaces it.
 
@@ -1578,14 +2136,16 @@ Earlier rows that later passes overtook are scope-marked as historical and super
 **Current closure state (`112_5H5`, master-FAR close).**
 
 - **Ledger (§13):** FAR-P0 = **0**.
-  - FAR-P1: **6** raised, **0** open.
-  - FAR-P2: **9** raised, **0** open.
-  - FAR-P3: **7** raised, **0** open.
+  - FAR-P1: **7** raised, **0** open.
+  - FAR-P2: **11** raised, **0** open.
+  - FAR-P3: **8** raised, **0** open.
   - `DB-BLOCKER-FINAL-API-001`: **1** raised, **0** open.
-  - Owner decisions: **4**, **0** unresolved.
+  - Owner decisions: **5**, **0** unresolved.
+  - Ledger rows in §13: **31** (7 + 11 + 8 + 1 DB blocker + 4 owner-decision rows covering the 5 decisions).
 - **Tickets closed after the `111_5H4` pass:**
   - `FAR-P1-06`: closed by `112_5H5` plus controlled API amendments.
-  - `FAR-P2-06`: closed by the 213-item handoff classification.
+  - `FAR-P2-06`: closed by the handoff classification — 213 items at the `112_5H5` close, **214** after
+    the `FAR-OD-05` reclassification (§9.6); the evidence in its ledger row is updated with the counts.
   - `FAR-P2-07`: closed by the current exact route re-extraction.
   - `FAR-P2-08`: closed by `112_5H5` (NULL-safe predicates).
   - `FAR-P2-09`: closed as a controlled audit-contract extension.
@@ -1593,11 +2153,34 @@ Earlier rows that later passes overtook are scope-marked as historical and super
   - `FAR-P3-05`: head-supersession notes.
   - `FAR-P3-06`: `111_5H4` over-attribution corrected by record; frozen file untouched.
   - `FAR-P3-07`: controlled erratum for the mislabelled function set; raw evidence verbatim (§16.4 item 13).
-- **Routes (§1.1):** **1,683** raw, **595** literal, **448** semantic, **55** collision groups, **31**
-  multi-spelling. Same extractor and matcher. The 55-group set is unchanged, with zero Class E. Group 41
-  (`POST /calls`) now spans 6D, 6E, 6H, 6K and 6M.
-- **Handoffs (§9):** **213** unique items: 105 CLOSED, 84 FUTURE — NON-BLOCKING, 4 RELEASE-TRAIN,
-  20 IMPLEMENTATION-READINESS and **0 BLOCKER**. The result is **zero blocking handoffs**, not zero open
+- **Tickets closed by this `FAR-OD-05` pass:**
+  - `FAR-P1-07`: the fractional `CONCURRENT_CALLS` admission arithmetic. `occupied < hard_limit` is wrong
+    for `NUMERIC(18,4)`; every normative statement now reads `(occupied + 1) <= effective_hard_limit`,
+    compared **as stored**, with no rounding, `FLOOR`, `CEIL` or integer coercion.
+  - `FAR-P2-10`: the capacity source literal. Docs said `PLATFORM_OVERRIDE`; `112_5H5` returns
+    `PLATFORM_CAPACITY_OVERRIDE`. Exactly the two stale capacity-domain occurrences were corrected;
+    `PLATFORM_OVERRIDE` remains correct and untouched throughout the **USAGE** domain (§16.5).
+  - `FAR-P2-11`: this document's own stale normative `ACTIVE_AGENTS` wording. The effective source is
+    `billing.fn_resolve_effective_quota(organization_id, 'ACTIVE_AGENTS')` and admission **refuses** iff
+    `(counted + 1) > hard_limit`.
+  - `FAR-P3-08`: closed by **controlled erratum** (§10B.8, 6K §54.13, `5K/MIGRATION_MANIFEST.md` errata).
+    `112_5H5.py` is **not** edited and its hash is unchanged.
+- **Routes (§1.1):** **1,697** raw, **595** literal, **448** semantic, **56** collision groups, **31**
+  multi-spelling. The **same extractor was rerun unmodified** after all document edits; rerunning it against
+  `HEAD` (`4fb80ea`) reproduces the documented pre-pass baseline **1,683 / 595 / 448 / 55 / 31** exactly, so
+  the delta is attributable to this pass and to nothing else. Collision-set delta: **one group added, zero
+  removed** — `POST /webhooks/voice/{param}/events`, now cited by 6K §54.6 alongside its existing 6D owner,
+  adjudicated **Class B (canonical owner + consumer reference)**, owner **6D**. Literal and semantic symmetric
+  differences are otherwise empty. **Zero Class E** across all 56 groups. Group 41 (`POST /calls`) spans
+  6D, 6E, 6H, 6K and 6M.
+  *(Historical — first master-FAR close:)* ~~**1,683** raw … **55** collision groups.~~
+- **Handoffs (§9):** **214** unique items: **106** CLOSED, **83** FUTURE — NON-BLOCKING, **4** RELEASE-TRAIN,
+  **21** IMPLEMENTATION-READINESS and **0 BLOCKER**. The counts are recalculated from the ledger, not
+  forced to the previous totals. `FAR-OD-05` invalidated the item that classified inbound `CONCURRENT_CALLS`
+  enforcement as FUTURE: the inbound capacity **contract** is now **CLOSED** (FUTURE 84 → 83, CLOSED 105 →
+  106), while provider-specific inbound busy/reject/fallback **signalling** is split out and recorded as
+  **IMPLEMENTATION-READINESS** (20 → 21), which also adds the one new unique item (213 → 214).
+  *(Historical — first master-FAR close:)* ~~**213** unique items: 105 CLOSED, 84 FUTURE, 4 RELEASE-TRAIN, 20 IMPLEMENTATION-READINESS, 0 BLOCKER.~~ The result is **zero blocking handoffs**, not zero open
   handoffs. The **108** non-closed items are disclosed in §9.5 and §11. They are not future debt of any FAR
   ticket and are not hidden.
 
@@ -1638,14 +2221,57 @@ and `DEFERRED` / `TENANT_CALL_QUOTA_REACHED` for campaign dispatch.
 
 `FAR-OD-04` = ADMISSION → TERMINAL is recorded as an **API contract**:
 - one reservation per call, keyed by `voice.call_sessions.id`;
-- acquired once, idempotently, at outbound admission;
+- acquired once, idempotently, at **admission** — inbound or outbound, from the same pool
+  *(historical — this bullet read "at outbound admission" before `FAR-OD-05`)*;
 - released once, idempotently, on setup failure or on entry to a terminal state;
 - transfer and resume do not reacquire;
 - lowering the limit is non-destructive.
 
 6D §42 and 6H §54 consume the 6K §54 authority. The campaign sub-ceiling is a separate key. The capacity
-**runtime** is **IMPLEMENTATION-READINESS** and is **not** claimed implemented. Inbound admission is
-**FUTURE**. The SIP trunk is **V1 RELEASE-TRAIN** (§10B.4, §11).
+**runtime** is **IMPLEMENTATION-READINESS** and is **not** claimed implemented. *(Historical — superseded by
+`FAR-OD-05` below:)* ~~Inbound admission is **FUTURE**.~~ Inbound admission is now **normative and CLOSED**
+as a contract. The SIP trunk is **V1 RELEASE-TRAIN** (§10B.4, §11).
+
+`FAR-OD-05` = **Option A** is enforced as the owner decided. `CONCURRENT_CALLS` is the organization's
+**TOTAL admitted simultaneous call capacity**. It is **not** an outbound-only budget, and
+`CONCURRENT_CALLS = 10` does **not** mean "10 outbound plus unlimited inbound".
+
+- **One pool, all directions.** Direct outbound (`POST /api/v1/calls`), campaign-originated outbound and
+  inbound provider-originated calls all draw on the **same organization-level pool**, through the same
+  6K §54 capacity authority. With `hard_limit = 10`: 6 inbound + 4 outbound is full; at 10 inbound a further
+  outbound request is refused or deferred; at 8 outbound an inbound arrival needing 3 slots is admitted only
+  to the extent capacity actually exists.
+- **No sub-pools in V1.** No separate inbound pool, no separate campaign tenant pool, no direction-specific
+  quota, no reserved or priority slots. When inbound and outbound compete for the final slot, the capacity
+  authority **serializes acquisitions atomically** and exactly one wins; the loser is refused or deferred.
+- **Inbound admission point.** Proved from the frozen 4B §14.1 inbound flow rather than invented:
+  `POST /webhooks/voice/{provider_slug}/events` → Telephony ACL `process_inbound_webhook` →
+  `CallApplicationService.initiate_call(InitiateCall)` step 2 `ConcurrentCallQuotaNotExceeded`.
+  **No new public endpoint was added** (6D §10.4, §42.3b). Before an inbound provider-originated call is
+  admitted into an AI voice session the organization **must** acquire a `CONCURRENT_CALLS` reservation from
+  the same authority outbound uses. Available → admit. Exhausted → no further AI voice session is admitted.
+  Configuration absent → **fail closed**.
+- **Exhausted-capacity behaviour is direction-appropriate.** Direct outbound returns the existing
+  `429 QUOTA_EXCEEDED`; campaign dispatch is `DEFERRED` per 6H; inbound admits no further AI voice session.
+  **No public REST response was invented for a provider-driven inbound event.** Provider-specific busy /
+  reject / fallback signalling remains **IMPLEMENTATION-READINESS**; the admission invariant itself is
+  **fully normative**.
+- **Fractional arithmetic (`FAR-P1-07`).** ADMIT iff `(occupied + 1) <= effective_hard_limit`; REFUSE iff
+  `(occupied + 1) > effective_hard_limit`. Compared as stored in `NUMERIC(18,4)`, with no rounding, `FLOOR`,
+  `CEIL` or integer coercion. Boundary matrix: `1.5000 / 0` → **admit**; `1.5000 / 1` → **refuse**;
+  `0.5000 / 0` → **refuse**; `2.0000 / 1` → **admit**; `2.0000 / 2` → **refuse**. Atomic final-slot
+  acquisition evaluates the **post-admission** form of the invariant, not the pre-admission form.
+- **Three capacity states preserved.** Finite `hard_limit` → capped. `hard_limit IS NULL` → **explicitly
+  UNCAPPED**, which in the CAPACITY domain is **not** billable overage. **Zero rows** → configuration absent,
+  which **must not** fail open: `503 DEPENDENCY_UNAVAILABLE` with
+  `details.reason = CAPACITY_QUOTA_NOT_CONFIGURED`.
+- **`FAR-OD-04` is preserved unchanged** by this decision: one reservation per call, ADMISSION → TERMINAL,
+  released exactly once, never released merely on leaving `ACTIVE`, never reacquired on re-entry.
+- **Not claimed implemented.** The capacity **runtime** does not exist yet. The test matrix in §10B.14 and
+  6K §54.14 — five fractional boundary cases, three final-slot concurrency cases (outbound/outbound,
+  inbound/outbound, inbound/inbound) and five replay / idempotence cases — is an
+  **IMPLEMENTATION-READINESS contract to be executed at build time**. It was **not** executed by migration
+  `112_5H5` and no gate claims otherwise.
 
 Migration `112_5H5` was live-validated on PostgreSQL 18.6:
 - fresh `001 → 112` and incremental `111 → 112` both PASS;

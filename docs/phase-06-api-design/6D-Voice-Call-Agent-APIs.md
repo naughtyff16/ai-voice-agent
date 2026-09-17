@@ -406,6 +406,17 @@ There is no `POST /api/v1/calls/{call_id}/answer` — inbound-call answering is 
 | Tenant call observation | `/ws/v1/voice/calls/{call_id}` (§13, new) | Tenant JWT (query param or WS subprotocol, per 6A §27.2) | **Yes.** This is the channel a tenant's dashboard/supervisor UI connects to. |
 | Tenant call control | `/api/v1/calls/{call_id}/*` (§10.3) | Tenant JWT or API key | **Yes.** |
 
+> **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-05`, 2026-09-17) — see §42.3b and 6K §54.6.** The provider
+> callback row above is the **entry point** for an inbound call, not the admission decision. After the callback is
+> verified and de-duplicated, the Telephony ACL's `process_inbound_webhook` translates the provider event into an
+> `InitiateCall` command and dispatches it to 4B §14.1's `CallApplicationService.initiate_call`, whose step 2 is the
+> `ConcurrentCallQuotaNotExceeded` policy. **That use case is the canonical inbound capacity admission point**, and
+> under `FAR-OD-05` it must acquire a `CONCURRENT_CALLS` reservation from the same 6K §54 authority used by outbound
+> admission, before an inbound call is admitted into an AI voice session. **No new public endpoint is added**: the
+> classification in this table is unchanged, inbound answering remains a provider-driven event rather than a tenant
+> REST action (§10.3), and the provider-facing decline signalling when capacity is exhausted is an
+> implementation-readiness item of the Telephony ACL (6K §54.6), not a 6D route.
+
 The Anti-Corruption Layer boundary (4B §21) is restated as binding for 6D: every provider-specific field mapping (Exotel/Twilio/Telnyx wire format → `InitiateCall`/`AnswerCall`/`CallEnded` commands) lives in the Telephony ACL adapter, never in a 6D-designed endpoint handler or response model. 6D's REST/WS contracts are 100% provider-agnostic by construction — no endpoint in this document accepts or returns a provider-native field name.
 
 ### 10.5 Outbound Eligibility — What 6D Checks, What It Does Not
@@ -413,6 +424,12 @@ The Anti-Corruption Layer boundary (4B §21) is restated as binding for 6D: ever
 `POST /calls` runs three policies inline (4B §9, cheap, in-process, no external call): `AgentMustBePublished`, `ConcurrentCallQuotaNotExceeded` (reads `call_sessions` partial index `idx_cs_org_status WHERE status='ACTIVE'`, 5C §9.1 — an indexed count, not a live provider probe), `CallingWindowEnforced` (compares against `AgentVersion.calling_hours`, already in the Redis-cached snapshot). It does **not** run consent/suppression/DNC eligibility checks — per 4I §16.3, those are "checked at campaign dispatch (before the call), never during a turn" and belong to the Campaign Engine's `OutboundEligibilityService` (4I §6.2), a 6E+ concern. A tenant calling `POST /calls` directly (not via a campaign) is responsible for its own consent basis exactly as 4I §7.1's platform/organization responsibility boundary states — 6D does not fabricate a compliance gate this endpoint was never designed to own beyond what §20 requires.
 
 > **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-03`, 2026-09-16) — see §42.** `ConcurrentCallQuotaNotExceeded` no longer decides admission with the `idx_cs_org_status WHERE status='ACTIVE'` count described above. Admission is an atomic `AcquireCapacity(organization_id, CONCURRENT_CALLS, reservation_id = call_id)` against 6K §54's single capacity authority. The reservation is held from admission until the call reaches any frozen §11.1 terminal state, and is released on setup failure. The ACTIVE indexed count is retained, unchanged, as a reporting read only. The sentence above is kept as the historical text.
+>
+> **Extended by `FAR-OD-05` (2026-09-17).** The surface described in this subsection is **outbound** eligibility, and
+> that remains true of the consent / DNC discussion above. Capacity admission, however, is **not** outbound-only:
+> `CONCURRENT_CALLS` is one organization-level pool consumed by inbound provider-originated admission as well as by
+> `POST /calls` and campaign dispatch (§42.3b, §42.4, 6K §54.6). Any reading of this subsection as "capacity is
+> enforced only on `POST /calls`" is **historical** and no longer current.
 
 ---
 
@@ -1981,9 +1998,9 @@ With the document-control inconsistency corrected and no other open item remaini
 
 ---
 
-## 42. FINAL API RECONCILIATION CONTROLLED AMENDMENT — Concurrent-Call Capacity Admission (`FAR-OD-03`, Option B)
+## 42. FINAL API RECONCILIATION CONTROLLED AMENDMENT — Concurrent-Call Capacity Admission (`FAR-OD-03` Option B; `FAR-OD-04`; `FAR-OD-05` Option A)
 
-> **Status of this section.** A controlled amendment applied during the Final API Reconciliation pass under owner decision **`FAR-OD-03` = Option B** (database layer: migration **`112_5H5`**; contract of record: **6K §54**). §40's historical APPROVED / FROZEN status is not re-issued or altered by this section. No frozen text is deleted. The earlier statements are kept and scoped by controlled notes at §10.5, §27.2, §28.10, the end of §28.10a, §30.2, §31.2, §33, §36 and §40. This section adds **no** endpoint, request or response field, permission, top-level error code, call state or state transition.
+> **Status of this section.** A controlled amendment applied during the Final API Reconciliation pass under owner decisions **`FAR-OD-03` = Option B**, **`FAR-OD-04`** and **`FAR-OD-05` = Option A** (database layer: migration **`112_5H5`**; contract of record: **6K §54**). §40's historical APPROVED / FROZEN status is not re-issued or altered by this section. No frozen text is deleted. The earlier statements are kept and scoped by controlled notes at §10.5, §27.2, §28.10, the end of §28.10a, §30.2, §31.2, §33, §36 and §40. This section adds **no** endpoint, request or response field, permission, top-level error code, call state or state transition.
 
 ### 42.1 What changed and why
 
@@ -2023,6 +2040,45 @@ Admission happens **before** the provider is contacted, so a refusal never dials
 
 The Step 1–4 functions, dispatch states, grants and invariants of §28.10a and `099_5C1.sql` are unchanged.
 
+### 42.3b Inbound provider-originated admission (`FAR-OD-05`) — same authority
+
+`CONCURRENT_CALLS` is the organization's **total** admitted simultaneous call capacity. Inbound and outbound calls
+consume the **same** organization-level pool (6K §54.6). `CONCURRENT_CALLS = 10` does **not** mean "10 outbound plus
+unlimited inbound".
+
+**Admission point.** The inbound path is provider-driven, so **no public endpoint is added by this subsection**. The
+sequence is the one already frozen in 4B:
+
+1. The provider posts a call-started event to `POST /webhooks/voice/{provider_slug}/events` (§10.4). The Telephony ACL
+   verifies the provider-native signature and records the event in `webhooks.inbound_webhook_events`, idempotent on
+   `UNIQUE (organization_id, provider_slug, provider_event_id)`.
+2. The ACL translates the provider event into an `InitiateCall` command (4B §21) and calls
+   **`CallApplicationService.initiate_call(InitiateCall)`** (4B §14.1) — the same use case frozen 4B already uses for
+   both directions (`[*] --> INITIATED: InitiateCall (inbound webhook / outbound dial)`).
+3. Step 2 of that use case is the `ConcurrentCallQuotaNotExceeded` policy. **This is the canonical inbound capacity
+   admission point.**
+
+**Normative invariant.** Before an inbound, provider-originated call is admitted into an AI voice session, the
+organization **must** acquire a `CONCURRENT_CALLS` reservation from the **same** 6K §54 authority used by outbound
+admission, keyed by `reservation_id = call_id` (the canonical call-session ID):
+
+| `AcquireCapacity` result | Behaviour |
+|---|---|
+| `ADMITTED` / `ALREADY_HELD` | Admit. The inbound call proceeds into the AI voice session and holds exactly one reservation for the §42.4 counted lifetime. A redelivered provider event that resolves to the same `call_id` returns `ALREADY_HELD` and takes no second slot. |
+| `REFUSED_AT_LIMIT` | **Do not admit another AI voice session.** No call session is created for AI handling and no reservation is held. |
+| `REFUSED_NOT_CONFIGURED` (zero resolver rows) | **Fail closed — do not admit.** Absent configuration is never read as unlimited (6K §54.3 case B). |
+| `UNAVAILABLE` | **Fail closed — do not admit.** |
+
+**No public REST response is defined for this path**, because the callback is a provider delivery attempt, not a
+tenant request: §10.4's webhook-transport contract is unchanged, and refusal is a decision about admitting an AI voice
+session. The **provider-specific decline signalling** — busy, reject, provider-side fallback, voicemail hand-off or an
+equivalent — belongs to the Telephony ACL and to provider capability. It is not frozen by Phase 6 and is recorded as
+an **implementation-readiness** item (6K §54.6). It does not weaken the invariant above.
+
+**Final-slot competition.** When an inbound and an outbound acquisition compete for the last available slot, 6K §54.5
+rule 2 serializes them atomically and exactly one is admitted. There are no reserved inbound or outbound slots and no
+priority classes in V1.
+
 ### 42.4 Counted lifetime
 
 Owner-confirmed for this pass (6K §54.6), a reservation is held from **admission** until the call reaches **any** frozen §11.1 terminal state: `NO_ANSWER`, `CANCELLED`, `VOICEMAIL`, `TRANSFERRED`, `COMPLETED`, `FAILED`, `ABANDONED`. It is also released on setup failure (§42.2 step 3, §42.3). Every non-terminal state holds the slot. `ON_HOLD → ACTIVE` and `TRANSFERRING → ACTIVE` neither release nor re-acquire, so resuming a call or recovering from a failed transfer is never refused for capacity. No state is added, removed or renamed. Release is idempotent, and a duplicate provider callback or a repeated terminal CAS no-op (§30.2) cannot release twice.
@@ -2031,7 +2087,19 @@ Owner-confirmed for this pass (6K §54.6), a reservation is held from **admissio
 
 This is a **controlled reconciliation** of §10.5's ACTIVE-only predicate. That predicate could not both admit before dialing and keep a held or transferring call's slot. The `idx_cs_org_status WHERE status='ACTIVE'` indexed count is retained unchanged as a reporting / observability read and a reconciliation cross-check. It no longer decides admission.
 
-**Direction scope.** Only the two outbound admission points above take a slot. Inbound calls are neither admitted nor refused by `CONCURRENT_CALLS` in V1, which matches frozen 6D's enforcement surface (the policy ran only on `POST /calls`). Unlike the frozen ACTIVE count, however, in-progress inbound calls no longer reduce outbound headroom. Bringing inbound calls under capacity governance, including a provider-facing refusal behaviour, is registered as a future, non-blocking item (6K §54.6).
+**Direction scope (`FAR-OD-05` = Option A).** A slot is taken at **three** admission points drawing on **one**
+organization-level pool: inbound provider-originated admission through 4B §14.1's
+`CallApplicationService.initiate_call` (§42.3b), direct outbound `POST /api/v1/calls` (§42.2), and campaign-originated
+outbound dispatch through §28.10a's `InitiateOutboundCallUseCase` (§42.3). The counted lifetime above applies
+identically in both directions: admission → terminal, released exactly once on setup failure or on entry to a frozen
+§11.1 terminal state, with no release or re-acquire on `ON_HOLD → ACTIVE` or `TRANSFERRING → ACTIVE`. In-progress
+inbound calls therefore **do** consume outbound headroom, as they did under the frozen ACTIVE count.
+
+*(Historical — `112_5H5` pass, superseded by `FAR-OD-05` = Option A above:)* ~~Only the two outbound admission points above take a slot. Inbound calls are neither admitted nor refused by `CONCURRENT_CALLS` in V1 … Bringing inbound calls under capacity governance, including a provider-facing refusal behaviour, is registered as a future, non-blocking item.~~ **Inbound capacity enforcement is no longer a future item**, and no current statement in this document limits capacity to outbound admission.
+
+**Fractional limits.** Admission in either direction uses 6K §54.5 rule 2's post-admission invariant — admit iff
+`(occupied + 1) <= effective hard_limit`, compared as stored, with no rounding, `FLOOR`, `CEIL` or integer coercion
+(`FAR-P1-07`). `hard_limit` is `NUMERIC(18,4)`. 6D does not restate or re-derive that arithmetic; it consumes it.
 
 ### 42.5 Lowering the limit
 
@@ -2041,7 +2109,21 @@ When the effective `CONCURRENT_CALLS` limit falls below the occupied count, whet
 - no `voice.call_sessions` row is mutated;
 - no reservation is revoked.
 
-Only new `POST /calls` and new campaign acquisitions are refused until occupancy falls below the new limit (6K §54.8).
+Only **new capacity acquisitions** are refused (`REFUSED_AT_LIMIT`) until enough existing reservations have been
+released for the post-admission invariant `(occupied + 1) <= effective hard_limit` to hold again (6K §54.8,
+§54.5 rule 2). This applies **equally** to all three admission points of the one organization-level pool
+(`FAR-OD-05` = Option A, §42.4): **inbound provider-originated admission** (§42.3b), **direct outbound
+`POST /api/v1/calls`** (§42.2), and **campaign-originated outbound admission** (§42.3). No direction is exempt,
+and no direction has reserved slots or priority: capacity becomes available naturally as existing reservations are
+released at the §42.4 counted lifetime's end.
+
+This is true identically for a lowered base quota and for **expiry of a temporary override** (read-time, 6K §53.2):
+neither terminates an existing call in any direction; both block only new acquisitions.
+
+A refused **inbound** acquisition is not a tenant-facing HTTP error (§42.7): the provider-facing decline signalling
+remains Telephony-ACL implementation-readiness (6K §54.6) and no new endpoint is defined here. A campaign's local
+`concurrency_policy` remains only a **campaign sub-ceiling** beneath this tenant-wide authority (§42.3); it never
+raises, replaces or exempts a campaign from it.
 
 ### 42.6 Dependency ledger effect
 
@@ -2063,6 +2145,10 @@ No other §36 row changes. The following requirements belong to the capacity run
 | `hard_limit IS NULL` | — | admitted | — |
 
 §31.3's `QUOTA_EXCEEDED` `Retry-After` guidance applies unchanged.
+
+The table above governs the **tenant-facing** surfaces (`POST /calls`, and by reference the campaign path's internal
+deferral). The **inbound** path has no row in it by design: it is provider-driven, so a capacity refusal there is not
+an HTTP error to a tenant (§42.3b). The webhook-transport acknowledgement of §10.4 is unchanged.
 
 ### 42.8 Scope and evidence
 

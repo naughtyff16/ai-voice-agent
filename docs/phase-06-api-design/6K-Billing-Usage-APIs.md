@@ -3643,7 +3643,7 @@ Record: `docs/phase-05-database-design/5K/validation/FINAL_API_RECONCILIATION_11
   - anything else is refused (`P0001`).
 
   `EXECUTE` is granted to `app_platform_admin` only; `PUBLIC` and `app_api` are revoked. Usage-domain behaviour is **not** redefined by the dispatch.
-- **Resolver:** `billing.fn_resolve_effective_capacity_quota(p_organization_id, p_metric)`. It is `STABLE`, **`SECURITY INVOKER`** and has an explicit `search_path`. It returns `metric, soft_limit, hard_limit, unit_label, source, override_id, effective_from, expires_at`. The precedence and read-time expiry are those of §53.2: an active, non-superseded override (`source = 'PLATFORM_OVERRIDE'`), otherwise the current base row (`source = 'BASE'`). On expiry, resolution falls back to the **current** base. A tenant consumer reads its own effective capacity quota under its own grants and RLS, **without** Platform Admin privilege, and cannot read another tenant's.
+- **Resolver:** `billing.fn_resolve_effective_capacity_quota(p_organization_id, p_metric)`. It is `STABLE`, **`SECURITY INVOKER`** and has an explicit `search_path`. It returns `metric, soft_limit, hard_limit, unit_label, source, override_id, effective_from, expires_at`. The precedence and read-time expiry are those of §53.2: an active, non-superseded override (`source = 'PLATFORM_CAPACITY_OVERRIDE'` — the **capacity**-domain literal returned by `112_5H5`, deliberately distinct from the usage resolver's `PLATFORM_OVERRIDE` in §53.2), otherwise the current base row (`source = 'BASE'`). On expiry, resolution falls back to the **current** base. A tenant consumer reads its own effective capacity quota under its own grants and RLS, **without** Platform Admin privilege, and cannot read another tenant's.
 
 ### 54.3 The three resolution outcomes — zero rows is not unlimited
 
@@ -3651,7 +3651,7 @@ Record: `docs/phase-05-database-design/5K/validation/FINAL_API_RECONCILIATION_11
 |---|---|---|---|
 | **A** | one row, `hard_limit IS NULL` | **Explicitly uncapped.** A deliberate configuration decision recorded in a row. | Admit, subject to §54.5's reservation discipline. The reservation is still recorded so that release, reconciliation and `ReadCapacity` stay truthful. |
 | **B** | **zero rows** | **Capacity configuration absent.** No base row and no active override. | **Refuse — fail closed.** Never interpreted as unlimited. |
-| **C** | one row, finite `hard_limit` | **Capped** at `hard_limit`. | Admit only while occupied reservations `< hard_limit` (§54.5 rule 2). |
+| **C** | one row, finite `hard_limit` | **Capped** at `hard_limit`. | Admit only while the **post-admission** occupancy satisfies `(occupied + 1) <= hard_limit` (§54.5 rule 2). `hard_limit` is `NUMERIC(18,4)` and may be fractional; it is compared **as stored**, never rounded. |
 
 At the SQL layer, case B is a clean zero-row result, not an exception (FAR_112_02 §15). Refusing it is therefore a **consumer obligation**, and this section imposes it on every capacity consumer. For capacity, two usage-domain statements are **not inherited**:
 - §52.2's usage-domain "no effective hard_limit row … no hard stop";
@@ -3661,7 +3661,7 @@ At the SQL layer, case B is a clean zero-row result, not an exception (FAR_112_0
 
 ### 54.4 Single runtime admission authority
 
-6K is the **single owner** of runtime capacity admission. There is one authority per organization and metric, and every admitting path consumes it: 6D `POST /calls`, 6D's in-process `InitiateOutboundCallUseCase` (§28.10a), and 6H campaign dispatch. No consumer maintains its own tenant-wide count, reads `billing.quota_configs` directly to decide admission, or implements a private reservation algorithm.
+6K is the **single owner** of runtime capacity admission. There is **one** authority per organization and metric — a single organization-level pool — and every admitting path consumes it, in **both** directions (`FAR-OD-05`, §54.6): inbound provider-originated admission through 4B §14.1's `CallApplicationService.initiate_call`, 6D `POST /calls`, 6D's in-process `InitiateOutboundCallUseCase` (§28.10a), and 6H campaign dispatch. No consumer maintains its own tenant-wide count, reads `billing.quota_configs` directly to decide admission, or implements a private reservation algorithm.
 
 The conceptual ports are an in-process application boundary. They are not HTTP endpoints, and no route is added:
 
@@ -3678,7 +3678,36 @@ The conceptual ports are an in-process application boundary. They are not HTTP e
 The following rules are binding on any implementation. The storage and locking mechanism is an implementation choice and is deliberately not specified here: no application code and no Redis script are part of this contract.
 
 1. **Gauge, not counter.** The occupied value equals the number of currently held reservations. It must go down as well as up. A monotonic `INCR` without a paired release, as in 4F §13.4's `INCR usage:quota:{tenant_id}:CONCURRENT_CALLS`, is **prohibited** for this metric.
-2. **Atomic final-slot admission.** The comparison "occupied < effective `hard_limit`" and the recording of the new reservation are one atomic step. Two concurrent acquisitions competing for the last slot must not both be admitted: exactly one receives `ADMITTED` and the other `REFUSED_AT_LIMIT`. A read-then-compare-then-write sequence across separate steps does not satisfy this rule.
+2. **Atomic final-slot admission, evaluated on the post-admission occupancy.** The binding invariant is
+   **`ADMIT` iff `(occupied + 1) <= effective hard_limit`**, and **`REFUSE` (`REFUSED_AT_LIMIT`) iff `(occupied + 1) > effective hard_limit`**,
+   where `occupied` is the number of reservations held immediately before this acquisition. The evaluation of that
+   invariant and the recording of the new reservation are **one atomic step**. Two concurrent acquisitions competing
+   for the last slot must not both be admitted: exactly one receives `ADMITTED` and the other `REFUSED_AT_LIMIT`.
+   A read-then-compare-then-write sequence across separate steps does not satisfy this rule. This holds regardless of
+   the **direction** of the competing acquisitions — inbound vs outbound, outbound vs outbound, or inbound vs inbound
+   (§54.6); there are no reserved slots and no priority classes, so the authority serializes the acquisitions and the
+   loser is refused.
+
+   **Fractional limits are compared as stored.** `billing.quota_configs.hard_limit` and
+   `billing.capacity_quota_overrides.hard_limit` are `NUMERIC(18,4)`. The comparison applies **no** rounding, **no**
+   `FLOOR`, **no** `CEIL` and **no** integer coercion. The pre-admission form "`occupied < hard_limit`" is **wrong**
+   for a fractional limit and is superseded wherever it appears: with `hard_limit = 1.5000` and `occupied = 1`,
+   `1 < 1.5` would admit and leave `occupied = 2 > 1.5`, over-admitting against an explicitly configured ceiling.
+   This is the capacity-domain counterpart of the `ACTIVE_AGENTS` correction in §52.3a (`FAR-P1-02`), applied here as
+   `FAR-P1-07`.
+
+   **Normative boundary matrix.** Every implementation must reproduce exactly these outcomes:
+
+   | `effective hard_limit` | `occupied` (pre-admission) | `(occupied + 1)` | `(occupied + 1) <= hard_limit` | Result |
+   |---|---|---|---|---|
+   | `1.5000` | `0` | `1` | `1 <= 1.5000` → true | **`ADMITTED`** |
+   | `1.5000` | `1` | `2` | `2 <= 1.5000` → false | **`REFUSED_AT_LIMIT`** |
+   | `0.5000` | `0` | `1` | `1 <= 0.5000` → false | **`REFUSED_AT_LIMIT`** — a sub-unit limit admits **no** call; it is not rounded up to 1 |
+   | `2.0000` | `1` | `2` | `2 <= 2.0000` → true | **`ADMITTED`** |
+   | `2.0000` | `2` | `3` | `3 <= 2.0000` → false | **`REFUSED_AT_LIMIT`** |
+
+   Case A (`hard_limit IS NULL`, explicitly uncapped) does not evaluate this invariant at all; it admits and records
+   the reservation. Case B (zero rows) refuses before the invariant is reached (§54.3).
 3. **Reservation identity.** `reservation_id` is the canonical call-session ID, the same identifier 6D returns as `call_id` and that `InitiateOutboundCallUseCase` returns as `call_session_id`. It is never a request ID, an idempotency key or a random token.
 4. **Idempotent acquire.** A repeated `AcquireCapacity` for a `reservation_id` that is already held returns `ALREADY_HELD` and consumes no additional slot. This covers an HTTP `Idempotency-Key` replay that reaches the use case, a campaign dispatch replay that resolves to the same `call_session_id`, and a worker retry.
 5. **Idempotent release.** A repeated `ReleaseCapacity` returns `NOT_HELD` and never decrements a second time. A release for a `reservation_id` that was never admitted is likewise a no-op. The occupied value can never be driven below zero or below the true number of held reservations.
@@ -3693,7 +3722,7 @@ The following rules are binding on any implementation. The storage and locking m
 
    Postgres state is the source of truth, and the reservation store is reconciled **to** it, never the reverse. The grace period and reconciler cadence are runtime configuration values, like 6D's DEP-6D-05 timers, not API-contract values.
 9. **Fail closed on store failure.** If the reservation store or the resolver cannot be reached, `AcquireCapacity` returns `UNAVAILABLE` and the consumer **refuses**. Capacity is never granted by default because its authority is down.
-10. **One authority for 6D and 6H.** A slot acquired by a campaign dispatch and a slot acquired by `POST /calls` are drawn from the same per-organization gauge.
+10. **One authority for every direction and every consumer.** A slot acquired by an inbound provider-originated admission, a slot acquired by `POST /calls` and a slot acquired by a campaign dispatch are drawn from the **same** per-organization gauge. There is no separate inbound pool, no separate campaign pool and no direction-specific quota (`FAR-OD-05`, §54.6).
 
 ### 54.6 Counted lifetime — reconciled against the frozen 6D state machine
 
@@ -3710,16 +3739,68 @@ The terminal set is `NO_ANSWER, CANCELLED, VOICEMAIL, TRANSFERRED, COMPLETED, FA
 
 The owner resolved this ambiguity for this pass as **admission → terminal**. The frozen `status = 'ACTIVE'` indexed count is **retained** as-is, as a reporting and observability read and a reconciliation cross-check. It is no longer the admission decision. The reconciler's authoritative predicate is "non-terminal", taken from the same frozen terminal set.
 
-**Admission points and direction scope.** Per the owner answer, a slot is taken at exactly two admission points, both outbound: 6D `POST /calls`, and campaign dispatch through 6D §28.10a's `InitiateOutboundCallUseCase`. Inbound calls pass through neither point, so in V1 they are **neither admitted nor refused** by `CONCURRENT_CALLS` and hold no reservation. This matches frozen 6D's enforcement surface, where the policy ran only on `POST /calls` (6D §10.5), and no inbound refusal behaviour is defined anywhere in Phase 6. One thing does change: under the frozen ACTIVE-only count, an in-progress inbound call reduced the outbound headroom; under this contract it does not. The retained `idx_cs_org_status` reporting read still shows inbound ACTIVE calls. 4B §14.1 routes inbound `InitiateCall` through the same use case as outbound, so bringing inbound calls under capacity governance would require its own controlled amendment, which must define the provider-facing refusal behaviour. It is registered as a future, non-blocking item, not silently adopted.
+**Admission points and direction scope — `FAR-OD-05` = Option A (registered 2026-09-17).**
+
+> **Owner decision `FAR-OD-05` (binding).** `CONCURRENT_CALLS` is the organization's **TOTAL admitted simultaneous
+> call capacity**. It applies to **both** inbound and outbound calls. All directions consume the **same**
+> organization-level pool. `CONCURRENT_CALLS = 10` does **not** mean "10 outbound plus unlimited inbound".
+
+Under `FAR-OD-05` a slot is taken at **three** admission points, drawing on **one** organization-level pool:
+
+| # | Admission point | Direction | Surface |
+|---|---|---|---|
+| 1 | 4B §14.1 `CallApplicationService.initiate_call(InitiateCall)`, reached from `process_inbound_webhook` through the Telephony Adapter ACL (4B §21) after the provider callback `POST /webhooks/voice/{provider_slug}/events` is accepted and de-duplicated (6D §10.4) | **INBOUND** (provider-originated) | In-process. **No new public endpoint is defined**; inbound answering remains a provider-driven event, never a tenant REST action (6D §10.4). |
+| 2 | 6D `POST /api/v1/calls` | **OUTBOUND** (direct) | Public REST |
+| 3 | Campaign dispatch through 6D §28.10a's `InitiateOutboundCallUseCase` | **OUTBOUND** (campaign-originated) | In-process (6H §54) |
+
+This is the canonical inbound admission point, not an invented one: frozen 4B §14.1 already sites the
+`ConcurrentCallQuotaNotExceeded` policy at step 2 of `initiate_call`, and 4B routes inbound `InitiateCall`
+(`[*] --> INITIATED: InitiateCall (inbound webhook / outbound dial)`) through that same use case. `FAR-OD-05`
+therefore **restores** frozen 4B's direction-neutral behaviour rather than extending the enforcement surface with a
+new route.
+
+**Normative inbound admission invariant.** Before an inbound, provider-originated call is admitted into an AI voice
+session, the organization **must** acquire a `CONCURRENT_CALLS` reservation from the **same** authority defined in
+§54.4, under the same §54.5 semantics and the same §54.3 resolution outcomes:
+- capacity available (`(occupied + 1) <= hard_limit`, or case A uncapped) → **admit**, holding one reservation keyed
+  by the canonical call-session ID;
+- capacity exhausted (`REFUSED_AT_LIMIT`) → **do not admit another AI voice session**;
+- capacity configuration absent (case B, zero rows) or the authority unreachable (`UNAVAILABLE`) → **fail closed**;
+  do not admit.
+
+**Consequences, stated explicitly.** With `hard_limit = 10`: 6 inbound + 4 outbound means capacity is **full**, and
+the next call in either direction is refused. 10 inbound calls in progress means a request for 1 outbound call is
+refused (`429 QUOTA_EXCEEDED`) or, for campaign dispatch, deferred. With 8 outbound calls in progress, an inbound
+arrival may be admitted only against actually-available capacity. There is **no** separate inbound capacity pool,
+**no** separate campaign tenant-capacity pool, **no** direction-specific quota in V1, and **no** reserved or
+priority-classed slots: when an inbound and an outbound acquisition compete for the final slot, §54.5 rule 2
+serializes them atomically and exactly one wins.
+
+The retained `idx_cs_org_status` `status = 'ACTIVE'` read remains a reporting and reconciliation signal only (§54.6
+above) and is not the admission decision in either direction.
+
+**What remains implementation-readiness.** The **admission invariant above is fully normative and in force.** What is
+*not* frozen by this document is the **provider-specific signalling** used to decline an inbound call once admission
+is refused — busy/486, reject, provider-side fallback, voicemail hand-off or an equivalent — because that behaviour
+belongs to the Telephony ACL and to provider capability, and no existing Phase-6 contract defines it. It is recorded
+as **IMPLEMENTATION-READINESS**, not as a future capability gap, and it does **not** weaken the invariant: an
+organization at capacity must not have another AI voice session admitted, whatever signalling the adapter uses. No
+public REST response is invented for a provider-driven inbound event.
+
+*(Historical — `112_5H5` pass, superseded by `FAR-OD-05` = Option A above:)* ~~Per the owner answer, a slot is taken at exactly two admission points, both outbound: 6D `POST /calls`, and campaign dispatch through 6D §28.10a's `InitiateOutboundCallUseCase`. Inbound calls pass through neither point, so in V1 they are **neither admitted nor refused** by `CONCURRENT_CALLS` and hold no reservation. … Bringing inbound calls under capacity governance … is registered as a future, non-blocking item, not silently adopted.~~ The italicised strike is retained for auditability; **inbound capacity enforcement is no longer a future item**, and the statement that only two outbound admission points consume capacity is **no longer current**.
 
 ### 54.7 Error mapping — no new top-level code
 
-| Condition | Synchronous surface (`POST /calls`) | Campaign dispatch (6H) |
-|---|---|---|
-| At limit (`REFUSED_AT_LIMIT`, case C) | `429 QUOTA_EXCEEDED` (§36; 6D §27.2), `details.metric = "CONCURRENT_CALLS"` | Not dispatched this tick. The contact is `DEFERRED` / retried under 6H's existing internal reason `TENANT_CALL_QUOTA_REACHED`. No client error. |
-| Capacity configuration absent (case B) | `503 DEPENDENCY_UNAVAILABLE`, `details.reason = "CAPACITY_QUOTA_NOT_CONFIGURED"`, `details.metric = "CONCURRENT_CALLS"` | Not dispatched. Fail closed, `DEFERRED`, never `ELIGIBLE` by default (6H §21.3). |
-| Reservation store or resolver unreachable (`UNAVAILABLE`) | `503 DEPENDENCY_UNAVAILABLE`, `details.reason = "CAPACITY_AUTHORITY_UNAVAILABLE"` | Not dispatched. Fail closed, `DEFERRED` (6H §21.3). |
-| `hard_limit IS NULL` (case A) | Admitted; no error | Admitted by the tenant ceiling; the campaign sub-ceiling still applies |
+| Condition | Direct outbound (`POST /calls`) | Campaign dispatch (6H) | Inbound provider admission (`FAR-OD-05`) |
+|---|---|---|---|
+| At limit (`REFUSED_AT_LIMIT`, case C) | `429 QUOTA_EXCEEDED` (§36; 6D §27.2), `details.metric = "CONCURRENT_CALLS"` | Not dispatched this tick. The contact is `DEFERRED` / retried under 6H's existing internal reason `TENANT_CALL_QUOTA_REACHED`. No client error. | **No further AI voice session is admitted.** No public REST response exists for this path — the callback is a provider event, not a tenant request. The provider-facing decline signal is IMPLEMENTATION-READINESS (§54.6). |
+| Capacity configuration absent (case B) | `503 DEPENDENCY_UNAVAILABLE`, `details.reason = "CAPACITY_QUOTA_NOT_CONFIGURED"`, `details.metric = "CONCURRENT_CALLS"` | Not dispatched. Fail closed, `DEFERRED`, never `ELIGIBLE` by default (6H §21.3). | **Fail closed — not admitted.** Never treated as unlimited. |
+| Reservation store or resolver unreachable (`UNAVAILABLE`) | `503 DEPENDENCY_UNAVAILABLE`, `details.reason = "CAPACITY_AUTHORITY_UNAVAILABLE"` | Not dispatched. Fail closed, `DEFERRED` (6H §21.3). | **Fail closed — not admitted.** |
+| `hard_limit IS NULL` (case A) | Admitted; no error | Admitted by the tenant ceiling; the campaign sub-ceiling still applies | Admitted; the reservation is still recorded (§54.3 case A) |
+
+The webhook-transport acknowledgement of `POST /webhooks/voice/{provider_slug}/events` is governed by frozen 6D
+§10.4 and is **not** redefined here: capacity refusal is a decision about admitting an **AI voice session**, not an
+HTTP status for the provider's delivery attempt.
 
 `DEPENDENCY_UNAVAILABLE` is the existing cross-cutting code, reused exactly as 6D §27.1 ("Category B reuse, not a new code") and 6H §11.2 (`details.reason = "COMPLIANCE_POLICY_NOT_FOUND"`) already reuse it. `CAPACITY_QUOTA_NOT_CONFIGURED` and `CAPACITY_AUTHORITY_UNAVAILABLE` are **`details.reason` values**, not error codes. A missing configuration is not presented as `429`, because the tenant cannot remediate it by waiting or by ending a call. It is a platform provisioning gap, and it is surfaced as such.
 
@@ -3746,6 +3827,10 @@ Only **new** acquisitions are refused (`REFUSED_AT_LIMIT`) until enough existing
 | §36 `429 QUOTA_EXCEEDED` | Unchanged code. For `CONCURRENT_CALLS` it now means `REFUSED_AT_LIMIT` from `AcquireCapacity`. |
 | 4F §13.4 `CONCURRENT_CALLS` counter pseudo-flow (GET → compare → `INCR`, no release) | **Superseded for `CONCURRENT_CALLS`** by §54.5 rules 1–2. Phase 4 is not edited. |
 | 6D DEP-6D-09 (COUNT → compare race) | **CLOSED — superseded** by §54.5 rule 2 (6D §42). |
+| Any earlier statement in this document, in 6D §42.4 or in the Final API Reconciliation that capacity is taken at "exactly two outbound admission points", that inbound calls are "neither admitted nor refused" in V1, or that inbound capacity governance is a **future** item | **Superseded by `FAR-OD-05` = Option A (§54.6).** Capacity is one organization-level pool consumed by inbound admission, direct outbound and campaign outbound alike. Struck text is retained for auditability and is **historical**, not current. |
+| Any earlier statement of the admission comparison as "occupied `<` `hard_limit`" | **Superseded by `FAR-P1-07`** (§54.5 rule 2): `ADMIT` iff `(occupied + 1) <= hard_limit`, compared as stored. |
+| Any statement that the capacity resolver reports `source = 'PLATFORM_OVERRIDE'` | **Corrected by `FAR-P2-10`** (§54.2): the capacity resolver returns `PLATFORM_CAPACITY_OVERRIDE`. The **usage** resolver's `PLATFORM_OVERRIDE` (§53.2) is unchanged and correct; the two literals are intentionally different. |
+| Any statement, in this document or in the `112_5H5` Alembic wrapper's prose, that a `NULL` `hard_limit` means "overage-allowed" for **capacity** | **Corrected by `FAR-P3-08`** (§54.13). In the capacity domain `NULL` means **explicitly uncapped**, never billable overage. |
 
 ### 54.10 Security scope (`FAR-P3-04` wording)
 
@@ -3781,8 +3866,71 @@ Live on **PostgreSQL 18.6**, disposable containers only:
 | ACL / RLS | PASS |
 | Audit atomicity, including `ROLLBACK` | PASS |
 
-**The reservation runtime of §54.4–§54.6 is an API contract and is not implemented or live-tested in this pass.**
+**Scope of the evidence above.** Every row in that table is a **database** result, executed live against disposable
+PostgreSQL 18.6 containers by the `112_5H5` pass. It covers the capacity vocabulary predicate, the override table and
+its lifecycle, the resolver, the three resolution outcomes including the zero-row case, domain separation, ACL / RLS
+and audit atomicity.
+
+**The reservation runtime of §54.4–§54.6 is an API contract and is not implemented or live-tested in this pass.** No
+row above, and no case in §54.14, may be cited as live-executed runtime evidence. The `FAR-OD-05` inbound admission
+path, the post-admission fractional arithmetic of §54.5 rule 2 and the reservation ports of §54.4 are
+**implementation-readiness contracts**; migration `112_5H5` neither implements nor exercises them.
 
 Record: `docs/phase-05-database-design/5K/validation/FINAL_API_RECONCILIATION_112_VALIDATION_REPORT.md`, with transcripts `FAR_112_01_migration_integrity.txt`, `FAR_112_02_capacity_quota_battery.txt` and `FAR_112_03_cross_domain_security_regression.txt`. Schema contract: `5H-Billing-Usage-Schema.md` (112 controlled amendment). Manifest: `5K/MIGRATION_MANIFEST.md` Row 112. Consumers: 6D §42, 6H §54, 6M §67.
 
 Migrations `001`–`111` are unchanged, **`112_5H5` is the single project head**, and there is no `113`.
+
+### 54.13 Controlled erratum — `NULL` `hard_limit` across the two domains (`FAR-P3-08`)
+
+The `112_5H5` **Alembic wrapper** (`5K/alembic/versions/112_5H5.py`) contains, in its descriptive prose, the phrase
+"`NULL` `hard_limit` still meaning overage-allowed". Applied to the **capacity** domain that wording is wrong. The
+file is **frozen and is not edited**: its hash must remain stable, and its executed SQL behaviour is unaffected,
+because the phrase appears in a comment, not in a statement. The defect is therefore closed here, by controlled
+erratum, and mirrored in `5K/MIGRATION_MANIFEST.md`.
+
+| Domain | `hard_limit IS NULL` on the effective row means |
+|---|---|
+| **USAGE / ACCOUNTING** (the canonical 15 metrics, §53) | May correspond to **overage / no-hard-stop** semantics per the usage contract (§52.2, §53.2(3)). Usage is metered, rated and can be invoiced. |
+| **CAPACITY / ENTITLEMENT** (`CONCURRENT_CALLS`, §54) | **EXPLICITLY UNCAPPED** (§54.3 case A). It is **not** billable overage, and it is **not** a fallback for a missing configuration — a missing configuration is zero rows (case B) and fails closed. |
+
+`CONCURRENT_CALLS` is **not** metered usage, **not** rated usage, **not** invoice overage and **not** billable
+overage (§54.1, "Billable: no"). The wrapper's wording is a **terminology** defect only; it does not alter the SQL
+executed by `112_5H5.sql`, and no migration `113` is created to correct prose.
+
+### 54.14 Capacity implementation-readiness test matrix
+
+These cases define what an implementation of §54.4–§54.6 must satisfy before the capacity runtime can be accepted.
+They are **implementation-readiness contract cases**. They were **not** executed by migration `112_5H5`, and nothing
+in §54.12 claims otherwise — **the runtime is not implemented yet.**
+
+**A. Fractional admission arithmetic (`FAR-P1-07`).** Each case asserts the §54.5 rule 2 boundary matrix:
+
+| Case | `hard_limit` | `occupied` | Expected |
+|---|---|---|---|
+| A1 | `1.5000` | `0` | `ADMITTED` |
+| A2 | `1.5000` | `1` | `REFUSED_AT_LIMIT` |
+| A3 | `0.5000` | `0` | `REFUSED_AT_LIMIT` |
+| A4 | `2.0000` | `1` | `ADMITTED` |
+| A5 | `2.0000` | `2` | `REFUSED_AT_LIMIT` |
+
+**B. Final-slot concurrency — one post-admission slot available, all directions.**
+
+| Case | Competing acquisitions | Expected |
+|---|---|---|
+| B1 | two concurrent **outbound** acquisitions | exactly one `ADMITTED`, one `REFUSED_AT_LIMIT` |
+| B2 | one **inbound** and one **outbound** acquisition | exactly one `ADMITTED`, one `REFUSED_AT_LIMIT` — no reserved slot, no priority class (§54.6) |
+| B3 | two concurrent **inbound** acquisitions | exactly one `ADMITTED`, one `REFUSED_AT_LIMIT` |
+
+**C. Replay, release and lifecycle (`FAR-OD-04`, unchanged).**
+
+| Case | Action | Expected |
+|---|---|---|
+| C1 | `AcquireCapacity` twice for the same `call_id` | one reservation; the second returns `ALREADY_HELD`, no second slot |
+| C2 | `ReleaseCapacity` twice for the same call | one decrement; the second returns `NOT_HELD`, **no** double decrement |
+| C3 | setup fails after `ADMITTED` | the reservation is released exactly once (§54.5 rule 6) |
+| C4 | the call enters one of the seven frozen terminal states | the reservation is released exactly once (§54.6) |
+| C5 | `ON_HOLD → ACTIVE` resume, or `TRANSFERRING → ACTIVE` | the **same** reservation is retained; no release, no re-acquire |
+
+**D. Configuration outcomes.** Case B (zero rows) refuses in every direction; case A (`hard_limit IS NULL`) admits and
+still records the reservation; an unreachable store or resolver returns `UNAVAILABLE` and the consumer refuses
+(§54.5 rule 9).

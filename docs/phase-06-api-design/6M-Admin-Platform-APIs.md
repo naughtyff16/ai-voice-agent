@@ -941,9 +941,9 @@ Scope of the security result: **under normal SQL execution with the defined trig
 
 ---
 
-## 67. FINAL API RECONCILIATION CONTROLLED AMENDMENT — Capacity Quota Overrides and the Two Quota Domains (`FAR-OD-03`, Option B)
+## 67. FINAL API RECONCILIATION CONTROLLED AMENDMENT — Capacity Quota Overrides and the Two Quota Domains (`FAR-OD-03`, Option B; `FAR-OD-05`, Option A)
 
-> **Status of this section.** This is a controlled amendment in the same form as §66. No historical statement in this document is rewritten. Each statement that `112_5H5` makes inaccurate keeps its original text and gets a scope-marking note pointing here. The corrected contract is below. **Phase 6M is not reopened**: no route, method, permission, principal or error code is added.
+> **Status of this section.** This is a controlled amendment in the same form as §66. **Extended 2026-09-17 by owner decision `FAR-OD-05` = Option A** — the administered `CONCURRENT_CALLS` ceiling is the organization's total admitted simultaneous call capacity across **both** directions (§67.10). That decision changes **no** 6M route, DTO, permission, error code, store or resolver; it fixes the **meaning** of the number a Platform Admin sets. No historical statement in this document is rewritten. Each statement that `112_5H5` makes inaccurate keeps its original text and gets a scope-marking note pointing here. The corrected contract is below. **Phase 6M is not reopened**: no route, method, permission, principal or error code is added.
 
 Migration `112_5H5` (`down_revision = '111_5H4'`) is the sole carrier. Migrations `001`–`111` were not amended.
 
@@ -960,6 +960,8 @@ The two vocabularies are disjoint. `billing.quota_configs` remains the **shared*
 
 A capacity quota is a **gauge ceiling**: the maximum number of simultaneously held call slots. Runtime occupancy is not stored in any 6M-visible table. It belongs to 6K §54's single capacity authority, and 6M neither reads nor administers it.
 
+The gauge is **direction-neutral** (`FAR-OD-05`, §67.10): one slot is one admitted AI voice session, whether the call was placed by the platform or arrived from the provider. The Platform Admin sets one number per organization, and there is no direction, channel or origin dimension on `billing.capacity_quota_overrides`, `billing.quota_configs` or the resolver signature.
+
 ### 67.2 `FR-TEN-005` — both domains, one requirement
 
 `FR-TEN-005` ("per-tenant configurable quotas (agents, numbers, concurrent calls, storage, API rate)") spans both domains:
@@ -970,9 +972,9 @@ A capacity quota is a **gauge ceiling**: the maximum number of simultaneously he
 | numbers | USAGE | `ACTIVE_PHONE_NUMBERS` |
 | storage | USAGE | `STORAGE_GB` |
 | API rate | USAGE | `API_REQUESTS` |
-| concurrent calls | **CAPACITY** | `CONCURRENT_CALLS` |
+| concurrent calls | **CAPACITY** | `CONCURRENT_CALLS` — **all** admitted simultaneous calls of the organization, inbound **and** outbound (`FAR-OD-05`, §67.10) |
 
-All five dimensions are now representable as a Platform Admin override through the **same** route. `FR-TEN-005` remains **COVERED**, now without the concurrent-calls exception. The §66.4 "disclosed gap" paragraph and the gap sentence in the §51 `FR-TEN-005` row are **historical at `111_5H4`** and superseded by this section. They are left in place.
+All five dimensions are now representable as a Platform Admin override through the **same** route. `FR-TEN-005` remains **COVERED**, now without the concurrent-calls exception, and — after `FAR-OD-05` — with its "concurrent calls" dimension covering the tenant's **entire** simultaneous call load rather than only the calls the platform originates. The two-domain architecture is unchanged: `CONCURRENT_CALLS` remains the single CAPACITY metric and does **not** become a sixteenth USAGE metric. The §66.4 "disclosed gap" paragraph and the gap sentence in the §51 `FR-TEN-005` row are **historical at `111_5H4`** and superseded by this section. They are left in place.
 
 ### 67.3 `POST /api/v1/platform-admin/organizations/{organization_id}/quota-overrides` — one route, database-side dispatch
 
@@ -1039,7 +1041,9 @@ The three outcomes are **not** interchangeable with the usage domain's reading (
 
 The resolver is `STABLE` and **`SECURITY INVOKER`**, with `EXECUTE` granted to `app_api, app_worker, app_readonly, app_platform_admin`. A Platform Admin may resolve any organization. Every other caller may resolve only its own tenant: an unset `app.tenant_id` or a mismatched `p_organization_id` raises. A usage metric (for example `ACTIVE_AGENTS`), a legacy name or NULL raises rather than returning zero rows, and the usage resolver likewise rejects `CONCURRENT_CALLS`. **Tenant consumers never borrow Platform Admin privilege to read their own effective capacity quota**; they read it under their own grants and `rls_cqo_tenant`.
 
-The runtime consumers are 6D §42 (`POST /calls`) and 6H §54 (campaign dispatch), both through 6K §54's single capacity authority. 6M's own use is Platform Admin diagnostics only.
+The runtime consumers are **three**, all through 6K §54's single capacity authority: inbound provider-originated admission (6D §42.3b, reached from 4B §14.1's `CallApplicationService.initiate_call`), direct outbound 6D §42 (`POST /calls`), and 6H §54 campaign dispatch. They share **one** organization-level pool (`FAR-OD-05`, §67.10). 6M's own use is Platform Admin diagnostics only.
+
+> Outcome letters in the table above are local to this section. 6K §54.3 and `FINAL-API-RECONCILIATION.md` §10B.3 label the same three outcomes in a different order; the **semantics** are identical and are stated in full in each place.
 
 ### 67.6 Audit contract — `FAR-P2-09` controlled audit-contract extension
 
@@ -1084,6 +1088,10 @@ This section does **not** claim that `FORCE ROW LEVEL SECURITY` binds a superuse
 | §66.4 "Disclosed gap" | Concurrency ceiling not representable | **Closed** by the capacity domain (§67.1–§67.2). The usage vocabulary is still 15. `quota_configs.metric` is still unconstrained `TEXT`; that part of the gap is unchanged. |
 | §66.6 "Audit unchanged in shape and literal" | `resource_type = 'QUOTA_OVERRIDE'` | `QUOTA_OVERRIDE` is correct from `111_5H4` on, but it **changed** from `QUOTA_CONFIG` (§67.6, `FAR-P2-09`). |
 | §66.7 head ownership | "`111_5H4` is the current project head" | Historical. **`112_5H5`** is the current head (§67.9). |
+| §67.1 "gauge ceiling" | Maximum simultaneously held call slots | **Unchanged and direction-neutral.** Under `FAR-OD-05` the slots counted are every admitted AI voice session of the organization, inbound and outbound (§67.10). |
+| §67.2 `FR-TEN-005` "concurrent calls" | Representable as a capacity override | Still **COVERED**. The dimension now means all admitted simultaneous organization calls, both directions (§67.10). |
+| §67.5 consumer list | "6D §42 (`POST /calls`) and 6H §54" | **Superseded in scope:** three consumers, including inbound admission (6D §42.3b). The mechanism, resolver and grants are unchanged. |
+| Anywhere in this document | Inbound capacity enforcement described as unsupported, out of scope or future | **No such statement exists** — verified by search this pass. 6M has always administered a direction-neutral ceiling. |
 
 ### 67.9 Validation and head ownership
 
@@ -1101,6 +1109,28 @@ Live on **PostgreSQL 18.6**, disposable containers only:
 
 Record: `docs/phase-05-database-design/5K/validation/FINAL_API_RECONCILIATION_112_VALIDATION_REPORT.md`, with transcripts `FAR_112_01_migration_integrity.txt`, `FAR_112_02_capacity_quota_battery.txt` and `FAR_112_03_cross_domain_security_regression.txt`. Schema contract: 5H, controlled amendment `112_5H5`. Manifest: `5K/MIGRATION_MANIFEST.md` Row 112. Capacity runtime contract: 6K §54. Consumers: 6D §42, 6H §54.
 
-**The HTTP layer (request and response DTOs, the derived `quota_domain` field) and the 6K reservation runtime are API contracts only. They are not implemented or live-tested in this pass.**
+**The HTTP layer (request and response DTOs, the derived `quota_domain` field) and the 6K reservation runtime are API contracts only. They are not implemented or live-tested in this pass.** `FAR-OD-05` (§67.10) adds **no** new database evidence: it is a runtime-contract decision, it changed no SQL, and nothing in it may be cited as live-executed.
 
 **Head ownership.** `109_5B7` remains the frozen Phase-6M head as a matter of project history, and Phase 6M is not reopened. The progression is `109_5B7` → `110_5C2` → `111_5H4` → **`112_5H5` (current single project head)**, owned by the FINAL API RECONCILIATION pass (`FAR-OD-03` / `FAR-P1-06` / `FAR-P2-08`). There is no `113`.
+
+### 67.10 Directional scope of the administered ceiling — `FAR-OD-05` = Option A (registered 2026-09-17)
+
+> **Owner decision `FAR-OD-05` = Option A.** `CONCURRENT_CALLS` means the organization's **TOTAL** admitted simultaneous call capacity. It applies to **BOTH** inbound and outbound calls: direct outbound (`POST /calls`), campaign-originated outbound, and inbound provider-originated calls all consume the **same** organization-level pool. There is no separate inbound capacity pool, no separate campaign tenant-capacity pool, no direction-specific quota in V1, and no reserved inbound/outbound slots or priority classes; when inbound and outbound compete for the final slot, the capacity authority serializes acquisitions atomically.
+
+**What a Platform Admin is setting.** With `hard_limit = 10` for an organization:
+
+| Situation | Outcome |
+|---|---|
+| 6 inbound + 4 outbound in progress | Capacity is **full**. No further call of either direction is admitted. |
+| 10 inbound in progress, an outbound `POST /calls` arrives | The outbound call is **refused** (`429 QUOTA_EXCEEDED`) or, for campaign dispatch, **deferred**. |
+| 8 outbound in progress, an inbound arrival needing 3 slots | Only the capacity actually available may be admitted — here at most 2. |
+
+The platform must **not** read `CONCURRENT_CALLS = 10` as "10 outbound plus unlimited inbound".
+
+**What this changes in 6M.** Nothing structural. No route, method, DTO field, permission, principal, error code, audit literal, table, index, grant or resolver is added or altered. `billing.capacity_quota_overrides` gains no direction column, `112_5H5` is **not** modified, its hash is unchanged, and **no migration `113` was created**. The two-domain quota architecture of §67.1 is preserved exactly: USAGE (15 metrics, `billing.quota_overrides`, `billing.fn_resolve_effective_quota`, source literal `PLATFORM_OVERRIDE`) and CAPACITY (`CONCURRENT_CALLS` only, `billing.capacity_quota_overrides`, `billing.fn_resolve_effective_capacity_quota`, source literal **`PLATFORM_CAPACITY_OVERRIDE`**). The two source literals are deliberately distinct and neither is an alias for the other (`FAR-P2-10`).
+
+**Admission arithmetic (`FAR-P1-07`), for administrators reading the number they set.** `hard_limit` is `NUMERIC(18,4)` and may be fractional. Admission is evaluated **post-admission** by 6K §54.5 rule 2: **admit iff `(occupied + 1) <= hard_limit`**, compared **as stored** — never rounded, floored, ceiled or coerced to an integer. Consequences a Platform Admin should expect: `1.5000` admits exactly one call; `0.5000` admits **none** and is not rounded up to one; `2.0000` admits exactly two. 6M does not restate or re-derive that arithmetic — it is owned by 6K §54.5.
+
+**`NULL` `hard_limit` (`FAR-P3-08`).** On a capacity row, `hard_limit IS NULL` means **explicitly uncapped** (outcome A in §67.5). It is **not** billable overage, and it is **not** a stand-in for absent configuration — zero rows remain fail-closed (outcome B). `CONCURRENT_CALLS` is not metered usage, rated usage, invoice overage or billable overage; the USAGE-domain reading of `NULL` does not carry over.
+
+**Evidence scope.** `FAR-OD-05` is a **runtime admission contract**. The capacity runtime is not implemented, so no live capacity-runtime execution is claimed here or anywhere in this document. The implementation-readiness test matrix is 6K §54.14.

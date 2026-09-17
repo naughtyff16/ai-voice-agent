@@ -1187,6 +1187,8 @@ returns None if attempt_count >= max_attempts (caller transitions to EXHAUSTED i
 `ConcurrencyEnforcementService.check(current_campaign_live_calls, campaign.concurrency_policy, tenant_quota_result)` (4D §6.3) requires **both** to allow one more slot — a campaign configured for 50 concurrent calls is still capped at whatever the tenant's plan currently allows, and vice versa. 6H never duplicates the tenant number in a Campaign table — `concurrency_policy.max_concurrent_calls` is validated at `CreateCampaign`/`PATCH` time to be `≥ 1`, and *additionally*, at `StartCampaign` pre-flight (§13 of the endpoint group, i.e. `POST /campaigns/{id}/start`), checked against the tenant's current `CONCURRENT_CALLS` hard_limit — a campaign whose own ceiling already exceeds the tenant's plan is not rejected at creation (plans can change), but a pre-flight warning/soft-cap is applied: dispatch never exceeds `MIN(campaign ceiling, current tenant ceiling)` regardless of which was configured first.
 
 > **FINAL API RECONCILIATION CONTROLLED NOTE (`FAR-OD-03`, 2026-09-16) — see §54.** The "Tenant-wide ceiling" row's physical source and port are superseded for admission. The effective limit is resolved by `billing.fn_resolve_effective_capacity_quota` (`112_5H5`), and admission is 6K §54's single capacity authority, not `QuotaEnforcementService.check()` over `billing.quota_configs`. Both ceilings must still allow one more slot (§54.1–§54.2).
+>
+> **Extended by `FAR-OD-05` = Option A (2026-09-17) — see §54.9 and 6K §54.6.** The tenant-wide ceiling is the organization's **total** admitted simultaneous call capacity across **both directions**. The same pool is consumed by inbound provider-originated admission (4B §14.1 / 6D §42.3b), by direct outbound `POST /calls`, and by campaign dispatch. A campaign's headroom under the tenant ceiling can therefore be consumed by inbound traffic the campaign never initiated. The **campaign sub-ceiling** `concurrency_policy.max_concurrent_calls` is unchanged: it stays campaign-scoped, outbound-only by construction, and separate from — and additional to — the tenant-wide `CONCURRENT_CALLS` limit. **Both must be satisfied**, exactly as this section has always required.
 
 ### 21.2 Quota Changing Mid-Campaign
 
@@ -2693,9 +2695,9 @@ No genuine physical blocker was found that requires modifying Phase 5A–5J's *e
 
 ---
 
-## 54. FINAL API RECONCILIATION CONTROLLED AMENDMENT — Tenant `CONCURRENT_CALLS` Capacity Admission (`FAR-OD-03`, Option B)
+## 54. FINAL API RECONCILIATION CONTROLLED AMENDMENT — Tenant `CONCURRENT_CALLS` Capacity Admission (`FAR-OD-03`, Option B; `FAR-OD-04`; `FAR-OD-05`, Option A)
 
-> **Status of this section.** This is a controlled amendment applied during the Final API Reconciliation pass under owner decision **`FAR-OD-03` = Option B**. The database layer is migration **`112_5H5`**, the contract of record is **6K §54**, and the Voice-side consumer is **6D §42**.
+> **Status of this section.** This is a controlled amendment applied during the Final API Reconciliation pass under owner decisions **`FAR-OD-03` = Option B** (separate capacity quota domain), **`FAR-OD-04`** (reservation lifecycle = admission → terminal) and **`FAR-OD-05` = Option A** (one organization-level pool shared by inbound and outbound; §54.9, registered 2026-09-17). The database layer is migration **`112_5H5`**, the contract of record is **6K §54**, and the Voice-side consumers are **6D §42** (outbound) and **6D §42.3b** (inbound).
 >
 > §53's historical APPROVED / FROZEN recommendation is kept as written and is not re-issued. No earlier text is deleted. Statements that described the tenant ceiling as a direct `CheckQuota` read of `billing.quota_configs` are kept and scoped by controlled notes at §3.2, §5 (finding 9), §7, §17.2 (step 5), §21.1–§21.3, §29.2, §30, §32 (scenario 21), §37, §43 and §46 (DEP-6H-16).
 >
@@ -2706,7 +2708,7 @@ No genuine physical blocker was found that requires modifying Phase 5A–5J's *e
 Frozen 6H consumed the tenant ceiling as `CheckQuota(CONCURRENT_CALLS)` over `billing.quota_configs`, re-read on every executor tick. Under `FAR-OD-03`:
 - `CONCURRENT_CALLS` is a **capacity / entitlement** quota, not one of the 15 usage metrics.
 - Its effective limit is resolved by `billing.fn_resolve_effective_capacity_quota`, which applies base plus capacity override (`112_5H5`).
-- Admission is granted only by 6K §54.4's single runtime authority (`AcquireCapacity` / `ReleaseCapacity` / `ReadCapacity`), shared with 6D `POST /calls`.
+- Admission is granted only by 6K §54.4's single runtime authority (`AcquireCapacity` / `ReleaseCapacity` / `ReadCapacity`), shared with 6D `POST /calls` **and, under `FAR-OD-05`, with inbound provider-originated admission (6D §42.3b)** — one organization-level pool, three admitting paths (§54.9).
 
 6H therefore:
 1. **does not** read `billing.quota_configs` directly to decide admission;
@@ -2714,13 +2716,15 @@ Frozen 6H consumed the tenant ceiling as `CheckQuota(CONCURRENT_CALLS)` over `bi
 3. **does not** use a monotonic counter for the tenant ceiling (6K §54.5 rule 1);
 4. **does** keep `campaigns.concurrency_policy.max_concurrent_calls` as a separate, campaign-scoped sub-ceiling (§54.6).
 
-A call is dispatched only when **both** limits allow it, as §21.1 has always required.
+A call is dispatched only when **both** limits allow it, as §21.1 has always required. 6H **consumes** 6K §54.5 rule 2's admission arithmetic; it does not restate or re-derive it.
 
 ### 54.2 Dispatch sequence (§17.2) — reconciled
 
 | Step | Frozen text | Reconciled reading |
 |---|---|---|
-| 5 | `ConcurrencyEnforcementService.check()` requires the campaign counter **and** `CheckQuota(CONCURRENT_CALLS)` to allow a slot | Checks the campaign sub-ceiling as before. The tenant ceiling is a **`ReadCapacity` pre-check that only informs the decision** (6K §54.4) and never admits. `remaining = 0` → `DEFERRED` with internal reason `TENANT_CALL_QUOTA_REACHED`. Capacity configuration absent, or authority unreachable → `DEFERRED` (fail closed, §21.3). `remaining` `NULL` (uncapped) → tenant ceiling passes. |
+| 5 | `ConcurrencyEnforcementService.check()` requires the campaign counter **and** `CheckQuota(CONCURRENT_CALLS)` to allow a slot | Checks the campaign sub-ceiling as before. The tenant ceiling is a **`ReadCapacity` pre-check that only informs the decision** (6K §54.4) and never admits. **`remaining < 1`** → `DEFERRED` with internal reason `TENANT_CALL_QUOTA_REACHED`. Capacity configuration absent, or authority unreachable → `DEFERRED` (fail closed, §21.3). `remaining` `NULL` (uncapped) → tenant ceiling passes. |
+
+> **Fractional correction (`FAR-P1-07`, 2026-09-17).** The pre-check threshold is **`remaining < 1`**, not `remaining = 0`. `hard_limit` is `NUMERIC(18,4)` and may be fractional, so `remaining` may be a fractional value such as `0.5000` that is strictly positive yet cannot admit a call. `remaining = 0` would wrongly let such a tick proceed to a step-12 acquisition that 6K must then refuse. This mirrors — and is subordinate to — 6K §54.5 rule 2's binding invariant `(occupied + 1) <= hard_limit`, which 6H does **not** restate. The pre-check remains advisory in either form; only step 12 admits.
 | 10–11 | `campaign.fn_reserve_dispatch()` | Unchanged. This reserves the campaign's `call_jobs` row, **not** a tenant capacity slot. |
 | 12 | Voice `InitiateOutboundCallUseCase(..., dispatch_idempotency_key)` | **Authoritative tenant admission happens here, inside Voice** (6D §42.3). `AcquireCapacity(organization_id, CONCURRENT_CALLS, reservation_id = call_session_id)` runs after Voice Step 1 and before Step 3 (`fn_begin_provider_submission`). |
 
@@ -2731,7 +2735,7 @@ A call is dispatched only when **both** limits allow it, as §21.1 has always re
 - The attempt is counted against §37's internal `TENANT_CALL_QUOTA_REACHED`.
 - A later re-drive of the same dispatch idempotency key resolves to the same `call_session_id`, so it re-attempts `AcquireCapacity` under the same `reservation_id` and never takes a second slot (6K §54.5 rules 3–4).
 
-The pre-check in step 5 and the authoritative acquisition in step 12 are deliberately separate. The pre-check avoids reserving a `call_jobs` row when the tenant is visibly full. Only step 12 closes the final-slot race (6K §54.5 rule 2), including races against 6D `POST /calls` and against other campaigns of the same tenant.
+The pre-check in step 5 and the authoritative acquisition in step 12 are deliberately separate. The pre-check avoids reserving a `call_jobs` row when the tenant is visibly full. Only step 12 closes the final-slot race (6K §54.5 rule 2), including races against 6D `POST /calls`, against other campaigns of the same tenant, and — under `FAR-OD-05` — against **inbound** provider-originated admission (§54.9).
 
 **Release.** 6H never calls `ReleaseCapacity` for the tenant slot. Voice and 6K release it exactly once:
 - when the dispatch is definitively `FAILED` (including reconciliation to `FAILED`);
@@ -2744,7 +2748,7 @@ The 6K reconciler is the crash backstop (6K §54.5 rule 8). While a dispatch is 
 ### 54.3 Start pre-flight (§30 items 9–10) — reconciled
 
 - **Item 9.** The "current tenant `CONCURRENT_CALLS` hard_limit" is the **effective** limit from `ReadCapacity` (resolver: base plus capacity override, with its `source`), not a direct `billing.quota_configs` read. It remains a soft warning. An uncapped (`NULL`) effective limit produces no warning.
-- **Item 10.** "Current usage" is `ReadCapacity`'s occupied reservation count. That count includes slots held by 6D `POST /calls` and by other campaigns of the tenant, so it is not limited to "other running campaigns". Item 10 remains advisory: `429 CONCURRENCY_LIMIT_REACHED`, non-blocking.
+- **Item 10.** "Current usage" is `ReadCapacity`'s occupied reservation count. That count includes slots held by 6D `POST /calls`, by other campaigns of the tenant, and — under `FAR-OD-05` — by **inbound** provider-originated calls in progress (§54.9), so it is not limited to "other running campaigns". Item 10 remains advisory: `429 CONCURRENCY_LIMIT_REACHED`, non-blocking.
 - **Fail closed at pre-flight.** A missing configuration or an unreachable authority is not a moment-to-moment condition that item 10's advisory rationale covers. It **blocks** the `→ PREPARING` transition, in the same way §30 item 7 blocks on a missing compliance policy:
 
 | Condition at pre-flight | Result |
@@ -2762,7 +2766,8 @@ Both reuse the existing `DEPENDENCY_UNAVAILABLE` family exactly as §37's `COMPL
 | Capacity configuration absent or authority unreachable, dispatch time | Internal only; contact `DEFERRED`, never `ELIGIBLE` by default | §21.3 fail-closed rule, unchanged. No client error. |
 | Tenant visibly full at pre-flight | `429`, advisory | `CONCURRENCY_LIMIT_REACHED` (§37, unchanged) |
 | Configuration absent or authority unreachable at pre-flight | `503`, blocking | `DEPENDENCY_UNAVAILABLE` + `details.reason` (§54.3) |
-| Effective limit `NULL` | Admitted by the tenant ceiling | The campaign sub-ceiling still applies |
+| Effective limit `NULL` | Admitted by the tenant ceiling (explicitly **uncapped**, not overage) | The campaign sub-ceiling still applies |
+| Tenant pool consumed by inbound traffic (`FAR-OD-05`) | Internal only; indistinguishable from any other occupancy | Same rows as "tenant at limit" above. 6H sees only `remaining` / `REFUSED_AT_LIMIT`; it is never told the direction of the calls holding the slots. |
 
 ### 54.5 Lowering the limit mid-campaign — non-destructive
 
@@ -2772,7 +2777,7 @@ Both reuse the existing `DEPENDENCY_UNAVAILABLE` family exactly as §37's `COMPL
 - no call session, `call_jobs` row or `CampaignContact` is mutated;
 - no reservation is revoked.
 
-The next dispatch attempts receive `remaining = 0` or `REFUSED_AT_LIMIT` and are deferred until occupancy falls below the new limit. Nothing is cached campaign-side: every step 5 pre-check and every step 12 acquisition reads the current authority.
+The next dispatch attempts receive `remaining < 1` or `REFUSED_AT_LIMIT` and are deferred until occupancy falls far enough for `(occupied + 1) <= hard_limit` to hold again. Nothing is cached campaign-side: every step 5 pre-check and every step 12 acquisition reads the current authority.
 
 ### 54.6 Campaign sub-ceiling counter (§19.1) — unchanged, and not the tenant authority
 
@@ -2781,6 +2786,8 @@ The next dispatch attempts receive `remaining = 0` or `REFUSED_AT_LIMIT` and are
 - it is non-authoritative and reconciled against `call_jobs.status='DISPATCHED'`.
 
 It is scoped to one campaign and is **never** used as, summed into, or substituted for the tenant `CONCURRENT_CALLS` gauge. Its reconciliation does not touch 6K reservations, and 6K's reconciler does not touch it.
+
+**Unchanged by `FAR-OD-05`.** The campaign sub-ceiling stays a **separate and additional** limit: it is campaign-scoped, counts only calls this campaign dispatched, and is outbound-only by construction because a campaign never receives inbound calls. `FAR-OD-05` widens the **tenant-wide** pool to both directions; it does **not** create a campaign-level inbound count, does not create a per-campaign tenant-capacity pool, and does not reserve campaign slots inside the tenant pool. **Both ceilings must be satisfied for every dispatched call** (§21.1, §54.1).
 
 ### 54.7 Boundary and dependency effects
 
@@ -2795,3 +2802,31 @@ It is scoped to one campaign and is **never** used as, summed into, or substitut
 - `098_5E1` and `099_5C1` are unchanged by `112_5H5`.
 
 Database evidence (PostgreSQL 18.6) is in `docs/phase-05-database-design/5K/validation/FINAL_API_RECONCILIATION_112_VALIDATION_REPORT.md`: fresh `001 → 112` PASS, incremental `111 → 112` PASS, and `001`–`111` byte-unchanged (222 OK / 0 FAILED). Migrations `001`–`111` are unchanged, **`112_5H5` is the single project head**, and there is no `113`.
+
+**Scope of that evidence.** It is **database** evidence for `112_5H5`. The capacity **runtime** — reservations, the gauge, final-slot serialization — is not implemented, so no row of it may be cited as live-executed runtime evidence for anything in this section. The implementation-readiness test matrix lives at 6K §54.14.
+
+### 54.9 Directional scope of the tenant ceiling — `FAR-OD-05` = Option A (registered 2026-09-17)
+
+> **Owner decision `FAR-OD-05` = Option A.** `CONCURRENT_CALLS` is the organization's **TOTAL** admitted simultaneous call capacity. It applies to **both** inbound and outbound calls. Direct outbound (`POST /calls`), campaign-originated outbound, and inbound provider-originated calls **all consume the same organization-level pool**. There is no separate inbound pool, no separate campaign tenant-capacity pool, no direction-specific quota in V1, and no reserved slots or priority classes.
+
+**What this means for a campaign.** The tenant ceiling 6H defers to is not "campaign headroom" and never was. With `hard_limit = 10`:
+
+| Tenant occupancy | Campaign dispatch outcome |
+|---|---|
+| 6 inbound + 4 outbound = 10 | Full. The next dispatch tick sees `remaining < 1` and defers (`TENANT_CALL_QUOTA_REACHED`), even though this campaign originated none of the inbound calls. |
+| 10 inbound, 0 outbound | Full. The campaign dispatches nothing until inbound occupancy falls. |
+| 8 outbound (any mix of campaigns and `POST /calls`), 2 free | The campaign may dispatch while both its sub-ceiling and the tenant ceiling allow it, and an inbound arrival may take the same slots first. |
+
+**What 6H must not do.** 6H does not request a direction-specific quota, does not ask for reserved outbound slots, does not compensate for inbound occupancy by inflating its sub-ceiling, and does not treat inbound-caused refusal as an error condition — it is ordinary tenant-capacity exhaustion and is handled by the existing `DEFERRED` contract (§54.2, §54.4).
+
+**Final-slot competition.** If a campaign dispatch and an inbound provider-originated call reach the last slot simultaneously, 6K §54.5 rule 2 serializes the acquisitions atomically: exactly one is `ADMITTED` and the other is `REFUSED_AT_LIMIT`. Neither direction is privileged. 6H's step-12 refusal path is already direction-agnostic and needs no change.
+
+**Statements in this document scoped by `FAR-OD-05`.**
+
+| Location | Statement as written | Status |
+|---|---|---|
+| §21.1 | "Tenant-wide ceiling … Billing/Usage (6K, future)" | Already scoped by the §21.1 `FAR-OD-03` note; now additionally **both-directions** per the extension note at §21.1. |
+| §54.1, §54.2 step 12 | Tenant admission "shared with 6D `POST /calls`" | **Superseded in scope:** shared with `POST /calls`, campaign dispatch **and** inbound admission (6D §42.3b). The mechanism is unchanged. |
+| §54.2 step 5 | `remaining = 0` → `DEFERRED` | **Superseded** by `remaining < 1` (`FAR-P1-07`). |
+| §54.6 | Campaign counter is campaign-scoped and non-authoritative | **Unchanged.** `FAR-OD-05` does not touch the campaign sub-ceiling. |
+| Anywhere | No statement in this document describes inbound capacity admission as unsupported, out of V1 scope, or a future item. | Verified this pass. |

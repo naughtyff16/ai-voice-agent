@@ -2633,10 +2633,17 @@ Additive table, structurally parallel to `billing.quota_overrides` and governed 
 `SECURITY INVOKER`, over the caller's own RLS and grants: a tenant resolves its own effective
 capacity entitlement with **no** Platform Admin privilege, and cross-tenant reads are refused. Its
 window, supersession and fallback semantics are identical to the usage resolver's — an active
-non-superseded override wins (`source = 'PLATFORM_OVERRIDE'`), otherwise the **current** base row
-(`source = 'BASE'`), expiry is a read-time window test rather than a deletion, and on expiry the
-effective value falls back to the **current** base, never to a stale snapshot and never to
-unlimited.
+non-superseded override wins, otherwise the **current** base row (`source = 'BASE'`), expiry is a
+read-time window test rather than a deletion, and on expiry the effective value falls back to the
+**current** base, never to a stale snapshot and never to unlimited.
+
+> **Source literal (`FAR-P2-10`, corrected 2026-09-17).** The `source` value this resolver returns for
+> an active override is **`PLATFORM_CAPACITY_OVERRIDE`**, not `PLATFORM_OVERRIDE`. That is the literal
+> emitted by `112_5H5.sql`. The **usage** resolver `billing.fn_resolve_effective_quota` continues to
+> return `PLATFORM_OVERRIDE`, which is correct and unchanged. **The two literals are intentionally
+> different**, one per quota domain, and neither is an alias for the other: a consumer that matches on
+> `PLATFORM_OVERRIDE` in the capacity domain will never match. An earlier revision of this subsection
+> recorded `PLATFORM_OVERRIDE` here; that statement was wrong and is superseded by this note.
 
 ### Zero rows is *not* unlimited — the non-fail-open rule (normative)
 
@@ -2685,8 +2692,55 @@ not NULL, for a NULL metric, and both resolvers raise.
 not implement the capacity runtime. Reservation identity, idempotent acquire and release, atomic
 final-slot admission, release on failed call setup and on terminal call state, and stale/crash
 reconciliation are a single API contract owned by **6K §54**, which is the sole capacity authority
-for 6D (per-call admission) and 6H (campaign dispatch) alike. There is deliberately **no simple
-monotonic `INCR` contract** for `CONCURRENT_CALLS`.
+for every admitting path alike. There is deliberately **no simple monotonic `INCR` contract** for
+`CONCURRENT_CALLS`.
+
+#### Directional scope — owner decision `FAR-OD-05` = Option A (registered 2026-09-17)
+
+`CONCURRENT_CALLS` is the organization's **TOTAL admitted simultaneous call capacity**. It applies to
+**both** inbound and outbound calls, and all directions consume the **same** organization-level pool:
+
+- inbound, provider-originated admission (Telephony ACL → 4B §14.1 `CallApplicationService.initiate_call`);
+- direct outbound admission (6D `POST /api/v1/calls`);
+- campaign-originated outbound dispatch (6D §28.10a `InitiateOutboundCallUseCase`, driven by 6H).
+
+`CONCURRENT_CALLS = 10` does **not** mean "10 outbound plus unlimited inbound". With `hard_limit = 10`,
+6 inbound + 4 outbound is full capacity; 10 inbound in progress means an outbound request is refused or
+deferred. There is **no** separate inbound capacity pool, **no** separate campaign tenant-capacity pool,
+**no** direction-specific quota in V1 and **no** reserved or priority-classed slots — when two
+acquisitions compete for the final slot, the capacity authority serializes them atomically and exactly
+one wins. This schema is unchanged by `FAR-OD-05`: one `billing.quota_configs` row and at most one
+current `billing.capacity_quota_overrides` row per organization already express a single pool, and no
+direction column exists or is added. Migration `112_5H5` is **not** modified, and no migration `113` is
+created.
+
+#### Admission arithmetic is post-admission and fractional-safe (`FAR-P1-07`)
+
+`hard_limit` is `NUMERIC(18,4)` in both `billing.quota_configs` and `billing.capacity_quota_overrides`,
+so an effective capacity limit may be fractional. The binding admission invariant owned by 6K §54.5 is:
+
+> **ADMIT** iff `(occupied + 1) <= effective hard_limit` — **REFUSE** iff `(occupied + 1) > effective hard_limit`
+
+compared **as stored**, with no rounding, no `FLOOR`, no `CEIL` and no integer coercion. The
+pre-admission form "`occupied < hard_limit`" is wrong for a fractional limit: with `hard_limit = 1.5000`
+and `occupied = 1` it would admit and leave occupancy at `2 > 1.5`. Normative boundary cases:
+`1.5000 / 0` admit, `1.5000 / 1` refuse, `0.5000 / 0` refuse, `2.0000 / 1` admit, `2.0000 / 2` refuse.
+This is the capacity-domain counterpart of the `ACTIVE_AGENTS` correction `FAR-P1-02`, whose guard
+already rejects when `(v_active + 1) > v_hard_limit`.
+
+#### `NULL` `hard_limit` across the two domains — controlled erratum (`FAR-P3-08`)
+
+| Domain | `hard_limit IS NULL` on the effective row means |
+|---|---|
+| **USAGE / ACCOUNTING** (the canonical 15 metrics) | May correspond to **overage / no-hard-stop** semantics per the usage contract. Usage is metered, rated and can be invoiced. |
+| **CAPACITY / ENTITLEMENT** (`CONCURRENT_CALLS`) | **EXPLICITLY UNCAPPED.** It is **not** billable overage and **not** a stand-in for absent configuration — absent configuration is zero rows, which fails closed. |
+
+`CONCURRENT_CALLS` is not metered usage, not rated usage, not invoice overage and not billable overage.
+The `112_5H5` Alembic wrapper's descriptive prose says "`NULL` `hard_limit` still meaning
+overage-allowed"; read against the capacity domain that wording is wrong. **The wrapper is frozen and is
+not edited** — its hash must remain stable — and the wording is a **terminology** defect that does not
+alter the SQL executed by `112_5H5.sql`. It is corrected here and in `5K/MIGRATION_MANIFEST.md` by
+controlled erratum.
 
 ### Amendments to earlier statements in this document
 
@@ -2695,6 +2749,9 @@ monotonic `INCR` contract** for `CONCURRENT_CALLS`.
 | §11.1 | "New metrics are new data rows, not schema migrations." | Retained unedited, marked **RECONCILED**. Untrue of the implemented system since `111_5H4`, and the assumption that produced `FAR-P1-06`. |
 | §13 | The quota diagram and the base/override two-layer model. | Retained; marked **EXTENDED** — it describes the usage domain only. The capacity domain is parallel to it. |
 | §13 / `ODD-5H-04` | "OPEN DESIGN DECISION: mid-period quota override by admin." | Already **SUPERSEDED / RESOLVED** by `111_5H4`; unchanged by this amendment. |
+| This section (`fn_resolve_effective_capacity_quota`) | "an active non-superseded override wins (`source = 'PLATFORM_OVERRIDE'`)" | **CORRECTED** by `FAR-P2-10`. The capacity literal is `PLATFORM_CAPACITY_OVERRIDE`. The usage resolver's `PLATFORM_OVERRIDE` is unchanged and correct. |
+| This section (runtime semantics) | Capacity described as the authority "for 6D (per-call admission) and 6H (campaign dispatch)" only | **EXTENDED** by `FAR-OD-05` = Option A. One organization-level pool, consumed by inbound provider-originated admission as well. No statement in this document describes inbound capacity as unsupported, out of scope or future. |
+| §11.1 canonical usage vocabulary | The **15** canonical usage metrics | **Unchanged by `FAR-OD-05`.** `CONCURRENT_CALLS` remains a capacity metric and does **not** become a sixteenth usage metric; the usage vocabulary predicate still rejects it. |
 
 Validation evidence: `5K/validation/FINAL_API_RECONCILIATION_112_VALIDATION_REPORT.md` and the
 three `FAR_112_0*` transcripts.

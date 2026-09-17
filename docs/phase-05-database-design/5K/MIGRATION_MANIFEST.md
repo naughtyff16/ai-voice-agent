@@ -2116,7 +2116,9 @@ Authored under owner decision **`FAR-OD-03` = Option B**: `CONCURRENT_CALLS` is 
 
 **Resolution contract (`FAR-OD-03`, normative; mirrors `FAR-OD-02`).** The resolver takes the active non-superseded capacity override, otherwise the **current** base row, otherwise no row. A row with `hard_limit IS NULL` is explicitly **uncapped**. **No row** means no configured capacity quota. It is **not** "unlimited": the API refuses admission, fail-closed, with `503 DEPENDENCY_UNAVAILABLE` and `details.reason = CAPACITY_QUOTA_NOT_CONFIGURED` (see 6K §54). A finite `hard_limit` is the cap. Expiry is evaluated at read time against `NOW()` (`transaction_timestamp()`), and an expired override falls back to the **current** base, never to a snapshot and never to unlimited. Lowering a limit is **non-destructive**: it closes admission only.
 
-**Capacity slot lifecycle (API contract of record; not implemented in SQL by this row).** A slot is taken at admission, which is `POST /calls` or campaign dispatch. It is released **exactly once**: on setup failure, or on reaching one of the seven frozen terminal call states (`NO_ANSWER`, `CANCELLED`, `VOICEMAIL`, `TRANSFERRED`, `COMPLETED`, `FAILED`, `ABANDONED`). No new call states are introduced. The `ACTIVE` partial index `idx_cs_org_status` remains a **reporting** read, not the admission authority. Inbound-call capacity admission is **not** part of V1 and is registered as a FUTURE, non-blocking item. **Row 112 creates no `voice.*` object and replaces no `voice.*` routine.**
+**Capacity slot lifecycle (API contract of record; not implemented in SQL by this row).** A slot is taken at admission. It is released **exactly once**: on setup failure after the reservation was acquired, or on reaching one of the seven frozen terminal call states (`NO_ANSWER`, `CANCELLED`, `VOICEMAIL`, `TRANSFERRED`, `COMPLETED`, `FAILED`, `ABANDONED`). No new call states are introduced. The `ACTIVE` partial index `idx_cs_org_status` remains a **reporting** read, not the admission authority. **Row 112 creates no `voice.*` object and replaces no `voice.*` routine.**
+
+> ~~*(Historical, superseded 2026-09-17 by `FAR-OD-05` = Option A — see "Controlled errata" below:)* "A slot is taken at admission, which is `POST /calls` or campaign dispatch … Inbound-call capacity admission is **not** part of V1 and is registered as a FUTURE, non-blocking item."~~ The admitting paths are now **three** and inbound capacity admission is **in** V1. The SQL executed by `112_5H5` is unchanged by this correction; the row's hash is stable and no migration `113` was created.
 
 **Audit contract extension (`FAR-P2-09`, controlled).** `action_kind` is `QUOTA_OVERRIDE_SET` for both domains. `resource_type` was `QUOTA_CONFIG` on pre-111 override events (`107_5B5`). From `111_5H4` it is `QUOTA_OVERRIDE`, and `112_5H5` uses `QUOTA_OVERRIDE` for **both** domains, with the domain carried in `resource_snapshot.quota_domain`. This is a **controlled audit-contract extension at the 111 boundary**. It is **not** described as "unchanged". No migration was required, because `chk_ae_resource_type` is a length-only check (`1..200`), not an enumerated domain (`FAR_112_03` §10.4). Every audited `resource_id` resolves in the domain its snapshot claims (`FAR_112_03` §10.3).
 
@@ -2143,6 +2145,39 @@ Executed on PostgreSQL **18.6** (Debian 18.6-1.pgdg12+2, `pgvector/pgvector:pg18
 
 **Disclosed caveats.** The seven harness limitations are recorded in the validation report, §5 (L1–L7), and are not repeated in full here. In short: (L1) structural and behavioural evidence came from different instances, and the structural probe was re-run on both and matched; (L2) `NOW()` is `transaction_timestamp()`, which invalidated a first expiry attempt that was then re-run; (L3) two probe labels encoded wrong expectations and are retained verbatim; (L4) two probes first hit the wrong target and are retained; (L5) fixture state is cumulative; (L6) two cases were deliberately run as table owner; (L7) the containers were disposable single-node instances, not a production-representative fleet. Earlier `FAR_DB_*` (110) and `FAR_111_*` (111) evidence remains valid for the migrations it describes and was not rewritten. Only its "no migration 112 exists" statements are superseded.
 
+### Controlled errata — Final API Reconciliation last contract remediation pass (2026-09-17)
+
+**Scope of this subsection.** These are **documentation** corrections registered against Row 112's prose. **No migration file was edited.** `migrations/112_5H5.sql` and `alembic/versions/112_5H5.py` remain byte-identical, their SHA-256 values are unchanged (recorded above and re-verified this pass), migrations `001`–`111` remain frozen, and **migration `113` was not created**. Nothing below alters executed SQL behaviour.
+
+#### `FAR-P3-08` — `NULL` `hard_limit` terminology in the `112_5H5` Alembic wrapper
+
+The wrapper `alembic/versions/112_5H5.py` contains, in a descriptive comment, the phrase *"`NULL` `hard_limit` still meaning overage-allowed"*. That phrasing is borrowed from the **USAGE** domain and is **wrong for the CAPACITY domain**. It appears in a comment, not in a statement, and the executed SQL is unaffected. **The wrapper is frozen and was not edited — its hash must remain stable.** The correction is recorded here and in 5H and 6K §54.13 instead.
+
+| Domain | Metric family | Meaning of `hard_limit IS NULL` on the effective row |
+|---|---|---|
+| **USAGE / ACCOUNTING** (`billing.quota_overrides`, `billing.fn_resolve_effective_quota`, source literal `PLATFORM_OVERRIDE`) | The canonical 15 usage metrics | May correspond to **overage / no hard stop** semantics per the usage contract — metered consumption continues and is rated. |
+| **CAPACITY / ENTITLEMENT** (`billing.capacity_quota_overrides`, `billing.fn_resolve_effective_capacity_quota`, source literal `PLATFORM_CAPACITY_OVERRIDE`) | `CONCURRENT_CALLS` only | **EXPLICITLY UNCAPPED.** It is **not** billable overage, and it is **not** a stand-in for absent configuration (zero rows remain fail-closed). |
+
+`CONCURRENT_CALLS` is **not** metered usage, **not** rated usage, **not** invoice overage and **not** billable overage. It is a simultaneity entitlement — a gauge ceiling with no accumulating meter behind it.
+
+#### `FAR-P2-10` — capacity source literal
+
+The capacity resolver returns `source = 'PLATFORM_CAPACITY_OVERRIDE'` (see Row 112, object 4, and `112_5H5.sql` line 435). Documents that stated `PLATFORM_OVERRIDE` for the **capacity** resolver were corrected this pass (5H, 6K §54.2). The **usage** resolver's `PLATFORM_OVERRIDE` — including the live result quoted at `FAR_112_03` §6, G.1 above — is **correct and unchanged**. The two literals are deliberately distinct; neither is an alias for the other.
+
+#### `FAR-OD-05` = Option A — directional scope of `CONCURRENT_CALLS` (runtime contract, not schema)
+
+`CONCURRENT_CALLS` is the organization's **total** admitted simultaneous call capacity. It applies to **both directions** — inbound provider-originated calls, direct outbound `POST /calls`, and campaign-originated outbound dispatch — and all three consume the **same** organization-level pool. There is no separate inbound pool, no separate campaign tenant-capacity pool, no direction-specific quota in V1, and no reserved slots or priority classes; when inbound and outbound compete for the final slot, the capacity authority serializes acquisitions atomically.
+
+**This schema is unchanged by `FAR-OD-05`.** `billing.capacity_quota_overrides` and `billing.quota_configs` carry no direction column, none is added, and the resolver signature is untouched. The decision governs the **runtime admission contract**, which is owned by 6K §54 (with 6D §42 / §42.3b, 6H §54 and 6M §67 as consumers), not by this row.
+
+#### `FAR-P1-07` — admission arithmetic is post-admission and fractional-safe
+
+`hard_limit` is `NUMERIC(18,4)` and may be fractional. The binding admission invariant is:
+
+> **ADMIT iff `(occupied + 1) <= effective hard_limit`; REFUSE iff `(occupied + 1) > effective hard_limit`.**
+
+The limit is compared **as stored** — no rounding, no `FLOOR`, no `CEIL`, no integer coercion. A pre-admission form such as `occupied < hard_limit` is **wrong**: at `hard_limit = 1.5000` with `occupied = 1` it would admit a second call and reach `2 > 1.5`. This mirrors the `ACTIVE_AGENTS` correction (`FAR-P1-02`, `(v_active + 1) > v_hard_limit`), which **is** live-validated in SQL by `110_5C2` (see the targeted 110 regression above, including the `1.5000` fractional case). The capacity-side arithmetic is a **runtime contract** — the capacity runtime is **not implemented**, and no live capacity-runtime execution is claimed anywhere in this manifest.
+
 ### Current Authoritative State (project-wide, post-`112_5H5`)
 
 | Item | Value |
@@ -2168,6 +2203,10 @@ Executed on PostgreSQL **18.6** (Debian 18.6-1.pgdg12+2, `pgvector/pgvector:pg18
 | Legacy metric aliasing | **none** |
 | New `BYPASSRLS` roles | **none** |
 | `voice.*` objects changed by Row 112 | **none** |
-| Validation evidence | see "Live PostgreSQL 18.6 Validation — Row 112" above |
+| `FAR-OD-05` (Option A: one org-level capacity pool, inbound + outbound) | **REGISTERED 2026-09-17 — runtime contract only**; schema unchanged, `112_5H5` unmodified, no `113` |
+| `FAR-P1-07` (fractional capacity admission arithmetic) | **CLOSED BY DOCUMENT CORRECTION** — `(occupied + 1) <= hard_limit`, compared as stored; runtime not implemented |
+| `FAR-P2-10` (capacity source literal) | **CLOSED** — capacity returns `PLATFORM_CAPACITY_OVERRIDE`; the usage literal `PLATFORM_OVERRIDE` is unchanged |
+| `FAR-P3-08` (`NULL` `hard_limit` wording in the `112_5H5` wrapper) | **CLOSED BY CONTROLLED ERRATUM** — wrapper not edited, hash stable, no migration `113` |
+| Validation evidence | see "Live PostgreSQL 18.6 Validation — Row 112" above; the errata below add **no** new live evidence |
 
 **Head-ownership statement (explicit, per the Final API Reconciliation closure requirements):** `109_5B7` remains the frozen historical **Phase 6M** head; Phase 6M created no migration `110`, `111` or `112` and was not reopened. `110_5C2` and `111_5H4` are owned by the Final API Reconciliation pass. `111_5H4` is now the **immediate parent** of the head. `112_5H5` is the current single **project** head and is likewise owned by the **Final API Reconciliation** pass (`FAR-OD-03` / `FAR-P1-06` / `FAR-P2-08` closure). Migration `113` does not exist. As elsewhere in this file, the manifest does not itself declare any phase READY, APPROVED or FROZEN — that determination belongs to the independent reviewer.
