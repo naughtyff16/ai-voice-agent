@@ -11,12 +11,12 @@
 | Document | `FINAL-API-RECONCILIATION.md` |
 | Phase | Final API Reconciliation (post-6A–6M) |
 | Depends on | All 13 Phase 6 API design documents (6A–6M), as they stand after this pass's controlled source edits (§12), **plus** the **three** Phase 5 documents amended by the authorized database remediations (`5C-Voice-Schema.md`, `5H-Billing-Usage-Schema.md`, `5K/MIGRATION_MANIFEST.md`) — `5H-Billing-Usage-Schema.md` added by the `FAR-OD-02` billing / quota-override closure (§10A, §12.1) and amended again by the `FAR-OD-03` / `FAR-OD-04` capacity-quota closure (§10B, §12.4) and by the `FAR-OD-05` last-contract-remediation pass (§10B.10, §12.5); the `FAR-P2-12` last static correction (§10B.15, §12.6) amended **no** Phase 5 document |
-| Scope | API-contract reconciliation **plus one authorized additive database remediation** *(original `110_5C2` scope — historical; as extended below the reconciliation now carries **three** separately owner-authorized additive migrations, `110_5C2`, `111_5H4` and `112_5H5`)*. The owner's Option-B decision could not be implemented legally under frozen 6A §17.3 by the API layer alone (§10.1), so the DB-conformant closure directive authorized exactly **one** new migration, `110_5C2`; after the second independent review (P0 = 0, P1 = 2, P2 = 1) that same migration was **amended in place** by the micro-remediation (§13) — no second migration was created. No application code, no OpenAPI document. Migrations `001`–`109` and their Alembic wrappers are **byte-identical to `HEAD`** (§16). Live PostgreSQL 18.6 and Alembic validation was executed against **disposable** databases only (§16). **Extended by the billing / quota-override closure:** owner decision `FAR-OD-02` = Option B authorized exactly **one** further additive migration, `111_5H4` (`down_revision = '110_5C2'`), closing `FAR-P1-04` and `FAR-P1-05`. `110_5C2` was **not** amended again and *(historical, 111 pass — superseded)* ~~no migration `112` exists~~; as of that pass the byte-identity statement read **`001`–`110`** (§16.3). **Extended by the capacity-quota closure:** owner decisions `FAR-OD-03` = Option B and `FAR-OD-04` = ADMISSION→TERMINAL authorized exactly **one** further additive migration, `112_5H5` (`down_revision = '111_5H4'`), closing `FAR-P1-06` and `FAR-P2-08`. `110_5C2` and `111_5H4` were **not** amended; **no migration `113` exists**; the byte-identity statement now reads **`001`–`111`** (§16.4). **Current project head: `112_5H5`.** **Extended by the last contract remediation pass (2026-09-17):** owner decision `FAR-OD-05` = Option A resolved the final open owner decision and, with `FAR-P1-07`, `FAR-P2-10`, `FAR-P2-11` and `FAR-P3-08`, was closed by **document correction and controlled erratum only** — **no migration was created or edited**, `112_5H5.sql` and `112_5H5.py` are byte-identical and their hashes are stable, **no migration `113` exists**, and **no new live database validation was run** (§12.5, §16.5). **Extended by the `FAR-P2-12` last static correction (2026-09-17):** the final freeze-gate review's single remaining issue — 6D §42.5's lowering-capacity wording still naming only the two outbound paths after `FAR-OD-05` made `CONCURRENT_CALLS` direction-neutral — was closed by **narrow document correction only**, touching **two** files (`6D-Voice-Call-Agent-APIs.md`, this document). No architecture was reopened, `CONCURRENT_CALLS` was **not** redesigned, `FAR-OD-05` and `FAR-OD-04` are **unchanged**, no migration was created or edited, `112_5H5.sql` / `112_5H5.py` hashes are **stable**, **no migration `113` exists**, and **no database was started, migrated or queried** (§10B.15, §12.6, §16.6). |
+| Scope | API-contract reconciliation **plus one authorized additive database remediation** *(original `110_5C2` scope — historical; as extended below the reconciliation now carries **three** separately owner-authorized additive migrations, `110_5C2`, `111_5H4` and `112_5H5`)*. The owner's Option-B decision could not be implemented legally under frozen 6A §17.3 by the API layer alone (§10.1), so the DB-conformant closure directive authorized exactly **one** new migration, `110_5C2`; after the second independent review (P0 = 0, P1 = 2, P2 = 1) that same migration was **amended in place** by the micro-remediation (§13) — no second migration was created. No application code, no OpenAPI document. Migrations `001`–`109` and their Alembic wrappers are **byte-identical to `HEAD`** (§16). Live PostgreSQL 18.6 and Alembic validation was executed against **disposable** databases only (§16). **Extended by the billing / quota-override closure:** owner decision `FAR-OD-02` = Option B authorized exactly **one** further additive migration, `111_5H4` (`down_revision = '110_5C2'`), closing `FAR-P1-04` and `FAR-P1-05`. `110_5C2` was **not** amended again and *(historical, 111 pass — superseded)* ~~no migration `112` exists~~; as of that pass the byte-identity statement read **`001`–`110`** (§16.3). **Extended by the capacity-quota closure:** owner decisions `FAR-OD-03` = Option B and `FAR-OD-04` = ADMISSION→TERMINAL authorized exactly **one** further additive migration, `112_5H5` (`down_revision = '111_5H4'`), closing `FAR-P1-06` and `FAR-P2-08`. `110_5C2` and `111_5H4` were **not** amended; **no migration `113` exists**; the byte-identity statement now reads **`001`–`111`** (§16.4). **Current project head: `112_5H5`.** **Extended by the last contract remediation pass (2026-09-17):** owner decision `FAR-OD-05` = Option A resolved the final open owner decision and, with `FAR-P1-07`, `FAR-P2-10`, `FAR-P2-11` and `FAR-P3-08`, was closed by **document correction and controlled erratum only** — **no migration was created or edited**, `112_5H5.sql` and `112_5H5.py` are byte-identical and their hashes are stable, **no migration `113` exists**, and **no new live database validation was run** (§12.5, §16.5). **Extended by the `FAR-P2-12` last static correction (2026-09-17):** the final freeze-gate review's single remaining issue — 6D §42.5's lowering-capacity wording still naming only the two outbound paths after `FAR-OD-05` made `CONCURRENT_CALLS` direction-neutral — was closed by **narrow document correction only**, touching **two** files (`6D-Voice-Call-Agent-APIs.md`, this document). No architecture was reopened, `CONCURRENT_CALLS` was **not** redesigned, `FAR-OD-05` and `FAR-OD-04` are **unchanged**, no migration was created or edited, `112_5H5.sql` / `112_5H5.py` hashes are **stable**, **no migration `113` exists**, and **no database was started, migrated or queried** (§10B.15, §12.6, §16.6). **Extended by the absolute-final freeze-candidate static audit (2026-09-18):** an independent static closure pass raised `FAR-P2-13` (acceptance-gate DB-evidence provenance overclaim), `FAR-P2-14` (§17 current closure state stale against §13) and `FAR-P3-09` (non-existent ticket identifier `FAR-DB-01` asserted present), and closed all three by **document correction only**, touching **one** file (this document). No architecture was reopened, no migration was created or edited, `112_5H5.sql` / `112_5H5.py` hashes are **stable**, **no migration `113` exists**, and **no database was started, migrated or queried** (§12.7, §16.7). |
 | Method | Independent, reproducible **dual** route extraction (semantic-normalized **and** literal) over the full body text of all 13 documents. **Current exact re-extraction (`FAR-OD-05` state, `FAR-P2-07`): 1,697 raw route occurrences → 595 unique literal Method+Path → 448 unique semantic Method+Path → 56 cross-document semantic collision groups (31 of which carry more than one literal spelling).** The figures ~~1,683 / 595 / 448 / 55 / 31~~ are the **112 state**, and 1,640 / 598 / 448 / 55 / 32 are **historical / intermediate** (pre-normalization state of the original pass). The literal set (595) and the semantic set (448) are **identical** across the 112 → `FAR-OD-05` re-extraction, proving this pass added references, not routes. See §1, §1.1, §2.1 row 56. |
 | Owner decision of record | **`FAR-OD-01` = OPTION B** — hard synchronous Agent-count quota enforcement on `POST /api/v1/agents`. Applied in full (§10). Closes `DEP-6E-20`.<br>**`FAR-OD-02` = OPTION B** — true temporary Platform-Admin quota overrides with live commercial-baseline fallback; an override never overwrites the base, and expiry falls back to the **current** base, not to unlimited. Applied in full (§10A). Closes `FAR-P1-04`, `FAR-P1-05`, `FAR-P2-04`, `FAR-P2-05`.<br>**`FAR-OD-03` = OPTION B** — `CONCURRENT_CALLS` is a separate **CAPACITY / ENTITLEMENT** quota domain (instantaneous reservation), not an accumulated usage metric. Applied in full (§10B). Closes `FAR-P1-06`, `FAR-P2-08`.<br>**`FAR-OD-04` = ADMISSION→TERMINAL** — one `CONCURRENT_CALLS` reservation per call, acquired once at admission and released once at setup failure or on entry to a frozen terminal state (6K §54.4–§54.6, 6D §42.4, 6H §54.2). Applied in full (§10B). *(The earlier wording "at outbound admission" is superseded by `FAR-OD-05`: admission is direction-agnostic.)*<br>**`FAR-OD-05` = OPTION A** — `CONCURRENT_CALLS` is the organization's **total** admitted simultaneous call capacity, consumed by **inbound and outbound** alike from **one** organization-level pool; no separate inbound pool, no direction-specific quota, no reserved or priority slots. Applied in full (§10B.10). Closes `FAR-P1-07` (with §10B.11) and the last unresolved owner decision. |
 | Owner decisions outstanding | **None. All five (`FAR-OD-01`…`FAR-OD-05`) are RESOLVED and APPLIED** (§10, §10A, §10B, §13). |
 | Forbidden artifacts (per governing task) | `API-MASTER-INDEX.md`, `AUTHORIZATION-MATRIX.md`, `ERROR-CATALOG.md`, `API-VERSIONING-STRATEGY.md` — **none created.** No implementation code, no OpenAPI document. Migration history of this reconciliation: `110_5C2` (`FAR-OD-01`, amended in place by the micro-remediation, §12.1) → `111_5H4` (`FAR-OD-02`, §12.3) → `112_5H5` (`FAR-OD-03` / `FAR-OD-04`, §12.4). The `FAR-OD-05` pass (§12.5) added **none**, and the `FAR-P2-12` last static correction (§12.6) added **none**. *Historical statements "no migration `111` exists" (110 pass) and "no migration `112` exists" (111 pass) are superseded.* **`112_5H5` is the single Alembic head; no migration `113` exists** (§14.1, §16.4). |
-| Date | 2026-09-15 (110 / 111 passes); 2026-09-16 (112 capacity-quota pass); **2026-09-17** (master-FAR closure; **`FAR-P2-12` last static correction**) |
+| Date | 2026-09-15 (110 / 111 passes); 2026-09-16 (112 capacity-quota pass); 2026-09-17 (master-FAR closure; `FAR-P2-12` last static correction); **2026-09-18** (**absolute-final freeze-candidate static audit** — `FAR-P2-13`, `FAR-P2-14`, `FAR-P3-09`) |
 | Result | **See §15.** |
 
 This document does **not** self-declare any Phase 6 document APPROVED or FROZEN. Freeze remains an independent-review decision.
@@ -1077,7 +1077,7 @@ The rows above were compiled at the `110_5C2` micro-remediation. This subsection
 
 This subsection recomputes the register again, from the **actual working tree at the close of the master-FAR closure (2026-09-17)**. The earlier totals are not carried forward.
 
-**Committed history vs. current working tree.** Commit `eb234bf` (current `HEAD`) contains the whole `111_5H4` pass: rows 17–23 and the 111-pass re-edits to rows 1, 2, 4, 7, 11, 12, 13 and 14. Those rows remain register rows but no longer appear in `git status`. Every `112_5H5`-pass change listed below is **uncommitted**. `git status --short` reports **15 paths**:
+**Committed history vs. working tree at this pass.** Commit `eb234bf` (`HEAD` **at this pass**; the current `HEAD` is `b79dcca` — §12.7) contains the whole `111_5H4` pass: rows 17–23 and the 111-pass re-edits to rows 1, 2, 4, 7, 11, 12, 13 and 14. Those rows remain register rows but no longer appear in `git status`. Every `112_5H5`-pass change listed below is **uncommitted**. `git status --short` reports **15 paths**:
 
 - **14 staged** (index): 8 modified (`M`): 5C, 5H, `MIGRATION_MANIFEST`, 6D, 6E, 6H, 6K, 6M. 6 added (`A`): `112_5H5.sql`, `112_5H5.py`, `FAR_112_01`, `FAR_112_02`, `FAR_112_03`, the 112 validation report.
 - **1 unstaged** modification: this document.
@@ -1111,7 +1111,7 @@ Nothing was committed, stashed or reset by the closure pass.
 
 **Recomputed total: 29 change groups.** That is the 23 carried forward from §12.3 plus 6 added here: the authorized `112_5H5` SQL + Alembic pair (rows 24–25) and 4 evidence artifacts (rows 26–29). By phase: **7 Phase 6 documents/groups, 9 Phase 5 artifacts, 13 reconciliation/evidence artifacts** (7 + 9 + 13 = 29).
 
-**Working-tree reconciliation (current).** There are 15 paths. That is fewer than 29 because rows 3, 5, 6, 8, 9, 10 (the `110_5C2` artifacts), 13–23 and the earlier 5C/6E content are committed history, and several register groups share one file (rows 4/7 in 6M, rows 5/6 in 6D, rows 3/6 in 6H). The accounting is:
+**Working-tree reconciliation (`112_5H5` pass — historical; superseded by §12.7).** There are 15 paths. That is fewer than 29 because rows 3, 5, 6, 8, 9, 10 (the `110_5C2` artifacts), 13–23 and the earlier 5C/6E content are committed history, and several register groups share one file (rows 4/7 in 6M, rows 5/6 in 6D, rows 3/6 in 6H). The accounting is:
 
 - All 15 paths map to a row above: 5C → 10, 5H → 17, manifest → 11, 6D → 5/6, 6E → 1, 6H → 3/6, 6K → 2, 6M → 4/7, rows 24–29, and this document → 12.
 - **Zero unexpected files.**
@@ -1120,8 +1120,9 @@ Nothing was committed, stashed or reset by the closure pass.
 - **No migration `113` exists.**
 
 > **Scope note (2026-09-17).** The working-tree description in this subsection describes the tree **at the close of the
-> `112_5H5` pass**. Those 15 paths have since been committed as `4fb80ea` ("final api changes"), which is the current
-> `HEAD`. The register rows themselves are unchanged. The current working tree is described in §12.5.
+> `112_5H5` pass**. Those 15 paths have since been committed as `4fb80ea` ("final api changes"), which was
+> `HEAD` at the `FAR-OD-05` pass; the current `HEAD` is `b79dcca`. The register rows themselves are unchanged.
+> The current working tree is described in §12.7.
 
 ### 12.5 Post-`112_5H5` additions to the change register (`FAR-OD-05` last contract remediation pass)
 
@@ -1156,7 +1157,8 @@ corrected `FAR-P1-02` form.
 **Register total is unchanged at 29 change groups.** This pass re-edited seven files that already own rows 2, 3/6, 4/7,
 5/6, 11, 12 and 17. It added no row, and it removed none.
 
-**Working-tree reconciliation (current).** Commit `4fb80ea` is `HEAD` and contains the whole `112_5H5` pass.
+**Working-tree reconciliation (`FAR-OD-05` pass — historical; superseded by §12.7).** Commit `4fb80ea` was `HEAD`
+at that pass and contains the whole `112_5H5` pass.
 `git status --short` reports **7 paths, all unstaged modifications**, and all seven are the files listed above. There
 are **zero** staged paths, **zero** untracked paths and **zero** unexpected files. Nothing was committed, stashed or
 reset by this pass (§16.5).
@@ -1193,13 +1195,43 @@ hashes (§16.6). Migrations `001`–`112` and every Alembic wrapper are untouche
 **Register total is unchanged at 29 change groups.** This pass re-edited two files that already own rows 5/6 and 12.
 It added no row, and it removed none.
 
-**Working-tree reconciliation (current — supersedes the §12.5 snapshot).** Commit `4fb80ea` is `HEAD`.
+**Working-tree reconciliation (`FAR-P2-12` pass — historical; superseded by §12.7).** Commit `4fb80ea` was `HEAD` at that pass.
 `git status --short` reports **7 paths and no others**: five staged-only modifications (`5H-Billing-Usage-Schema.md`,
 `5K/MIGRATION_MANIFEST.md`, `6H-Campaign-APIs.md`, `6K-Billing-Usage-APIs.md`, `6M-Admin-Platform-APIs.md`) carried
 over from the `FAR-OD-05` pass, and **two** paths with both staged and unstaged modifications
 (`6D-Voice-Call-Agent-APIs.md`, `FINAL-API-RECONCILIATION.md`) — the unstaged part of those two is exactly this pass.
 There are **zero** untracked paths, **zero** deleted paths and **zero** unexpected files. No migration path appears in
 any of them. Nothing was committed, stashed or reset (§16.6).
+
+
+### 12.7 Post-`112_5H5` additions to the change register (absolute-final freeze-candidate static audit)
+
+This subsection records the **absolute-final freeze-candidate static audit (2026-09-18)**: the three issues raised by
+the independent freeze-candidate review — `FAR-P2-13`, `FAR-P2-14` and `FAR-P3-09` (§13, §16.7).
+
+**What this pass is.** A **document-internal evidence-provenance and arithmetic reconciliation only.** It reopened
+**no** architecture, redesigned **nothing**, changed **no** owner decision, created **no** migration, edited **no**
+migration, created **no** migration `113`, started **no** PostgreSQL instance or container, ran **no** Alembic upgrade,
+reran **no** validation battery, generated **no** `FAR_113` evidence, edited **no** raw `FAR_112_*` transcript, started
+**no** API Master Index or other next-phase artifact, and added **no** implementation code or OpenAPI output.
+
+**Files modified (1).** It folds into the existing register row 12, so this pass adds **no new register group**:
+
+| Existing row | File | Edit | Change type |
+|---|---|---|---|
+| 12 | `FINAL-API-RECONCILIATION.md` (this document) | §0 Document Control (Scope, Date); §1.1's route-re-extraction commit references left intact; §12.4, §12.5 and §12.6 working-tree paragraphs and commit pointers re-scoped as historical; **this §12.7**; §13 — three new ledger rows (`FAR-P2-13`, `FAR-P2-14`, `FAR-P3-09`) and the class arithmetic recomputed from the actual rows (32 → **35** rows, P2 12 → **14**, P3 8 → **9**); §15 — rows 49, 92, 125, 142 and 144 corrected, **new rows 148–150** (147 → **150** gate rows) and the **new "Acceptance-gate evidence provenance"** subsection; §16.4 item 16's ledger pointer re-scoped; §16.5's `@@PENDING@@` hygiene row and its pass-scoped `git` audit tense corrected; **new §16.7**; §17 rewritten (gate count, evidence provenance, current closure state) and its Routes bullet's `HEAD` reference re-scoped; final banner | Controlled update |
+
+**Files created: none.** No file was deleted. **6D was not edited**: current filesystem inspection confirms the
+`FAR-P2-12` correction at 6D §42.5 is present and intact, so the constraint against re-editing 6D holds.
+
+**Register total is unchanged at 29 change groups.** This pass re-edited one file that already owns row 12. It added
+no row, and it removed none.
+
+**Working-tree reconciliation (current — supersedes the §12.6 snapshot).** Commit `b79dcca` ("Blockers issues fixes")
+is `HEAD`; the five staged-only paths and the two mixed paths recorded in §12.6 were committed by it.
+`git status --short` now reports **exactly one path and no others**:
+` M docs/phase-06-api-design/FINAL-API-RECONCILIATION.md` — this pass. Migrations modified: **0**. Migrations created:
+**0**. Nothing was committed, staged, stashed or reset by this pass.
 
 ---
 
@@ -1239,10 +1271,15 @@ any of them. Nothing was committed, stashed or reset (§16.6).
 | `FAR-P2-11` | P2 | **Raised by the final freeze-gate review.** This master document still carried the **superseded** Agent-admission algorithm in normative voice at §10.4 / §10.5: resolve `billing.quota_configs.hard_limit` directly, and reject when `counted >= hard_limit`. Both clauses are stale — the source is the resolver, not the base table (`FAR-OD-02` / `111_5H4`), and the arithmetic is the post-insert form (`FAR-P1-02`) | **Closed by correcting this document.** Effective source is **`billing.fn_resolve_effective_quota(p_organization_id, 'ACTIVE_AGENTS')`**; the guard **REFUSES iff the effective `hard_limit` is not `NULL` and `(counted + 1) > hard_limit`**; a `NULL` effective `hard_limit` is **explicitly uncapped** per the usage contract. The defect was confined to this document — 6E already carried the corrected form and needed no edit. All other properties are preserved unchanged: DRAFT + PUBLISHED counted, DEPRECATED excluded, `deleted_at IS NULL`, database advisory serialization, revoked raw `INSERT`, and create + clone behind the same guard. Historical references to the superseded algorithm remain, explicitly labelled historical (§13 `FAR-P1-02` row) | **CLOSED** (master-document correction) |
 | `FAR-P3-08` | P3 | **Raised by the final freeze-gate review.** `112_5H5.py` line 142 describes a `NULL` `hard_limit` as "still meaning overage-allowed". In the **capacity** domain that is the wrong terminology: `NULL` means **explicitly uncapped**, and `CONCURRENT_CALLS` has no overage concept at all | **Closed by controlled erratum — the frozen file was not edited.** `112_5H5.py` is byte-identical, its SHA-256 is stable, and **no migration `113`** was created. The erratum records: in the **USAGE** domain a `NULL` `hard_limit` may mean overage / no hard stop; in the **CAPACITY** domain a `NULL` `hard_limit` means **EXPLICITLY UNCAPPED — not billable overage**. `CONCURRENT_CALLS` is **not** metered usage, **not** rated usage, **not** invoice overage and **not** billable overage. The wording is terminology-only and does **not** alter the executed SQL or any measured result. Erratum blocks: 6K §54.13, 5H, `5K/MIGRATION_MANIFEST.md`; restated at §10B.13 | **CLOSED BY CONTROLLED ERRATUM** |
 | `FAR-P2-12` | P2 | **Raised by the final freeze-gate review as the last remaining open issue.** After `FAR-OD-05` = Option A made `CONCURRENT_CALLS` **direction-neutral** (one organization-level pool consumed by inbound provider-originated admission, direct outbound and campaign-originated outbound alike), **6D §42.5 retained outbound-only lower-capacity wording**: "Only new `POST /calls` and new campaign acquisitions are refused until occupancy falls below the new limit." That sentence names only the **two outbound** admission paths and is silent on the **inbound** path, so it could be read as exempting new inbound admission from the tenant-wide limit after a lowered base quota or an expired override — contradicting `FAR-OD-05`, 6D §42.3b and 6K §54.8, which is already direction-neutral ("Only **new** acquisitions are refused") | **Closed by controlled document reconciliation — no architecture change, no migration, no runtime change.** 6D §42.5 rewritten so lower-capacity / override-expiry admission blocking applies to **all new capacity acquisitions** across **all three** admission points: inbound provider-originated (§42.3b), direct outbound `POST /api/v1/calls` (§42.2), and campaign-originated outbound (§42.3). The non-destructive guarantees are preserved verbatim — no in-progress call terminated, no provider call acted on, no `voice.call_sessions` row mutated, no reservation revoked — and the normative release condition is stated as `(occupied + 1) <= effective hard_limit` (`FAR-P1-07`, 6K §54.5 rule 2). The campaign `concurrency_policy` sub-ceiling is restated as a campaign sub-ceiling only. **No new endpoint** and **no provider-specific inbound signalling** were introduced; provider busy / reject / fallback mechanics remain implementation-readiness (6K §54.6). `FAR-OD-04` and `FAR-OD-05` are unchanged; migrations 001–112 untouched; no `113` | **CLOSED BY CONTROLLED DOCUMENT RECONCILIATION** |
+| `FAR-P2-13` | P2 | **Raised by the absolute-final freeze-candidate static audit: acceptance-gate DB-evidence provenance overclaim.** Three current statements asserted that whole contiguous ranges of §15 gates were database-validated: the §15 rows 131–145 preamble ("the **DB-validated** gates (rows 1–97, 101–115) that were executed against PostgreSQL 18"), acceptance row 142 ("rows 1–115 are **DB validated**") and §17 ("Every row's Evidence column states its **class** … rows 1–115 are **DB validated** against the live transcripts"). All three are false as written. The §15 table header is `| # | Check | Result |` — there is **no per-row Evidence-class column** for rows 1–130 — and many rows inside those ranges are filesystem, hash, count, route, git, hygiene or ledger-arithmetic checks, or normative contract assertions, that were never executed against PostgreSQL. Row 115 (the `FAR-P3-07` label erratum) and rows 85–87, 89–92, 94–97 and 99–101 are static or contract checks sitting inside the claimed "DB validated" ranges. The overclaim inflates the evidentiary weight of the acceptance gate ahead of independent freeze review | **Closed by mechanical row-level provenance classification — no architecture change, no migration, no database run.** Every gate row was parsed and classified into exactly one of `LIVE_DB`, `STATIC`, `CONTRACT`, `IMPLEMENTATION_READINESS`, `MIXED`, with the classification verified by script (union = every row exactly once, no gaps, no double assignment, counts summing to the gate total). The result is recorded in **§15 “Acceptance-gate evidence provenance”** and §16.7. All three blanket range claims were removed and replaced with wording that scopes executed-transcript support to the `LIVE_DB` rows and the live portion of `MIXED` rows only. No blanket numeric range claiming that every row in that range was DB validated remains anywhere in this document | **CLOSED** |
+| `FAR-P2-14` | P2 | **Raised by the absolute-final freeze-candidate static audit: §17 CURRENT closure state was stale against §13.** §17 “Current closure state” stated `FAR-P2: **11** raised` and `Ledger rows in §13: **31**`, while §13's own arithmetic — computed from its rows — already read **12 P2** and **32 rows** after `FAR-P2-12` was added. A section labelled **Current closure state** carrying numbers that its own source ledger contradicts is exactly the class of defect this reconciliation exists to prevent. The same staleness appeared inside acceptance rows 92 and 125, whose supersession notes described row 143 as a “31-row tally” although row 143 states 32 | **Closed by recomputing §17 from the actual §13 rows after the three new findings were inserted — not by copying a target.** §17 now carries P1 **7** raised / 0 open, P2 **14** raised / 0 open, P3 **9** raised / 0 open, database blockers **1** raised / 0 open, owner decisions **5** with **0** unresolved, and **35** ledger rows (7 + 14 + 9 + 1 + 4 owner-decision rows covering the 5 decisions). Rows 92 and 125 now state their own historical tallies and point generically to the current issue-ledger gate rather than embedding a future row count that goes stale on the next pass | **CLOSED** |
+| `FAR-P3-09` | P3 | **Raised by the absolute-final freeze-candidate static audit: non-existent ticket identifier asserted present.** Acceptance row 144 — the ticket-identifier sweep — claimed that “every ticket ID … `FAR-DB-01` … is present”. **No ticket `FAR-DB-01` exists** in this document or anywhere in the corpus. The canonical database blocker identifier is `DB-BLOCKER-FINAL-API-001` (§13, §12). A sweep gate that certifies the presence of an identifier that does not exist cannot have been executed as described, which undermines the gate itself | **Closed by controlled correction of the identifier — no ledger row added or removed.** Row 144 now reads: every `FAR-P1`/`FAR-P2`/`FAR-P3` ticket, every `FAR-OD` decision identifier, and the database blocker identifier `DB-BLOCKER-FINAL-API-001` is present. The literal string `FAR-DB-01` now occurs only inside this finding row and the acceptance gate that records it, both of which label it explicitly as the **incorrect, superseded** identifier | **CLOSED** |
 
 *(Historical — 111 pass: "The table holds 15 rows: 5 P1, 5 P2, 3 P3, 1 blocker, 1 owner decision." Superseded by the recomputation below.)*
 
-**Ledger arithmetic — computed from the rows above, not asserted.** The table holds **32** rows (the original 15, plus 11 added by the `112_5H5` pass and the master-FAR closure, plus 5 added by the `FAR-OD-05` last contract remediation pass, plus 1 added by the `FAR-P2-12` last static correction): **7 P1, 12 P2, 8 P3, 1 blocker, 4 owner-decision rows** (7 + 12 + 8 + 1 + 4 = 32). The owner-decision **class** counts **5** decisions: `FAR-OD-01` has no standalone row. It is recorded in the `FAR-P2-01` row it closed and in §10. So the class tally below is 5 while the row count is 4.
+**Ledger arithmetic — computed from the rows above, not asserted.** The table holds **35** rows (the original 15, plus 11 added by the `112_5H5` pass and the master-FAR closure, plus 5 added by the `FAR-OD-05` last contract remediation pass, plus 1 added by the `FAR-P2-12` last static correction, plus 3 added by the absolute-final freeze-candidate static audit — `FAR-P2-13`, `FAR-P2-14`, `FAR-P3-09`): **7 P1, 14 P2, 9 P3, 1 blocker, 4 owner-decision rows** (7 + 14 + 9 + 1 + 4 = 35). The owner-decision **class** counts **5** decisions: `FAR-OD-01` has no standalone row. It is recorded in the `FAR-P2-01` row it closed and in §10. So the class tally below is 5 while the row count is 4.
+
+*(Historical — `FAR-P2-12` static-correction pass: "The table holds **32** rows … 7 P1, 12 P2, 8 P3, 1 blocker, 4 owner-decision rows (7 + 12 + 8 + 1 + 4 = 32)." Superseded by the recomputation above, which adds `FAR-P2-13`, `FAR-P2-14` and `FAR-P3-09`.)*
 
 *(Historical — `112_5H5` pass: "The table holds **26** rows … 6 P1, 9 P2, 7 P3, 1 blocker, 3 owner-decision rows … the class tally below is 4 while the row count is 3." Superseded by the recomputation above, which adds `FAR-OD-05`, `FAR-P1-07`, `FAR-P2-10`, `FAR-P2-11` and `FAR-P3-08`.)*
 
@@ -1250,8 +1287,8 @@ any of them. Nothing was committed, stashed or reset (§16.6).
 |---|---|---|---|
 | **FAR-P0** | 0 | 0 | **0** |
 | **FAR-P1** | 7: `FAR-P1-01` … `-07` | 7: `-01` by `110_5C2`; `-02`, `-03` by amended `110_5C2`; `-04`, `-05` by `111_5H4`; `-06` by `112_5H5` + controlled API amendments; `-07` by document correction of the fractional admission arithmetic (§10B.11) | **0** |
-| **FAR-P2** | 12: `FAR-P2-01` … `-12` | 12: `-01`, `-02` closed at source; `-03` by amended `110_5C2`; `-04` by `FAR_111_03` Battery H; `-05` by scoped restatement; `-06` by the 214-item classification; `-07` by current exact re-extraction; `-08` by `112_5H5`; `-09` as a controlled audit-contract extension; `-10` by correcting the capacity source literal to `PLATFORM_CAPACITY_OVERRIDE` (§10B.12); `-11` by correcting this document's stale `ACTIVE_AGENTS` resolver and arithmetic (§10.4); `-12` by correcting 6D §42.5's outbound-only lower-capacity wording to cover all three admission points (§10B.15) | **0** |
-| **FAR-P3** | 8: `FAR-P3-01` … `-08` | 8: `-01` resolved (no route collision); `-02` superseded by `FAR-P1-01`; `-03` closed at source; `-04` security wording scoped; `-05` head supersession notes; `-06` corrected by record; `-07` controlled erratum; `-08` controlled erratum (capacity `NULL hard_limit` terminology; `112_5H5.py` **not** edited, §10B.13) | **0** |
+| **FAR-P2** | 14: `FAR-P2-01` … `-14` | 14: `-01`, `-02` closed at source; `-03` by amended `110_5C2`; `-04` by `FAR_111_03` Battery H; `-05` by scoped restatement; `-06` by the 214-item classification; `-07` by current exact re-extraction; `-08` by `112_5H5`; `-09` as a controlled audit-contract extension; `-10` by correcting the capacity source literal to `PLATFORM_CAPACITY_OVERRIDE` (§10B.12); `-11` by correcting this document's stale `ACTIVE_AGENTS` resolver and arithmetic (§10.4); `-12` by correcting 6D §42.5's outbound-only lower-capacity wording to cover all three admission points (§10B.15); `-13` by mechanically classifying every acceptance-gate row's evidence provenance and removing the blanket "rows 1–115 / rows 1–97, 101–115 are DB validated" range claims (§15 provenance subsection, §16.7); `-14` by recomputing §17's current closure state from the actual §13 rows (§17) | **0** |
+| **FAR-P3** | 9: `FAR-P3-01` … `-09` | 9: `-01` resolved (no route collision); `-02` superseded by `FAR-P1-01`; `-03` closed at source; `-04` security wording scoped; `-05` head supersession notes; `-06` corrected by record; `-07` controlled erratum; `-08` controlled erratum (capacity `NULL hard_limit` terminology; `112_5H5.py` **not** edited, §10B.13); `-09` non-existent ticket identifier `FAR-DB-01` corrected to the canonical `DB-BLOCKER-FINAL-API-001` in acceptance row 144 | **0** |
 | **Database blockers** | 1: `DB-BLOCKER-FINAL-API-001` | 1: resolved by `110_5C2` (amended in place) | **0** |
 | **Owner decisions** | 5: `FAR-OD-01`, `-02`, `-03`, `-04`, `-05` | 5: `-01`, `-02`, `-03` decided **Option B**; `-04` decided **ADMISSION → TERMINAL**; `-05` decided **Option A — one shared inbound + outbound capacity pool**; all applied (§10, §10A, §10B, §10B.10) | **0 unresolved** |
 
@@ -1358,7 +1395,7 @@ No document in the corpus reports an unresolved P0/P1 blocker of its own. Docume
 | 46 | Canonical permission string is `agent:write` everywhere; `agent:create` / `agents:write` appear nowhere as live strings | ✅ — verified against the 5B catalog (68 permissions; `agent:` = `read, write, publish, delete`) (§4, §10.9) |
 | 47 | `FAR-P3-03` **closed at source**, not left as an open ticket for the API Master Index | ✅ (§3.3, §13) |
 | 48 | Evidence capped at one report + three compact files; no per-statement execution-log sprawl; the micro-remediation rewrote those four files **in place** and created no new evidence file | ✅ *for the `110_5C2` evidence set* (§12.2, §16). ***Superseded by row 91***: the `111_5H4` pass added its own capped set — one report plus three compact files (`FAR_111_01/02/03`) — and rewrote none of the `110` evidence except to add scope notices. The repository now holds **two reports and six evidence files**, one capped set per pass; still no per-statement execution-log sprawl (§12.3) |
-| 49 | Supporting ledgers expanded to the required coverage — Auth Contradiction (17 rows), Error Semantic (16), DTO / Contract (16), Event / Audit / Outbox (16, with an explicit five-class vocabulary), Handoff Closure (8) — each adjudicating **conflicts**, not enumerating a corpus-wide matrix or catalog | ✅ (§4–§7, §9). *(Historical — the Handoff Closure ledger's 8 rows were traced handoffs, not the corpus.)* ***Superseded for corpus coverage by rows 122–123*** (213-item classification, §9.1–§9.5) |
+| 49 | Supporting ledgers expanded to the required coverage — Auth Contradiction (17 rows), Error Semantic (16), DTO / Contract (16), Event / Audit / Outbox (16, with an explicit five-class vocabulary), Handoff Closure (8) — each adjudicating **conflicts**, not enumerating a corpus-wide matrix or catalog | ✅ (§4–§7, §9). *(Historical — the Handoff Closure ledger's 8 rows were traced handoffs, not the corpus.)* ***Superseded for corpus coverage by rows 122–123***, the whole-corpus handoff classification (§9.1–§9.5); its item total is restated by the current handoff gate (row 141) |
 | 50 | The accepted Endpoint Collision Ledger was **not** redone, and no global Authorization Matrix or Error Catalog was created in place of the ledgers | ✅ — §2.1 carries every group this pass inherited, unchanged in class, owner and resolution; §4 and §5 each state the scope boundary explicitly. *(The `112_5H5`-pass wording ~~"the accepted **55-row** ledger … the same 55 groups"~~ is superseded by row 146: the `FAR-OD-05` rerun detected **one** additional group, appended as row 56 and adjudicated, while all 55 inherited rows are untouched.)* |
 | 51 | No forbidden artifact created (`API-MASTER-INDEX.md`, `AUTHORIZATION-MATRIX.md`, `ERROR-CATALOG.md`, `API-VERSIONING-STRATEGY.md`), no implementation code, no OpenAPI document | ✅ — `find` count = **0** (§16.1) |
 | 52 | No extraction helper, `__pycache__`, `*.pyc` or `*.pyo` inside the repository; disposable validation containers destroyed | ✅ (§16.1). ***Re-verified after `111_5H4`*** — see row 96: the `111` containers `far_fresh` / `far_incr` are also destroyed and the repository is still free of cache and temporary-script artifacts (§16.3) |
@@ -1401,7 +1438,7 @@ No document in the corpus reports an unresolved P0/P1 blocker of its own. Docume
 | 89 | **No migration `112`** exists | ✅ — `^112` count = **0** in both `5K/migrations` and `5K/alembic/versions` (§16.3). *(Historical — `111` state.)* ***Superseded by row 102***: `112_5H5` exists; ***row 103*** records that no `113` exists |
 | 90 | `111_5H4` identity recorded exactly | ✅ — SQL `5fe2bc96431236d637dbe2558c0c78d13ab17b7cce647aac3e61db2ac2f4c048`, **44,726 B**, 836 lines; Alembic `78b3fda47b22e9e5ef55b66ce4815a415578351a5e786f6977355cdd067e70ea`, **9,227 B**, 161 lines (§16.3). *(Still accurate: `111_5H4` is unchanged, see row 100.)* The `112_5H5` identity is recorded in row 101 |
 | 91 | Evidence set for this pass is capped at one report plus three compact files, and no `110` evidence file was rewritten except to add a scope notice | ✅ — `FAR_111_01`, `FAR_111_02`, `FAR_111_03` + `FINAL_API_RECONCILIATION_111_VALIDATION_REPORT.md` (§12.3 rows 20–23). Supersedes row 48 |
-| 92 | **No unresolved ticket** in the issue ledger: open P0 / P1 / P2 / P3 = **0 / 0 / 0 / 0**, computed from a 15-row tally rather than declared | ✅ (§13 arithmetic table). *(Historical — 15-row tally.)* ***Superseded by row 125*** (a **26-row** tally) ***and then by row 143***: a **31-row** tally, still 0 / 0 / 0 / 0 open |
+| 92 | **No unresolved ticket** in the issue ledger: open P0 / P1 / P2 / P3 = **0 / 0 / 0 / 0**, computed from a 15-row tally rather than declared | ✅ (§13 arithmetic table). *(Historical — this row recorded the **15-row** tally of its own pass.)* ***Superseded by row 125*** (a **26-row** tally) ***and then by the current issue-ledger gate below*** (row 143), which recomputes the ledger from the actual rows; all open counts remain 0 / 0 / 0 / 0 |
 | 93 | **No owner decision left unresolved** — `FAR-OD-01` = Option B and `FAR-OD-02` = Option B, both applied in full | ✅ (§10, §10A, §13, §17). *(Historical — two decisions.)* ***Superseded by row 98*** (four decisions) ***and then by row 131***: all **five** owner decisions (`FAR-OD-01` … `FAR-OD-05`) are resolved and applied |
 | 94 | **No database blocker open** — `DB-BLOCKER-FINAL-API-001` resolved; this pass raised no new blocker and no new `OWNER DECISION REQUIRED` item | ✅ (§13) |
 | 95 | **No forbidden next-phase artifact** created: no `API-MASTER-INDEX.md`, `AUTHORIZATION-MATRIX.md`, `ERROR-CATALOG.md` or `API-VERSIONING-STRATEGY.md`; no implementation-readiness artifact, no FastAPI/application code, no frontend code, no OpenAPI output | ✅ — `find` count = **0** (§16.3) |
@@ -1434,14 +1471,16 @@ No document in the corpus reports an unresolved P0/P1 blocker of its own. Docume
 | 122 | **Handoff classification is whole-corpus and deduplicated**: 214 unique items = **106 CLOSED / 83 FUTURE / 4 RELEASE-TRAIN / 21 IMPLEMENTATION-READINESS / 0 BLOCKER** (`FAR-P2-06`) | ✅ — §9.1–§9.6. 106 + 83 + 4 + 21 + 0 = 214. *(`112_5H5`-pass figures ~~213 = 105 / 84 / 4 / 20 / 0~~ superseded by the `FAR-OD-05` reclassification, row 141.)* |
 | 123 | **ZERO BLOCKING HANDOFFS**, with the **108** non-closed items (83 FUTURE + 4 RELEASE-TRAIN + 21 IMPLEMENTATION-READINESS) disclosed rather than hidden. SIP trunk support remains **RELEASE-TRAIN (V1)** | ✅ — §9.5, §9.6, §11.1. **BLOCKER = 0** before and after the `FAR-OD-05` reclassification. No FUTURE or IMPLEMENTATION-READINESS item is described as implemented |
 | 124 | **Security wording scoped** (`FAR-P3-04`): no claim that superuser, table-owner DDL, trigger disabling or `session_replication_role = replica` is inside the guarantee. **No new `BYPASSRLS`**; the inventory is `app_migration`, `app_platform_admin` (`001_5B`) and `postgres` | ✅ — §10B.8; 5C notes; 6K §54.10; 6M §67.7; 112 report §4; `FAR_112_03` §8.7 |
-| 125 | **Issue ledger**: 26 rows (6 P1, 9 P2, 7 P3, 1 blocker, 3 OD rows); 4 owner decisions; **open P0 / P1 / P2 / P3 = 0 / 0 / 0 / 0**; unresolved owner decisions **0**; open DB blockers **0** — computed, not declared | ✅ (§13 arithmetic table). Supersedes row 92. *(Historical — `112_5H5`-pass tally.)* ***Superseded by row 143***: **31** rows, **5** owner decisions, still 0 / 0 / 0 / 0 open |
+| 125 | **Issue ledger**: 26 rows (6 P1, 9 P2, 7 P3, 1 blocker, 3 OD rows); 4 owner decisions; **open P0 / P1 / P2 / P3 = 0 / 0 / 0 / 0**; unresolved owner decisions **0**; open DB blockers **0** — computed, not declared | ✅ (§13 arithmetic table). Supersedes row 92. *(Historical — this row recorded the **26-row** `112_5H5`-pass tally.)* ***Superseded by the current issue-ledger gate below*** (row 143), which recomputes the ledger from the actual rows; **5** owner decisions and 0 / 0 / 0 / 0 open are unchanged |
 | 126 | **Stale-statement sweep**: "no migration `112`", "`111_5H4` is the current project head", "1,640", "598", "32 groups", "zero open handoffs", "all 8 rows", "one authorized migration" and "exactly one migration" occur in this document **only** where labelled historical, superseded or pass-scoped. Every ticket ID from `FAR-P1-01` to `FAR-P3-07` and `FAR-OD-01` to `FAR-OD-04` is present | ✅ (§16.4). ***Extended by row 144*** to the `FAR-OD-05`-pass patterns and to `FAR-P1-07`, `FAR-P2-10`, `FAR-P2-11`, `FAR-P3-08` and `FAR-OD-05` |
 | 127 | **Repository hygiene at master-FAR close**: no `__pycache__`, `*.pyc` or `*.pyo`; no temporary script or SQL harness in the repository; no pending-placeholder marker; no new to-do marker introduced by the `112` pass | ✅ (§16.4) |
 | 128 | **Disposable `112` validation containers** `far112_runner`, `far112_incr` and `far112_fresh` removed; network `far112_net` removed only if exclusive and unused; **no unrelated container touched** | ✅ — see the cleanup record in §16.4 |
 | 129 | **No forbidden next-phase artifact**: no `API-MASTER-INDEX.md`, `AUTHORIZATION-MATRIX.md`, `ERROR-CATALOG.md` or `API-VERSIONING-STRATEGY.md`; no application code; no OpenAPI output; the next phase not started | ✅ — `find` count = **0** (§16.4) |
 | 130 | This pass declares **no** phase, document or migration APPROVED or FROZEN, including `112_5H5` and this document. Nothing was committed, stashed or reset | ✅ (§0, §14, §17). ***Re-affirmed for the `FAR-OD-05` pass by row 145*** |
 
-**Rows 131–145 — added by the `FAR-OD-05` last contract remediation pass (2026-09-17).** These rows are **contract and static-evidence** gates. None of them asserts a live execution of the capacity runtime: the runtime does not exist yet, so every runtime expectation below is recorded as an **implementation-readiness contract**, kept separate from the **DB-validated** gates (rows 1–97, 101–115) that were executed against PostgreSQL 18 during the `112_5H5` pass.
+**Rows 131–145 — added by the `FAR-OD-05` last contract remediation pass (2026-09-17); rows 146–147 and 148–150 added by the later static-correction passes.** These rows are **contract and static-evidence** gates. None of them asserts a live execution of the capacity runtime: the runtime does not exist yet, so every runtime expectation below is recorded as an **implementation-readiness contract**.
+
+The acceptance gate as a whole combines live database evidence, static evidence, contract reconciliation and implementation-readiness assertions. **Only rows explicitly classified `LIVE_DB` — or the live portion of `MIXED` rows — are supported by executed PostgreSQL / Alembic transcripts.** No unimplemented capacity-runtime behaviour is claimed live-tested. The per-row classification, with exact row IDs and counts, is recorded in “Acceptance-gate evidence provenance” at the end of this section (`FAR-P2-13`). Earlier revisions of this preamble asserted that the ranges “rows 1–97, 101–115” were DB-validated gates executed against PostgreSQL 18; that blanket range claim was false — those ranges contain filesystem, hash, count, route, git, hygiene and ledger-arithmetic checks and normative contract assertions — and is withdrawn.
 
 | # | Final acceptance criterion (`FAR-OD-05` pass) | Evidence — class |
 |---|---|---|
@@ -1456,12 +1495,36 @@ No document in the corpus reports an unresolved P0/P1 blocker of its own. Docume
 | 139 | **Master-document `ACTIVE_AGENTS` arithmetic corrected (`FAR-P2-11`)**: effective source is **`billing.fn_resolve_effective_quota(organization_id, 'ACTIVE_AGENTS')`**, and a create or clone is **REFUSED iff `(counted + 1) > hard_limit`** where `hard_limit IS NOT NULL`; `NULL` = explicitly uncapped. The stale normative forms `billing.quota_configs.hard_limit` and `counted >= hard_limit` remain only where labelled historical or superseded. DRAFT + PUBLISHED counted, DEPRECATED excluded, `deleted_at IS NULL`, advisory-lock serialization, raw-`INSERT` revocation and the identical create / clone guard are all preserved | ✅ **Contract** — §10.4, §10.5; §13 `FAR-P2-11` row. 6E §30.4 already carried the correct arithmetic and needed **no** edit; `voice.fn_assert_agent_quota_admission()` in `111_5H4` is unchanged |
 | 140 | **`FAR-P3-08` is closed by controlled erratum, not by a code edit.** The `112_5H5.py` wrapper docstring wording ("NULL `hard_limit` still meaning overage-allowed") is terminology-only and does **not** alter the executed SQL; the erratum states that in the **CAPACITY** domain `NULL` means **EXPLICITLY UNCAPPED**, not billable overage, and that `CONCURRENT_CALLS` is not metered usage, rated usage, invoice overage or billable overage. **`112_5H5.py` is byte-identical** and **no migration `113` was created** | ✅ **Static evidence + contract** — 6K §54.13; 5H erratum sub-subsection; `5K/MIGRATION_MANIFEST.md` controlled-errata section; §10B.13. Hash `fb53b23a…e238`, 12,673 B, 214 lines — unchanged (row 101) |
 | 141 | **The affected handoff item was reclassified and the ledger recalculated from the rows, not assumed.** The single 6K §54.6 entry split into the **normative inbound admission invariant → CLOSED** and the **provider-facing decline / busy / fallback signalling → IMPLEMENTATION-READINESS**: 85 → **86** non-`DEP` entries, 213 → **214** unique items, CLOSED 105 → **106**, FUTURE 84 → **83**, RELEASE-TRAIN **4**, IMPLEMENTATION-READINESS 20 → **21**, **BLOCKER = 0**, non-closed **108** (coincidentally unchanged). No `DEP-*` item changed class and no item was deleted | ✅ **Recomputed** — §9.1, §9.3, §9.4, §9.5, **§9.6**; §11.2 Σ row; §13 `FAR-P2-06` row. 106 + 83 + 4 + 21 + 0 = **214**. Supersedes rows 122–123 |
-| 142 | **This pass created and edited no migration and ran no new database validation.** `112` SQL files and `112` Alembic files; single head `112_5H5`; linear chain `109_5B7 → 110_5C2 → 111_5H4 → 112_5H5`; **no `113`**; both `112_5H5` hashes re-verified byte-identical; the PostgreSQL 18 fresh and incremental evidence from the `112_5H5` pass is **reused, not rerun**, and no container was created | ✅ **Static evidence** — §16.5. Clean separation: rows 1–115 are **DB validated**; rows 131–141 and 143–145 are **contract / static** |
+| 142 | **This pass created and edited no migration and ran no new database validation.** `112` SQL files and `112` Alembic files; single head `112_5H5`; linear chain `109_5B7 → 110_5C2 → 111_5H4 → 112_5H5`; **no `113`**; both `112_5H5` hashes re-verified byte-identical; the PostgreSQL 18 fresh and incremental evidence from the `112_5H5` pass is **reused, not rerun**, and no container was created | ✅ **Static evidence** — §16.5, §16.7. Evidence provenance is stated **per row**, not by numeric range: see “Acceptance-gate evidence provenance” below. Only rows classified `LIVE_DB`, and the live portion of `MIXED` rows, rest on executed PostgreSQL / Alembic transcripts (§16.2–§16.4, `FAR_DB` / `FAR_111` / `FAR_112`); the remaining rows are static, contract or implementation-readiness evidence |
 | 143 | **Issue ledger recomputed from the actual rows**: **32** rows = 7 P1 + 12 P2 + 8 P3 + 1 DB blocker + 4 owner-decision rows; the owner-decision **class** counts **5** (`FAR-OD-01` is recorded in §10B and §0 without a standalone ledger row). **Open P0 / P1 / P2 / P3 = 0 / 0 / 0 / 0**, unresolved owner decisions **0**, open DB blockers **0** — computed, not declared | ✅ **Recomputed** — §13 arithmetic table and per-class table. Supersedes rows 92 and 125 |
-| 144 | **Extended stale-claim sweep**: every current normative occurrence of `occupied < hard_limit`, `counted < hard_limit`, `counted >= hard_limit`, `billing.quota_configs.hard_limit`, `PLATFORM_OVERRIDE`, "inbound capacity future", "outbound-only", "two outbound admission points", "overage-allowed", "no migration `112`" and "`111_5H4` current head" was classified as **(A) historical / superseded**, **(B) current and correct** or **(C) stale current claim** — and **zero category-C matches remain**, including backticked and spaced operator spellings. Every ticket ID `FAR-P1-01`…`FAR-P1-07`, `FAR-P2-01`…`FAR-P2-12`, `FAR-P3-01`…`FAR-P3-08`, `FAR-DB-01` and `FAR-OD-01`…`FAR-OD-05` is present | ✅ **Static evidence** — §16.5 sweep table. Extends row 126 |
+| 144 | **Extended stale-claim sweep**: every current normative occurrence of `occupied < hard_limit`, `counted < hard_limit`, `counted >= hard_limit`, `billing.quota_configs.hard_limit`, `PLATFORM_OVERRIDE`, "inbound capacity future", "outbound-only", "two outbound admission points", "overage-allowed", "no migration `112`" and "`111_5H4` current head" was classified as **(A) historical / superseded**, **(B) current and correct** or **(C) stale current claim** — and **zero category-C matches remain**, including backticked and spaced operator spellings. Every `FAR-P1`/`FAR-P2`/`FAR-P3` ticket ID, every `FAR-OD` decision identifier, and the database blocker identifier `DB-BLOCKER-FINAL-API-001` is present | ✅ **Static evidence** — §16.5 sweep table. Extends row 126 |
 | 145 | **This pass declares nothing APPROVED and nothing FROZEN** — not `112_5H5`, not any Phase 5 or Phase 6 document, not this document. Repository hygiene holds (no `__pycache__`, `*.pyc`, `*.pyo`, `@@PENDING@@`), the four forbidden next-phase artifacts remain absent, no implementation code and no OpenAPI output were produced, and **nothing was committed, stashed or reset** | ✅ **Static evidence** — §16.5 hygiene, forbidden-artifact and git-audit blocks; §17. Re-affirms rows 127, 129, 130 |
 | 146 | **The route extraction was rerun with the EXACT previously recovered extractor, unmodified, AFTER every document edit of this pass**, and the actual figures were recorded rather than the previous totals preserved. Current: **1,697** raw / **595** literal / **448** semantic / **56** collision groups / **31** literal-variance. The pre-pass state (`4fb80ea`) reproduces **1,683 / 595 / 448 / 55 / 31** exactly under the same run, proving the delta comes only from this pass's edits. The **literal set and the semantic set are identical** across the two runs (symmetric difference empty in both dimensions), so **no route and no new spelling of a route was introduced**. The collision-group **set** diff is **one added, zero removed**, with **zero** docs-set changes and **zero** literal-spelling changes on the 55 inherited groups. The one added group — `POST PUBLIC /webhooks/voice/{param}/events`, documents 6D and 6K, single literal spelling `POST /webhooks/voice/{provider_slug}/events` — is **adjudicated, not suppressed**: 6D owns and declares the route (6D lines 404, 2052), 6K now cites it (6K lines 3752, 3801) as the transport preceding the existing in-process inbound admission point, and carried **zero** occurrences of it at `4fb80ea`. Class **B** (canonical owner + consumer reference), **not** Class E, **not** a new endpoint. Arithmetic re-summed: A 0 + B 43 + C 3 + D 7 + E 0 + FP 3 = **56** | ✅ **Static evidence** — §1, §1.1, §2.1 row 56, §2.2, §2.3; supersedes the route figures in rows 2, 50, 120 and 121 |
 | 147 | **`FAR-P2-12` — lower-capacity behaviour is direction-neutral.** 6D §42.5 no longer refuses only "new `POST /calls` and new campaign acquisitions". The corrected contract refuses **all new capacity acquisitions** at **all three** admission points of the single organization-level pool — **inbound provider-originated** (§42.3b), **direct outbound** `POST /api/v1/calls` (§42.2) and **campaign-originated outbound** (§42.3) — until enough existing reservations are released for `(occupied + 1) <= effective hard_limit` to hold again (`FAR-P1-07`, 6K §54.5 rule 2). Inbound, direct outbound and campaign admission therefore all obey the **same tenant-wide capacity authority**, and **no direction is exempt** after a lowered base quota or an **expired override**. **Existing admitted calls in every direction are not terminated**: no provider call is acted on, no `voice.call_sessions` row is mutated, no reservation is revoked — capacity returns only as reservations are released at the §42.4 counted lifetime's end. The campaign `concurrency_policy` remains a **campaign sub-ceiling** only. **No new endpoint**, **no provider-specific inbound signalling** (that stays 6K §54.6 implementation-readiness), **no database or runtime change is claimed**, `FAR-OD-04` / `FAR-OD-05` unchanged, migrations 001–112 untouched, **no `113`**. The extractor was rerun unmodified after the edit: **1,697 raw / 595 literal / 448 semantic / 56 groups / 31 variance** — **identical in every dimension to the pre-edit state**, so this correction introduced **no route** | ✅ **Static evidence** — 6D §42.5; §10B.15; §13 row `FAR-P2-12`; §16.6 |
+| 148 | **`FAR-P2-13` — acceptance-gate evidence provenance is stated per row, not by numeric range.** Every gate row in this table has been mechanically parsed and classified into exactly one of `LIVE_DB`, `STATIC`, `CONTRACT`, `IMPLEMENTATION_READINESS`, `MIXED`, and the classification is published in “Acceptance-gate evidence provenance” below. The three former blanket claims — the rows 131–145 preamble ("the **DB-validated** gates (rows 1–97, 101–115) that were executed against PostgreSQL 18"), row 142 ("rows 1–115 are **DB validated**") and §17 ("Every row's Evidence column states its **class** … rows 1–115 are **DB validated**") — are **withdrawn and replaced**. They were false: this table's header for rows 1–130 is `| # | Check | Result |` with **no per-row Evidence-class column**, and those ranges contain filesystem, hash, count, route, git, hygiene and ledger-arithmetic checks and normative contract assertions that were never executed against PostgreSQL. **No blanket numeric range asserting that every row in that range was DB validated remains in this document.** Only `LIVE_DB` rows, and the live portion of `MIXED` rows, rest on executed PostgreSQL / Alembic transcripts | ✅ **Static evidence** — §15 provenance subsection; §16.7 items 6–7; §13 row `FAR-P2-13`. Script-verified: the five class row-sets are pairwise disjoint, their union is every gate row exactly once, and their counts sum to the gate total. Supersedes the provenance wording of rows 142 and 146 |
+| 149 | **`FAR-P2-14` — §17's current closure state is recomputed from the actual §13 rows.** §17 previously read `FAR-P2: **11** raised` and `Ledger rows in §13: **31**` while §13 already computed 12 P2 and 32 rows. §17 now carries, derived from the table and not copied from a target: **FAR-P0 = 0**; FAR-P1 **7** raised / **0** open; FAR-P2 **14** raised / **0** open; FAR-P3 **9** raised / **0** open; `DB-BLOCKER-FINAL-API-001` **1** raised / **0** open; owner decisions **5** with **0** unresolved; **35** ledger rows (7 + 14 + 9 + 1 + 4 owner-decision rows covering the 5 decisions). `FAR-P2-12`, `FAR-P2-13`, `FAR-P2-14` and `FAR-P3-09` are named in the current closure list. Acceptance rows 92 and 125 no longer embed a future row count; they state their own historical tally and point generically to the current issue-ledger gate (row 143) | ✅ **Static evidence** — §13 arithmetic recomputed from the rows; §17 current closure state; §16.7 items 4–5; §13 row `FAR-P2-14`. Supersedes the numeric content of rows 92 and 125 |
+| 150 | **`FAR-P3-09` — the ticket-identifier sweep names only identifiers that exist.** Acceptance row 144 claimed that the ticket ID `FAR-DB-01` was present. **No such ticket exists**; the canonical database blocker identifier is `DB-BLOCKER-FINAL-API-001` (§12, §13). Row 144 is corrected to sweep for every `FAR-P1`/`FAR-P2`/`FAR-P3` ticket, every `FAR-OD` decision identifier and `DB-BLOCKER-FINAL-API-001`. The literal string `FAR-DB-01` now appears **only** in §13 row `FAR-P3-09` and in this gate, in both cases explicitly labelled as the **incorrect, superseded** identifier | ✅ **Static evidence** — §13 row `FAR-P3-09`; corrected row 144; §16.7 item 8 identifier audit. Extends rows 126 and 144 |
+
+### Acceptance-gate evidence provenance
+
+*(`FAR-P2-13`. Mechanically derived by parsing every row of this table and classifying each row into exactly **one** primary class. Ranges below are the compact form of the actual row sets and are **non-contiguous where the data is non-contiguous**; they are not an approximation.)*
+
+**Definitions.** `LIVE_DB` — the gate's own claim was exercised and observed in live PostgreSQL / Alembic validation, supported by `FAR_DB` / `FAR_111` / `FAR_112` evidence or the §16.2–§16.4 transcripts. `STATIC` — filesystem, hash, count, route-extraction, git, hygiene, text-sweep or inventory/arithmetic calculation. `CONTRACT` — API / document / schema-contract reconciliation or a normative design assertion, not a runtime execution. `IMPLEMENTATION_READINESS` — an expected behaviour of runtime code that is explicitly **not** implemented and **not** live-tested. `MIXED` — genuinely combines live database evidence with static or contract evidence. A row is **not** classified `LIVE_DB` merely because it cites a section that also contains database evidence; the specific claim in that gate must have been live-executed.
+
+| Class | Count | Gate rows |
+|---|---|---|
+| `LIVE_DB` | **44** | 36–38, 40–43, 54–57, 62–74, 77–84, 88, 102, 104–110, 112–114 |
+| `STATIC` | **57** | 2–5, 26–27, 30–33, 44–46, 48–53, 60, 85–87, 89–92, 94–97, 99–101, 103, 115, 120–123, 125–130, 138, 140–146, 148–150 |
+| `CONTRACT` | **37** | 1, 6–24, 28–29, 34–35, 47, 61, 93, 98, 119, 131–136, 139, 147 |
+| `IMPLEMENTATION_READINESS` | **5** | 25, 116–118, 137 |
+| `MIXED` | **7** | 39, 58–59, 75–76, 111, 124 |
+| **TOTAL** | **150** | 1–150, each row exactly once |
+
+44 + 57 + 37 + 5 + 7 = **150**, which equals the gate count derived from the table itself. The five row-sets are pairwise disjoint and their union is exactly `1..150`: no gate row is unclassified and no gate row carries two primary classes. This is verified by script in §16.7 item 6, not asserted.
+
+**Scope statement.** The acceptance gate combines live database evidence, static evidence, contract reconciliation and implementation-readiness assertions. **Only rows explicitly classified `LIVE_DB` — or the live portion of `MIXED` rows — are supported by executed PostgreSQL / Alembic transcripts.** No unimplemented capacity-runtime behaviour is claimed live-tested. In particular, rows 116–118, 137 and the runtime expectations inside rows 134–137 are implementation-readiness or contract assertions; the capacity runtime does not exist and no `FAR_113` evidence exists.
+
+**Why the former range claims were wrong.** Rows 85–87, 89–92, 94–97, 99–101, 103 and 115 sit inside the ranges that were previously declared “DB validated”, yet each is a static count, sweep, arithmetic or erratum check; rows 93 and 98 inside the same ranges are contract assertions. Row 115 (the `FAR-P3-07` label erratum) is a document correction, not a database observation. The table header for rows 1–130 is `| # | Check | Result |`, so those rows never carried a per-row Evidence-class column at all.
 
 ---
 
@@ -1799,7 +1862,7 @@ The full PostgreSQL validation and the DB batteries were **not** run again at cl
     **448** semantic / **56** collision groups / **31** multi-spelling, same extractor rerun unmodified,
     one Class-**B** group added and zero removed, zero Class E (§1.1, §2.1 row 56, §15 row 146). Handoffs
     **214** classified, **0 blocking**, **108** open and disclosed (**83** FUTURE, **4** RELEASE-TRAIN,
-    **21** IMPLEMENTATION-READINESS) (§9.6, §15 row 141). Ledger **31** rows, **0 open** (§13, §15 row 143).
+    **21** IMPLEMENTATION-READINESS) (§9.6, §15 row 141). The ledger stood at **31** rows, **0 open**, at that pass; it has since been recomputed from its actual rows — see §13 and the current issue-ledger gate (§15 row 143) for the current count.
 17. **Disposable infrastructure — cleanup at close (actual record).** Before: `far112_runner` (Exited 255,
     `python:3.11-slim`, network `far112_net`, bind mount of the repository) and `far112_incr` /
     `far112_fresh` (Exited 255, `pgvector/pgvector:pg18`, network `far112_net`, one anonymous volume
@@ -1876,7 +1939,7 @@ rather than by a code change — which is precisely why the hash above had to st
 |---|---|
 | `__pycache__` directories | **0** |
 | `*.pyc` / `*.pyo` | **0** |
-| `@@PENDING@@` placeholders | **0 real placeholders.** The single textual match is inside §15 row 145, where the token is quoted as part of the hygiene rule itself |
+| `@@PENDING@@` placeholders | **0 real placeholders.** Every textual match is the token quoted inside this document's own hygiene rule (§15 row 145, §16.5, §16.7 and this row), never as an unfilled value |
 | Newly created implementation code | **none** — no `.py` outside `5K/alembic/versions/`, and none created there |
 | OpenAPI / schema output | **none generated** |
 
@@ -1918,7 +1981,7 @@ recorded in the `FAR-OD-05` pass:)* ~~7 modified paths, **0 staged**, shown with
 **Corrected by the final static-closure sweep:** all seven paths are now in the index (`M ` in the
 staging column). `FINAL-API-RECONCILIATION.md` shows `MM` because the final-closure corrections to §17
 and to this subsection are not staged; that unstaged diffstat is deliberately **not** pinned to a number
-here, because the block would otherwise invalidate itself on its own next edit. Staging is **not** a content change — `HEAD` is still `4fb80ea`,
+here, because the block would otherwise invalidate itself on its own next edit. Staging is **not** a content change — `HEAD` was still `4fb80ea` at that pass,
 `git stash list` is empty, and no `commit`, `stash` or `reset` was executed at any point; the staged
 diff is byte-identical in content to what the previous audit described as unstaged. Every one is a
 documentation file already named in the §12.5 change register. `6E-AI-Agent-APIs.md` is **not** in the
@@ -2094,17 +2157,162 @@ was produced. Files modified by this pass = **2** (`6D-Voice-Call-Agent-APIs.md`
 - Did **not** perform unrelated wording cleanup.
 - Did **not** commit, stash or reset.
 
+### 16.7 Final freeze-candidate evidence/provenance reconciliation — static evidence only (2026-09-18)
+
+> **SCOPE.** §16.2, §16.3 and §16.4 are the **live database evidence** of the `110_5C2`, `111_5H4` and
+> `112_5H5` passes and are historical records. **§16.5, §16.6 and this §16.7 are static / document
+> reconciliation only.** This pass started no PostgreSQL instance, created no container, ran no Alembic
+> upgrade, reran no validation battery, created no `FAR_113` evidence and edited no raw `FAR_112` evidence.
+> The `112_5H5` database evidence is **reused, not rerun**.
+
+This subsection records the absolute-final freeze-candidate static audit, which raised and closed
+`FAR-P2-13`, `FAR-P2-14` and `FAR-P3-09`.
+
+**1. Migration inventory — unchanged.** `docs/phase-05-database-design/5K/migrations`: **112** `.sql` files.
+`docs/phase-05-database-design/5K/alembic/versions`: **112** numbered `.py` revisions. Files matching `113*`:
+**0** in both directories. **No migration was created, edited or deleted by this pass.**
+
+**2. Alembic head — unchanged, single.** The `revision` / `down_revision` graph over all 112 revision files
+yields exactly **one** head: **`112_5H5`**. Chain `… → 109_5B7 → 110_5C2 → 111_5H4 → 112_5H5`.
+
+**3. `112_5H5` identity — byte- and hash-identical.**
+
+| File | SHA-256 | Bytes |
+|---|---|---:|
+| `5K/migrations/112_5H5.sql` | `6c3c0e0c546ccfa845822e94781193f6a5516a0176de0ec3bd24449b1abfdb53` | 38,635 |
+| `5K/alembic/versions/112_5H5.py` | `fb53b23ae715060fcffa987ee03b7411ae72f252f574e7ab8cd4241925f0e238` | 12,673 |
+
+Both match the values frozen by the `112_5H5` pass exactly. Neither file was opened for writing.
+
+**4. Issue-ledger arithmetic — recomputed from the actual §13 rows (`FAR-P2-14`).** The §13 table was parsed
+row by row and tallied by identifier prefix, not read from a summary sentence:
+
+| Class | Rows | Raised | Open |
+|---|---:|---:|---:|
+| `FAR-P0` | 0 | 0 | **0** |
+| `FAR-P1` | 7 | 7 | **0** |
+| `FAR-P2` | 14 | 14 | **0** |
+| `FAR-P3` | 9 | 9 | **0** |
+| `DB-BLOCKER-FINAL-API-001` | 1 | 1 | **0** |
+| Owner-decision rows (`FAR-OD-02` … `-05`) | 4 | 5 decisions | **0 unresolved** |
+| **TOTAL LEDGER ROWS** | **35** | | |
+
+7 + 14 + 9 + 1 + 4 = **35**. The owner-decision **class** tally is **5** while the row count is **4**, because
+`FAR-OD-01` has no standalone row (it is recorded in the `FAR-P2-01` row it closed and in §10).
+
+**5. §17 current closure state — reconciled against §13 (`FAR-P2-14`).** Before this pass §17 read
+`FAR-P2 = 11 raised` and `Ledger rows in §13 = 31`, while §13 already computed 12 P2 and 32 rows. §17 now
+carries the values in item 4 above, derived from the table. Acceptance rows 92 and 125 no longer embed a
+forward row count; each states its own historical tally and points generically to the current issue-ledger
+gate (row 143).
+
+**6. Acceptance-gate count and evidence provenance (`FAR-P2-13`).** The §15 table was parsed mechanically.
+Derived, not asserted: **minimum ID 1, maximum ID 150, row count 150, duplicate IDs 0, missing IDs 0**;
+the ID sequence is contiguous `1..150`. Every row was then classified into exactly one primary provenance
+class and the classification was machine-checked:
+
+| Class | Count |
+|---|---:|
+| `LIVE_DB` | 44 |
+| `STATIC` | 57 |
+| `CONTRACT` | 37 |
+| `IMPLEMENTATION_READINESS` | 5 |
+| `MIXED` | 7 |
+| **TOTAL** | **150** |
+
+44 + 57 + 37 + 5 + 7 = **150 = the gate count parsed from the table**. The five row-sets are **pairwise
+disjoint** (double-assigned rows: **0**), their union is **exactly** `1..150` (unclassified gate rows: **0**;
+classified non-rows: **0**). Exact row IDs per class are published in §15 “Acceptance-gate evidence
+provenance”. Only `LIVE_DB` rows, and the live portion of `MIXED` rows, rest on executed PostgreSQL /
+Alembic transcripts.
+
+**7. DB-validation overclaim sweep (`FAR-P2-13`).** Case-insensitive search for `DB validated`,
+`DB-validated`, `executed against PostgreSQL`, `rows 1–115`, `rows 1-115`, `rows 1–97`, `rows 1-97`,
+`101–115`, `101-115`, `Evidence column`, `live transcripts`, `live-transcript`. Three current, inaccurate
+(**category C**) occurrences were found and all three were corrected: the §15 rows 131–145 preamble,
+acceptance row 142, and the §17 evidence-provenance paragraph. **Category C after correction: 0.** No blanket
+numeric range asserting that every row in that range was DB validated remains anywhere in this document.
+
+**8. Ticket-identifier audit (`FAR-P3-09`).** Every identifier named by acceptance row 144 was checked for
+existence. `FAR-DB-01` **does not exist** and never did; the canonical identifier is
+`DB-BLOCKER-FINAL-API-001`. Row 144 is corrected. The literal string `FAR-DB-01` now occurs **11** times across **8**
+locations — §0 Scope, §13's `FAR-P3-09` row and its P3 class-arithmetic cell, §15 row 150, this §16.7 item 8
+and item 9's search-term list, and §17's `FAR-P3-09` closure entry — and **every one of them names it as the
+incorrect, non-existent identifier.** **Zero occurrences assert it as a real ticket.** Every other identifier named
+by row 144 — `FAR-P1-01`…`-07`, `FAR-P2-01`…`-14`, `FAR-P3-01`…`-09`, `FAR-OD-01`…`-05` and
+`DB-BLOCKER-FINAL-API-001` — was confirmed present in §13.
+
+**9. Stale current-state sweep.** `11 raised`, `12 raised`, `31 rows`, `32 rows`, `130 gates`, `146 gates`,
+`147 gates`, `213`, `214`, `105`, `106`, `84`, `83`, `20`, `21`, `1683`, `1697`, `55 collision`,
+`56 collision`, `inbound FUTURE`, `outbound-only`, `rows 1–115`, `FAR-DB-01`, plus the commit identifiers
+`4fb80ea`, `eb234bf`, `b79dcca` and every occurrence of the literal label `(current)`. Every hit was read, not
+assumed. The sweep was run with a literal substring scanner over every line of this document, and each hit was
+read in context and classified **(A)** historical and correctly scoped, **(B)** current and accurate, or
+**(C)** current and inaccurate. **Seven category-C carriers were found and all seven were corrected:**
+
+| Location | Category-C defect | Correction |
+|---|---|---|
+| §16.4 item 16 (`112_5H5` closure record) | The `FAR-OD-05` supersession pointer asserted "Ledger **31** rows, **0 open**" in the present tense, which the recomputed ledger (**35**) contradicts | Re-scoped: the 31-row figure is stated as the tally **at that pass**, with a generic pointer to §13 and the current issue-ledger gate (row 143) |
+| §15 row 49 | A historical row embedded a future row's count — "superseded by rows 122–123 (**213**-item classification)" — which the current handoff gate (**214**) contradicts | The embedded count is removed; the row points generically to rows 122–123 and to the current handoff gate (row 141) |
+| §12.6 working-tree paragraph | Labelled "**current**", but recorded `HEAD` = `4fb80ea` and **7** changed paths, both superseded | Re-scoped as the `FAR-P2-12`-pass snapshot (historical) and superseded by §12.7, which records `HEAD` = `b79dcca` and **1** changed path |
+| §12.4 working-tree paragraph | Labelled "**current**" while describing the **15**-path `112_5H5`-close tree, and its scope note pointed at §12.5 as "the current working tree" | Re-scoped as the `112_5H5`-pass snapshot (historical), superseded by §12.7; the pointer now names §12.7 |
+| §12.5 working-tree paragraph | Labelled "**current**" and asserted "Commit `4fb80ea` **is** `HEAD`" with **7** changed paths | Re-scoped as the `FAR-OD-05`-pass snapshot (historical), superseded by §12.7; the commit is stated as `HEAD` **at that pass** |
+| §17 Routes bullet | Asserted the extractor was rerun against "`HEAD` (`4fb80ea`)" in a **Result** section, though `HEAD` is `b79dcca` | Re-scoped to the then-`HEAD` `4fb80ea`, with the current-`HEAD` (`b79dcca`) **13 / 13** byte-identity re-verification cited (§16.7 item 10) |
+| §12.4 committed-history sentence and scope note | Named `eb234bf` as the "current `HEAD`" and `4fb80ea` as "the current `HEAD`", both superseded by `b79dcca` | Both re-scoped to the pass that recorded them, each naming `b79dcca` as the current `HEAD` and pointing to §12.7 |
+
+After those corrections, superseded values survive **only** inside text explicitly marked *Historical*,
+*Superseded*, *Pre-pass* or struck through. **No paragraph labelled Current, Current closure state, Final,
+Authoritative, Result or Current exact carries a superseded number. Category C after correction: 0.**
+
+**10. Route corpus — byte-unchanged, so the route result is unchanged.** `FINAL-API-RECONCILIATION.md` is
+**not** part of the 6A–6M extraction corpus (§1 step 1). All **13** corpus documents were SHA-256 compared
+against `HEAD` (`b79dcca`): **13 / 13 identical**, 0 differing. The documented current result therefore
+stands unchanged and is **not** re-derived: **1,697** raw / **595** literal / **448** semantic / **56**
+collision groups / **31** literal-variance, with collision arithmetic A 0 + B 43 + C 3 + D 7 + E 0 + FP 3 =
+**56** and **zero Class E**. A sanity re-extraction over the unchanged corpus reproduced the four set-based
+dimensions **exactly** — 595 literal, 448 semantic, 56 groups, 31 multi-spelling. Its raw-occurrence figure
+differed by 3 (1,700), which is a property of the sanity harness's trailing-punctuation and per-line dedupe
+handling, **not** a corpus change: the corpus is byte-identical to the state at which **1,697** was recorded,
+so **1,697 is retained unchanged** and nothing in §1 or §1.1 was rewritten.
+
+**11. Handoff corpus — unchanged.** No 6A–6M document was edited, so the §9 classification is untouched:
+**214** unique items — **106** CLOSED, **83** FUTURE — NON-BLOCKING, **4** RELEASE-TRAIN, **21**
+IMPLEMENTATION-READINESS, **0 BLOCKER**; **108** non-closed, **0** blocking.
+
+**12. Repository hygiene.** `__pycache__` directories: **0**. `*.pyc` / `*.pyo`: **0**. Extraction and
+verification helpers were kept exclusively in the session scratchpad **outside the repository**. No
+implementation code, no OpenAPI output and no generated API artifact was created. No real `@@PENDING@@`
+placeholder exists; the only occurrences are documented pattern / self-reference text.
+
+**13. Forbidden next-phase artifacts — absent.** `API-MASTER-INDEX.md`, `AUTHORIZATION-MATRIX.md`,
+`ERROR-CATALOG.md`, `API-VERSIONING-STRATEGY.md`: **0 found**. The next phase has not been started.
+
+**14. Git audit.** Working tree relative to `HEAD` (`b79dcca`): **exactly one** modified file,
+`docs/phase-06-api-design/FINAL-API-RECONCILIATION.md`. Files created: **0**. Migrations modified: **0**.
+Migrations created: **0**. Nothing was committed, stashed or reset.
+
+**15. What this pass did NOT do.** No architecture was reopened. No migration was created or modified. No
+`113`. No PostgreSQL instance was started and no battery was rerun. No implementation code and no OpenAPI
+output. No next-phase document. 6D was **not** edited: current filesystem inspection confirms the
+`FAR-P2-12` correction is already present in 6D §42.5, covering all three admission points.
+
+
 ---
 
 ## 17. Result
 
-All **147** acceptance-gate checks pass (§15). The count is **derived from the table**, not carried
-forward as a target. They are:
+All **150** acceptance-gate checks pass (§15). The count is **derived from the table** — parsed
+mechanically, minimum ID 1, maximum ID 150, 0 duplicates, 0 gaps — not carried forward as a target. They are:
 - the 60 checks carried forward from the `110_5C2` closure;
 - the 37 added by the `111_5H4` billing / quota-override closure (rows 61–97);
 - the 33 added by the `112_5H5` capacity-quota closure and the first master-FAR closure (rows 98–130);
 - the 16 added by the `FAR-OD-05` last contract remediation pass (rows 131–146);
-- the **1** added by the `FAR-P2-12` last static correction (row 147).
+- the **1** added by the `FAR-P2-12` last static correction (row 147);
+- the **3** added by the absolute-final freeze-candidate static audit (rows 148–150): `FAR-P2-13`
+  acceptance-gate evidence provenance, `FAR-P2-14` §17 closure-state recomputation, `FAR-P3-09` ticket-identifier
+  correction.
+
+*(Historical — `FAR-P2-12` static-correction pass:)* ~~All **147** acceptance-gate checks pass (§15) — 60 + 37 + 33 + 16 + 1.~~
 
 *(Historical — first master-FAR close:)* ~~All **130** acceptance-gate checks pass (§15) — 60 + 37 + 33 (rows 98–130).~~
 
@@ -2123,25 +2331,58 @@ Row **147** is the `FAR-P2-12` last static correction: 6D §42.5's lower-capacit
 direction-neutral across all three admission points, with the route extraction rerun unmodified and
 unchanged in every dimension (§10B.15, §16.6).
 
-Every row's Evidence column states its **class**, and the two classes are never mixed: rows 1–115 are
-**DB validated** against the live transcripts in §16.2, §16.3 and §16.4, while rows 116–130, 131–146 and 147 are
-**contract / static evidence** (row 142). **No gate in §15 claims live execution of any capacity-runtime
-test.** The capacity runtime is not implemented; rows 134–137 are labelled contract or
-implementation-readiness assertions, not transcripts, and no `FAR_113` evidence exists.
+Rows **148–150** are the absolute-final freeze-candidate static audit: **148** per-row acceptance-gate
+evidence provenance replacing the withdrawn blanket DB-validation range claims (`FAR-P2-13`); **149** §17's
+current closure state recomputed from the actual §13 rows (`FAR-P2-14`); **150** the ticket-identifier sweep
+corrected to name only identifiers that exist (`FAR-P3-09`). All three are **static evidence** — §16.7.
+
+**Evidence provenance (`FAR-P2-13`).** The acceptance gate combines live database evidence, static
+evidence, contract reconciliation and implementation-readiness assertions. **Only rows explicitly classified
+`LIVE_DB` — or the live portion of `MIXED` rows — are supported by executed PostgreSQL / Alembic
+transcripts** (§16.2–§16.4, `FAR_DB` / `FAR_111` / `FAR_112`). **No unimplemented capacity-runtime behaviour
+is claimed live-tested.** Provenance is recorded **per row**, mechanically derived and script-verified, in
+§15 “Acceptance-gate evidence provenance”: `LIVE_DB` **44**, `STATIC` **57**, `CONTRACT` **37**,
+`IMPLEMENTATION_READINESS` **5**, `MIXED` **7** — 44 + 57 + 37 + 5 + 7 = **150**, the five row-sets pairwise
+disjoint and their union exactly `1..150`. The capacity runtime is not implemented; rows 116–118, 137 and the
+runtime expectations inside rows 134–137 are contract or implementation-readiness assertions, not transcripts,
+and no `FAR_113` evidence exists.
+
+*(Historical — withdrawn by `FAR-P2-13`:)* ~~Every row's Evidence column states its class, and the two classes
+are never mixed: rows 1–115 are DB validated against the live transcripts in §16.2, §16.3 and §16.4, while rows
+116–130, 131–146 and 147 are contract / static evidence.~~ That claim was false in both halves: rows 1–130 carry
+no per-row Evidence-class column at all (the header is `| # | Check | Result |`), and the ranges it called DB
+validated contain filesystem, hash, count, route, git, hygiene and ledger-arithmetic checks and normative
+contract assertions that were never executed against PostgreSQL.
 
 Earlier rows that later passes overtook are scope-marked as historical and superseded, not deleted. Each carries a pointer to the row that replaces it.
 
 *(Historical — `111_5H4` pass:)* ~~All **97** acceptance-gate checks pass (§15) — the 60 checks carried forward from the `110_5C2` closure, six of which are explicitly scope-marked as superseded rather than deleted, plus the **37** added by the `111_5H4` billing / quota-override closure (rows 61–97).~~
 
-**Current closure state (`112_5H5`, master-FAR close).**
+**Current closure state (absolute-final freeze-candidate static audit, 2026-09-18).** Every number below is
+recomputed from the actual §13 rows and the actual §15 table (§16.7 items 4 and 6), not carried forward.
 
-- **Ledger (§13):** FAR-P0 = **0**.
+- **Ledger (§13):** FAR-P0 = **0** raised, **0** open.
   - FAR-P1: **7** raised, **0** open.
-  - FAR-P2: **11** raised, **0** open.
-  - FAR-P3: **8** raised, **0** open.
+  - FAR-P2: **14** raised, **0** open.
+  - FAR-P3: **9** raised, **0** open.
   - `DB-BLOCKER-FINAL-API-001`: **1** raised, **0** open.
   - Owner decisions: **5**, **0** unresolved.
-  - Ledger rows in §13: **31** (7 + 11 + 8 + 1 DB blocker + 4 owner-decision rows covering the 5 decisions).
+  - Ledger rows in §13: **35** (7 + 14 + 9 + 1 DB blocker + 4 owner-decision rows covering the 5 decisions).
+  - Acceptance gates in §15: **150**, contiguous `1..150`, 0 duplicates, 0 gaps.
+  *(Historical — `FAR-P2-12` pass, superseded by `FAR-P2-14`:)* ~~FAR-P2 **11** raised; ledger rows **31**.~~
+- **Tickets closed by the absolute-final freeze-candidate static audit:**
+  - `FAR-P2-13`: the acceptance-gate DB-evidence provenance overclaim. Three blanket range claims — the §15
+    rows 131–145 preamble, row 142 and the §17 paragraph above — asserted that whole numeric ranges of gates
+    were DB validated. All three are withdrawn and replaced by a mechanically derived, script-verified
+    per-row classification (§15 provenance subsection, §16.7 items 6–7).
+  - `FAR-P2-14`: this section's own stale closure state. Recomputed from the §13 rows, as above.
+  - `FAR-P3-09`: acceptance row 144 certified the presence of a ticket `FAR-DB-01` that does not exist. The
+    canonical database blocker identifier is `DB-BLOCKER-FINAL-API-001`, and row 144 now names only
+    identifiers that exist (§16.7 item 8).
+- **Ticket closed by the preceding `FAR-P2-12` static correction:**
+  - `FAR-P2-12`: 6D §42.5's outbound-only lower-capacity wording corrected to cover all three admission
+    points of the one organization-level pool (§10B.15, §16.6). Verified still present in 6D by current
+    filesystem inspection; 6D was **not** edited again by this pass.
 - **Tickets closed after the `111_5H4` pass:**
   - `FAR-P1-06`: closed by `112_5H5` plus controlled API amendments.
   - `FAR-P2-06`: closed by the handoff classification — 213 items at the `112_5H5` close, **214** after
@@ -2167,8 +2408,10 @@ Earlier rows that later passes overtook are scope-marked as historical and super
     `112_5H5.py` is **not** edited and its hash is unchanged.
 - **Routes (§1.1):** **1,697** raw, **595** literal, **448** semantic, **56** collision groups, **31**
   multi-spelling. The **same extractor was rerun unmodified** after all document edits; rerunning it against
-  `HEAD` (`4fb80ea`) reproduces the documented pre-pass baseline **1,683 / 595 / 448 / 55 / 31** exactly, so
-  the delta is attributable to this pass and to nothing else. Collision-set delta: **one group added, zero
+  the then-`HEAD` `4fb80ea` reproduced the documented pre-pass baseline **1,683 / 595 / 448 / 55 / 31** exactly, so
+  the delta is attributable to that pass and to nothing else. The absolute-final freeze-candidate static audit
+  (§16.7 item 10) re-verified all **13** corpus documents as byte-identical to the current `HEAD` `b79dcca`, so
+  these figures stand unchanged and were not re-derived. Collision-set delta: **one group added, zero
   removed** — `POST /webhooks/voice/{param}/events`, now cited by 6K §54.6 alongside its existing 6D owner,
   adjudicated **Class B (canonical owner + consumer reference)**, owner **6D**. Literal and semantic symmetric
   differences are otherwise empty. **Zero Class E** across all 56 groups. Group 41 (`POST /calls`) spans
@@ -2302,4 +2545,4 @@ None of them has been created, and the next phase has not been started.
 
 This document does not declare itself, or any Phase 6 document, APPROVED or FROZEN.
 
-# FINAL API RECONCILIATION = READY FOR INDEPENDENT REVIEW
+# FINAL API RECONCILIATION = READY FOR INDEPENDENT FREEZE REVIEW
