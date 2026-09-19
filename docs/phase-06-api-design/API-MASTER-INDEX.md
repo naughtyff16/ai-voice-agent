@@ -819,9 +819,9 @@ Scripts (kept outside the repository, run with `python3 -B`): `extract.py` (FAR 
 
 | File | sha256 |
 |---|---|
-| `6A-API-Architecture-and-Standards.md` | `bd8da28d1ecdac10a305bd0008ebb4c9aa8979d10e7944d3d7b0a700a1c16dd1` |
-| `6B-Authentication-and-Authorization-API.md` | `b9a18522a3dc030fdbf92689ed77f5be72dd3fdb3e56f6aa3f83d4330a1de7f4` |
-| `6C-Core-Platform-APIs.md` | `9af5f12adac7dff2d762149f06c97b87300aa99e672e6a1793420457d147fbcd` |
+| `6A-API-Architecture-and-Standards.md` | `bd8da28d1ecdac10a305bd0008ebb4c9aa8979d10e7944d3d7b0a700a1c16dd1` **ERRATUM (API Authorization Matrix phase, 2026-09-19):** the value on the left is the hash this index verified. After the append-only controlled amendment authorized by owner decision AAM-OD-04 C (6A L488, `GET /api/v1/jobs/{job_id}` authorization contract), which changed no route, count or line number, the file hash is `0cc260e7f117e55fd86fb71d8c21b14fab6f8ef43a1a4f4427986b1167b305cf`. |
+| `6B-Authentication-and-Authorization-API.md` | `b9a18522a3dc030fdbf92689ed77f5be72dd3fdb3e56f6aa3f83d4330a1de7f4` **ERRATUM (API Authorization Matrix phase, 2026-09-19):** the value on the left is the hash this index verified. After the append-only controlled amendment authorized by owner decision AAM-OD-02 A and AAM-OD-03 C (6B L983, L1922, L1970; L1922 and L1970 further clarified during AAM remediation to state that the subset rule governs custom roles only), which changed no route, count or line number, the file hash is `f8b43a258fee15824fcc6323ac0bcd612ca1cfa4d9278095fc899b776bac6cfe`. |
+| `6C-Core-Platform-APIs.md` | `9af5f12adac7dff2d762149f06c97b87300aa99e672e6a1793420457d147fbcd` **ERRATUM (API Authorization Matrix phase, 2026-09-19):** the value on the left is the hash this index verified. After the append-only controlled amendment authorized by owner decision AAM-OD-02 A (6C L326, L849; both narrowed during AAM remediation so that the subset rule applies only when the assigned role is a custom role and system-role assignment keeps the existing hierarchy), which changed no route, count or line number, the file hash is `269b5978a72d5526d2a6ce5a332b6bbf2ba87b6d584a8e8d4b11c1836e26813c`. |
 | `6D-Voice-Call-Agent-APIs.md` | `0971c372de32bd58f01521a3f493b7458b5fd103c9ac28f5a6ff95cd5dfafd42` |
 | `6E-AI-Agent-APIs.md` | `6c9b500ac2afac65cf8b5c9f237170a72f29d4c468c4991f169c5f52145241bf` |
 | `6F-Knowledge-RAG-APIs.md` | `8a38ce1f4f3def3b819c0bb3588d66f24d2be2757a5a2f3811a9d3a6a0d7a7f2` |
