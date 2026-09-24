@@ -1572,7 +1572,7 @@ Executed synchronously, in-process, before the `DRAFT/SCHEDULED → PREPARING` t
 | 7 | `scheduling_policy.calling_windows ⊆` org `CompliancePolicy.calling_windows` (§11.2, 6C-owned read) | `422 CAMPAIGN_WINDOW_EXCEEDS_ORG_POLICY` / `503` if no ACTIVE policy exists |
 | 8 | `retry_policy` internally valid (§20.1 — re-verified defensively, should already be true from Create/Update) | `422 INVALID_RETRY_POLICY` |
 | 9 | `concurrency_policy.max_concurrent_calls` sanity-checked against current tenant `CONCURRENT_CALLS` hard_limit (§21.1) — a soft warning is recorded, not a hard block, since limits can change during a long campaign | — (informational only) |
-| 10 | Tenant `CONCURRENT_CALLS` current usage is not already fully exhausted by other running campaigns (best-effort — the real per-dispatch check is §17.2 step 5, this is a pre-flight courtesy) | `429 CONCURRENCY_LIMIT_REACHED` (informational; does not permanently block starting) |
+| 10 | Tenant `CONCURRENT_CALLS` current usage is not already fully exhausted by other running campaigns (best-effort — the real per-dispatch check is §17.2 step 5, this is a pre-flight courtesy) | — (advisory only; does not block starting) **AEC-OD-05 clarification (API Error Catalog phase, 2026-09-24):** this cell formerly named an informational HTTP `429`. Start returns no `429` and no `RATE_LIMIT_EXCEEDED` for item 10; `CONCURRENCY_LIMIT_REACHED` stays an internal advisory pre-flight signal (§37), with no response field defined for it. |
 | 11 | Organization is not `SUSPENDED` (Core Platform read, 6C) | `403 AUTHORIZATION_DENIED` / a dedicated `ORGANIZATION_SUSPENDED` reason |
 | 12 | Billing/usage affordability | **Not checked — DEFERRED TO 6K (§29.2)** |
 
@@ -1773,12 +1773,12 @@ Reusing 6A §24's families exclusively — no new top-level `error.code` is intr
 | `CAMPAIGN_ALREADY_STARTED` | `STATE_CONFLICT` | Duplicate `StartCampaign` (§32 #3) |
 | `CAMPAIGN_NOT_RUNNING` | `STATE_CONFLICT` | `Pause`/`Stop` against a non-`RUNNING` campaign |
 | `CAMPAIGN_PAUSED` | — | (informational field on `GetCampaignProgress`, not itself an error) |
-| `CONTACT_LIST_NOT_READY` | `STATE_CONFLICT` | `AttachContactList`/`ScheduleCampaign` against a non-`READY` list (§10.4, §11.2) |
+| `CONTACT_LIST_NOT_READY` | `STATE_CONFLICT` | `AttachContactList`/`ScheduleCampaign` against a non-`READY` list (§10.4, §11.2) **AEC-OD-03 clarification (API Error Catalog phase, 2026-09-24):** this row is route-specific. `STATE_CONFLICT` (`409`) applies only to `POST /campaigns/{id}/contact-list` (§10.4) and `POST /campaigns/{id}/schedule` (§11.2). `POST /campaigns/{id}/start` pre-flight §30 #2 (L1567) returns `422 VALIDATION_ERROR` with `details.reason = CONTACT_LIST_NOT_READY`, not `409`. It is not a top-level `error.code`. No route, permission, schema, success status or line number changed. |
 | `EMPTY_CONTACT_LIST` | `VALIDATION_ERROR` | Pre-flight #3 (§30) |
 | `CALLING_WINDOW_CLOSED` | — | (tick-level no-op, not a client-facing error) |
 | `CAMPAIGN_WINDOW_EXHAUSTED` | `VALIDATION_ERROR` | `ScheduleCampaign`/pre-flight, no future window reachable (§11.2, §30) |
 | `CAMPAIGN_WINDOW_EXCEEDS_ORG_POLICY` | `VALIDATION_ERROR` | Schedule/pre-flight windows not a subset of the org compliance-policy ceiling (§11.2) |
-| `CONCURRENCY_LIMIT_REACHED` | `RATE_LIMIT_EXCEEDED` | Pre-flight informational (§30 #10) |
+| `CONCURRENCY_LIMIT_REACHED` | — | Pre-flight informational (§30 #10) **AEC-OD-05 clarification (API Error Catalog phase, 2026-09-24):** the code cell formerly named `RATE_LIMIT_EXCEEDED`. This reason is an internal, advisory, non-blocking pre-flight signal of `POST /campaigns/{id}/start`, not a client error: Start returns no HTTP `429` and no `RATE_LIMIT_EXCEEDED` for it, and no response field carries it. Hard capacity enforcement at dispatch/admission (§17.2 step 5, §21, §54) is unchanged, as are `RATE_LIMIT_EXCEEDED` responses defined elsewhere. |
 | `TENANT_CALL_QUOTA_REACHED` | `RATE_LIMIT_EXCEEDED` | `CheckQuota` denial at dispatch (internal — surfaces only via `GetCampaignProgress`'s deferred-count, not a synchronous client error) |
 | `CAMPAIGN_CONTACT_TERMINAL` | — | (internal executor guard, never a client-facing mutation exists to trigger it, §15.5) |
 | `MAX_ATTEMPTS_EXHAUSTED` | — | (internal, reflected as `EXHAUSTED` status, not an error) |
@@ -2748,7 +2748,7 @@ The 6K reconciler is the crash backstop (6K §54.5 rule 8). While a dispatch is 
 ### 54.3 Start pre-flight (§30 items 9–10) — reconciled
 
 - **Item 9.** The "current tenant `CONCURRENT_CALLS` hard_limit" is the **effective** limit from `ReadCapacity` (resolver: base plus capacity override, with its `source`), not a direct `billing.quota_configs` read. It remains a soft warning. An uncapped (`NULL`) effective limit produces no warning.
-- **Item 10.** "Current usage" is `ReadCapacity`'s occupied reservation count. That count includes slots held by 6D `POST /calls`, by other campaigns of the tenant, and — under `FAR-OD-05` — by **inbound** provider-originated calls in progress (§54.9), so it is not limited to "other running campaigns". Item 10 remains advisory: `429 CONCURRENCY_LIMIT_REACHED`, non-blocking.
+- **Item 10.** "Current usage" is `ReadCapacity`'s occupied reservation count. That count includes slots held by 6D `POST /calls`, by other campaigns of the tenant, and — under `FAR-OD-05` — by **inbound** provider-originated calls in progress (§54.9), so it is not limited to "other running campaigns". Item 10 remains advisory and non-blocking: `CONCURRENCY_LIMIT_REACHED` is an internal pre-flight signal (§37). **AEC-OD-05 clarification (API Error Catalog phase, 2026-09-24):** this sentence formerly named an HTTP `429`; Start returns no `429` and no `RATE_LIMIT_EXCEEDED` for item 10.
 - **Fail closed at pre-flight.** A missing configuration or an unreachable authority is not a moment-to-moment condition that item 10's advisory rationale covers. It **blocks** the `→ PREPARING` transition, in the same way §30 item 7 blocks on a missing compliance policy:
 
 | Condition at pre-flight | Result |
@@ -2764,7 +2764,7 @@ Both reuse the existing `DEPENDENCY_UNAVAILABLE` family exactly as §37's `COMPL
 |---|---|---|
 | Tenant at limit, dispatch time (step 5 pre-check or step 12 refusal) | Internal only (deferred count in `GetCampaignProgress`) | `TENANT_CALL_QUOTA_REACHED` (§37, unchanged, `RATE_LIMIT_EXCEEDED` family) |
 | Capacity configuration absent or authority unreachable, dispatch time | Internal only; contact `DEFERRED`, never `ELIGIBLE` by default | §21.3 fail-closed rule, unchanged. No client error. |
-| Tenant visibly full at pre-flight | `429`, advisory | `CONCURRENCY_LIMIT_REACHED` (§37, unchanged) |
+| Tenant visibly full at pre-flight | Internal only; advisory, non-blocking — no client error | `CONCURRENCY_LIMIT_REACHED` (§37) **AEC-OD-05 clarification (API Error Catalog phase, 2026-09-24):** the surface cell formerly read `429`, advisory. Start returns no HTTP `429` and no `RATE_LIMIT_EXCEEDED` for this situation. |
 | Configuration absent or authority unreachable at pre-flight | `503`, blocking | `DEPENDENCY_UNAVAILABLE` + `details.reason` (§54.3) |
 | Effective limit `NULL` | Admitted by the tenant ceiling (explicitly **uncapped**, not overage) | The campaign sub-ceiling still applies |
 | Tenant pool consumed by inbound traffic (`FAR-OD-05`) | Internal only; indistinguishable from any other occupancy | Same rows as "tenant at limit" above. 6H sees only `remaining` / `REFUSED_AT_LIMIT`; it is never told the direction of the calls holding the slots. |

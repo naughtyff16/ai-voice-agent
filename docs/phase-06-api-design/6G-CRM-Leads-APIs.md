@@ -386,7 +386,7 @@ Calls `crm.fn_merge_contacts(p_primary_contact_id, p_secondary_contact_id, p_org
 4. Rejects if either Contact is already GDPR-erased (`deleted_at IS NOT NULL`).
 5. Rejects if either Contact is already merged away (`merged_into_contact_id IS NOT NULL`) — checked for **both** primary and secondary. This single check is what makes a merge cycle structurally impossible: a Contact that has ever been a merge secondary can never again be chosen as a primary, so it can never receive a new outbound merge pointer of its own (proven live with a two-hop chain, §10.4).
 6. Field-fills nulls on `primary` from `secondary` (`primary` wins conflicts); adopts `secondary.lead_status` onto `primary` only if it ranks further along a documented interpretation of 4C §7.1's non-linear diagram (`NEW`=0; `CONTACTED`/`NURTURING`/`DISQUALIFIED`=1, lateral to each other; `QUALIFIED`=2; `CONVERTED`=3 — 4C gives no numeric ranking itself, so this ordering is this document's explicit, auditable interpretation, the same kind of documented DDD-gap resolution 6F's Interpretation A/B precedent already established).
-7. Unions `tags` (cap 20) and `custom_field_values` by `field_id`, primary wins ties (cap 50) — either cap exceeded aborts the whole operation before any write (`422`, `error.details.reason` names the exceeded cap), never a silent truncation.
+7. Unions `tags` (cap 20) and `custom_field_values` by `field_id`, primary wins ties (cap 50) — either cap exceeded aborts the whole operation before any write (`422`, `error.details.reason` names the exceeded cap), never a silent truncation. **AEC-OD-06 (binding):** the exceeded cap is surfaced as `422 VALIDATION_ERROR` with `error.details.reason = "MERGE_TAG_CAP_EXCEEDED"` (tags, cap 20) or `error.details.reason = "MERGE_CUSTOM_FIELD_CAP_EXCEEDED"` (custom-field values, cap 50) — the safe reason token only, never the function's raw exception text.
 8. Re-points the four mutable child tables (§10.2).
 9. Marks `secondary`: `merged_into_contact_id = primary_id`, `merged_at = NOW()`.
 10. Records the marker Activity on `primary` (§10.2) — `activity_type = 'STAGE_CHANGE'`, `payload = {"event": "contact_merged", "primary_contact_id": ..., "secondary_contact_id": ..., "merged_by": ...}`. **This is the complete field set, by design (`097_5D5.sql`) — no Contact name, phone, email, address, custom-field value, or qualification reason is ever included**, because this payload is append-only and outside GDPR erasure's reach (§10.2, §22).
@@ -1035,10 +1035,10 @@ Reusing 6A §24's families exclusively — no new top-level `error.code` is intr
 | `DUPLICATE_PHONE` | `STATE_CONFLICT` | Concurrent/duplicate Contact create, §8.2 |
 | `ILLEGAL_LEAD_TRANSITION` | `STATE_CONFLICT` | `POST /contacts/{id}/lead-status` to an illegal target, §9.2 |
 | `ALREADY_CONVERTED` | `STATE_CONFLICT` | Second `POST /contacts/{id}/convert` |
-| `CONTACT_ALREADY_MERGED` | `STATE_CONFLICT` | §10.3, §27 #3/#4 |
+| `CONTACT_ALREADY_MERGED` | `STATE_CONFLICT` | §10.3, §27 #3/#4 — **AEC-OD-06:** legacy/generic umbrella reason only; it is **not** emitted by the V1 Contact-merge endpoint (§10.3), where `crm.fn_merge_contacts()` yields the specific `MERGE_PRIMARY_ALREADY_MERGED` / `MERGE_SECONDARY_ALREADY_MERGED` reasons instead |
 | `INVALID_QUALIFICATION_STATE` | `VALIDATION_ERROR` | `SetQualificationStatus` on a `NEW` contact with no Activity, §9.2 guard |
 | `DEAL_TERMINAL` | `STATE_CONFLICT` | Stage move / second terminal action on a closed Deal, §12.2 |
-| `INVALID_PIPELINE_STAGE` | `VALIDATION_ERROR` | `target_stage_id` not in the deal's pipeline, §12.2 |
+| `INVALID_PIPELINE_STAGE` | `STATE_CONFLICT` | `target_stage_id` not in the deal's pipeline, §12.2 **AEC-OD-04 correction (API Error Catalog phase, 2026-09-24):** the code cell formerly read `VALIDATION_ERROR`; it now matches the §12.2 endpoint contract (L466). On `POST /deals/{id}/stage` this reason is returned as `409 STATE_CONFLICT` with `details.reason = INVALID_PIPELINE_STAGE`, never `400`/`422` `VALIDATION_ERROR`; it is not a top-level `error.code`. No route, permission, schema, success status or line number changed. |
 | `PIPELINE_STAGE_HAS_DEALS` | `STATE_CONFLICT` | `PATCH /pipelines/{id}` attempting to remove a stage with `OPEN` Deals still in it, §13 (`PIPELINE_HAS_DEALS`/pipeline-level deletion is not applicable — Pipeline deletion is not exposed, §13) |
 | `DUPLICATE_DOMAIN` | `STATE_CONFLICT` | Company `email_domain` uniqueness, §11 |
 | `AI_NOTE_IMMUTABLE` | `STATE_CONFLICT` | (Structurally unreachable via this API since no body-edit endpoint exists at all, §16 — retained here only in case a future internal path attempts one and the DB trigger fires) |
@@ -1046,7 +1046,7 @@ Reusing 6A §24's families exclusively — no new top-level `error.code` is intr
 | `ALREADY_SUPPRESSED` | `STATE_CONFLICT` | §21.4, `uq_sup_active` violation |
 | `SUPPRESSION_NOT_LIFTABLE` | `STATE_CONFLICT` | Lift on a non-`ACTIVE` row, §21.5 |
 | `CONSENT_APPEND_ONLY` | `STATE_CONFLICT` | (Structurally unreachable — no mutation endpoint exists for consent, §20; retained for completeness) |
-| `MERGE_SELF_REJECTED` / `MERGE_PRIMARY_ALREADY_MERGED` / `MERGE_SECONDARY_ALREADY_MERGED` / `MERGE_PRIMARY_ERASED` / `MERGE_SECONDARY_ERASED` | `STATE_CONFLICT` / `VALIDATION_ERROR` | `crm.fn_merge_contacts()` guard rejections, §10.3/§10.4 — mapped from the function's own exception messages |
+| `MERGE_SELF_REJECTED` / `MERGE_TAG_CAP_EXCEEDED` / `MERGE_CUSTOM_FIELD_CAP_EXCEEDED` → `422` `VALIDATION_ERROR`; `MERGE_PRIMARY_ALREADY_MERGED` / `MERGE_SECONDARY_ALREADY_MERGED` / `MERGE_PRIMARY_ERASED` / `MERGE_SECONDARY_ERASED` → `409` `STATE_CONFLICT` | per reason (AEC-OD-06, binding) | `crm.fn_merge_contacts()` guard rejections, §10.3/§10.4 — mapped from the function's own exception messages to the safe `error.details.reason` token only; the raw exception text is never forwarded. `MERGE_PRIMARY_NOT_FOUND` / `MERGE_SECONDARY_NOT_FOUND` are internal only and normalize to `404` `RESOURCE_NOT_FOUND` (non-disclosing, §10.3 point 3) — never exposed as `error.details.reason` |
 
 ---
 
