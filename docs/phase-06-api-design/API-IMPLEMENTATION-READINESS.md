@@ -7,7 +7,7 @@
 | Document | `docs/phase-06-api-design/API-IMPLEMENTATION-READINESS.md` |
 | Artifact type | Phase-6 implementation-readiness and reconciliation artifact. **NOT an implementation.** No code, router, model, migration, OpenAPI, SDK, test, or Phase-7 artifact is created by this document. |
 | Status | DRAFT — REMEDIATED (targeted freeze-blocker remediation, 2026-09-26); submitted for final independent freeze review. This document does **not** declare itself FROZEN and does **not** declare Phase 6 CLOSED. |
-| Date | 2026-09-25 (created); 2026-09-26 (targeted remediation of P0-AIR-01, P0-AIR-02, P0-AIR-03, P1-AIR-01, P1-AIR-02 — §37.1); 2026-09-26 (owner-decision closure pass: AIR-P0-EVT-01…04, AIR-OD-03 — §34.1.3–§34.1.7, §37.1); 2026-09-26 (authority-hierarchy correction P0-AIR-06 — §3, §3.1, §37.1); 2026-09-26 (AMI-6J-004 async-worker registry consistency P1-AIR-05 — §8, §37.1) |
+| Date | 2026-09-25 (created); 2026-09-26 (targeted remediation of P0-AIR-01, P0-AIR-02, P0-AIR-03, P1-AIR-01, P1-AIR-02 — §37.1); 2026-09-26 (owner-decision closure pass: AIR-P0-EVT-01…04, AIR-OD-03 — §34.1.3–§34.1.7, §37.1); 2026-09-26 (authority-hierarchy correction P0-AIR-06 — §3, §3.1, §37.1); 2026-09-26 (AMI-6J-004 async-worker registry consistency P1-AIR-05 — §8, §37.1); 2026-09-26 (controlled factual erratum FV-P1-01: §16 AEC active-registry count corrected to the AEC §5 value — §16, §37, §37.1) |
 | Repository baseline | HEAD `8069b5419429892eb622bbdc711e5b5524b9dcb0` ("api versioning phase done"), working tree clean before this file was added |
 | Scope | 369 REST/internal/callback routes (AMI) + 4 WebSocket routes (AMI WS table L548–554) |
 | Authorised repository change | This single file only. All frozen sources (6A–6M, AMI, AAM, AEC, AVS, FAR, `PROJECT_ROADMAP.md`) are unmodified; see §6 hash registry. |
@@ -956,7 +956,7 @@ Sensitive-media routes (7): AMI-6D-010, AMI-6D-011, AMI-6D-012, AMI-6D-013, AMI-
 | Measure | Value |
 |---|---|
 | AEC route rows | 369 |
-| AEC registry codes (§5 L101–456) | 189 |
+| AEC §5 active registry codes (AEC §5 L101–L239; declared total AEC L238) | 132 |
 | Distinct codes referenced by route rows | 105 |
 | Route codes not in registry | 0 |
 | Routes whose error cell is governed by AEC §12 (callbacks, no codes) | 4 (AMI-6D-021, AMI-6J-011, AMI-6J-014, AMI-6K-023) |
@@ -2364,7 +2364,7 @@ Each mutation is applied to a disposable copy of the documents outside the repos
 
 ## 37. Findings
 
-Severity scale: P0 = blocks Phase-6 closure; P1 = must fix before independent review; minor = disclosed observation that requires no source change. **Open — P0: 0 · P1: 0 · minor: 24.** Remediated across revisions: 10 P0 and 6 P1 (§37.1).
+Severity scale: P0 = blocks Phase-6 closure; P1 = must fix before independent review; minor = disclosed observation that requires no source change. **Open — P0: 0 · P1: 0 · minor: 24.** Remediated across revisions: 10 P0 and 7 P1 (§37.1).
 
 | ID | Severity | Observation | Anchor | Disposition |
 |---|---|---|---|---|
@@ -2413,6 +2413,7 @@ Severity scale: P0 = blocks Phase-6 closure; P1 = must fix before independent re
 | P1-AIR-04 | P1 | RESOLVED | Validator extended for the owner-decision closure: 97 mutations (20 new) covering single emission of `document.uploaded`, the four owner-selected producers, the AIR-OD-03 values, the governance obligation, CC-15 = producers and gate/verdict consistency | §36.1 | §36 K |
 | P0-AIR-06 | P0 | RESOLVED | Authority hierarchy contradicted the binding owner decisions (row 9 said the frozen source always wins and that the document adds no behavior, while AIR-P0-EVT-03 / AIR-P0-EVT-04 / AIR-P0-EVT-02 / AIR-OD-03 require implementation to follow the owner decision over conflicting frozen wording). Corrected: frozen-source default retained; exactly seven owner-approved AIR closure decisions registered as authoritative for their recorded scope only; no generalization to unrelated behavior; behavior statement narrowed to "no unapproved behavior"; four conflict examples (campaign start, knowledge reprocess, non-OAuth activation, audit vocabulary); no source modified (amendments 0) | §3 row 9; §3.1; §34.1.1–§34.1.7; §34.6 | §36 K; mutations 98–109 |
 | P1-AIR-05 | P1 | RESOLVED | AMI-6J-004 async-worker registry consistency: the canonical §8 Async worker field still read "none named in row", contradicting AIR-P0-EVT-04 = B and the same row's Transaction / Event fields. The field now records the post-commit credential-validation / activation worker governed by AIR-P0-EVT-04 (§34.1.6): provider credentials validated outside any open DB transaction; success `fn_activate_integration_connection` → CONNECTING→ACTIVE with exactly one `integration.connected` outbox row in the same activation transaction; failure `fn_fail_integration_connection` → FAILED, no `integration.connected`. Consistency audit: §12.4, §12.5, §18.1, §18.2 (incl. worker-emission table), §32, §34.1.6, §34.5, §37.1 and §38 already agreed; no route, table, event, worker API, schema or migration added; topology remains Phase 18 work; no source modified (amendments 0) | §8 AMI-6J-004 row; §34.1.6; 101_5I1.sql:280 / :327 | §36 K; mutations 110–116 |
+| FV-P1-01 | P1 | RESOLVED | Controlled AIR factual erratum: stale AEC active-registry count corrected from 189 to 132; AEC itself unchanged. The §16 metric is relabelled "AEC §5 active registry codes" so it cannot be read as all error tokens, active + reserved/future vocabulary, route references or category counts; the separate in-use metric (105 distinct codes referenced by route rows) and route codes not in registry (0) are unchanged. Not an owner design decision; no code, route, status, retry or concealment rule changed | AEC §5 L101–L239 (132 rows, 132 unique codes); AEC L238 "Active codes: 132 (A 102, B 24, C 3, D 3)" | §16; Final Phase-6 validation (`PHASE-06-FINAL-VALIDATION-AND-FREEZE.md` §11, §37) |
 
 ## 38. Final Readiness Gate
 
