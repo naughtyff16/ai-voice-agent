@@ -8,13 +8,13 @@
 |---|---|
 | Document | 7C — Event Envelope & Schema Versioning |
 | Phase | 7 — Event Architecture |
-| Status | **DRAFT — FREEZE-GATE REMEDIATION APPLIED — BLOCKED ON OD-7C-07 — NOT READY FOR INDEPENDENT REVIEW** |
-| Remediation | Freeze-gate findings P1-7C-01 … P1-7C-06 (§51.1). Five RESOLVED; P1-7C-04 OPEN pending owner decision OD-7C-07 (§46.8). Remediated in place; pre-remediation SHA-256 `a583365003581bf6732e18dba91e54d8ec891b89993f61b97cb24b7ce31ff16e` / 2963 lines |
+| Status | **DRAFT — COMPLETE — READY FOR INDEPENDENT REVIEW** |
+| Remediation | Freeze-gate findings P1-7C-01 … P1-7C-06 (§51.1). All six RESOLVED; P1-7C-04 was resolved by owner decision OD-7C-07 = A (§46.8). Remediated in place; pre-remediation SHA-256 `a583365003581bf6732e18dba91e54d8ec891b89993f61b97cb24b7ce31ff16e` / 2963 lines; OD-7C-07 checkpoint SHA-256 `23670a3c8581bd6dba39d4a967185942f41dc90d779d5d2267f22d39cebab774` / 3112 lines (LF-normalized) |
 | Date | 2026-09-29 |
 | Repository baseline | `main` @ `5f5ddec17dc99e49e688cd1827cc83f2c9bcd797` ("7B approved"), working tree clean at start |
 | Frozen upstream | 7A (Event Architecture & Standards), 7B (Event Taxonomy & Ownership) — hashes in §6 |
 | Closes on completion | 7A DD-02 (envelope names), DD-03 (registry; INT vs TEXT), DD-22 (compatibility policy); 7B IO-7B-04 (EV-079 envelope and fields), IO-7B-06 (payload names, types and versions) |
-| Owner decisions | OD-7C-01 … OD-7C-06 — DECIDED by the owner (§46). OD-7C-07 — **OWNER DECISION REQUIRED** (§46.8) |
+| Owner decisions | OD-7C-01 … OD-7C-07 — all DECIDED by the owner (§46). OD-7C-07 = A (§46.8). Open owner decisions: **0** |
 | Does not begin | 7D, 7E, 7F, 7G, 7H, 7I, 7J, 7K, 7L |
 | Artifact rule | This is the only new or modified project artifact for 7C. No migration, code, Pydantic model, JSON Schema file, OpenAPI, SDK, validator or Redis/Celery artifact is created. Scratch validation runs outside the repository. |
 
@@ -58,14 +58,14 @@ Authority in 7C is **concern-specific**. Each source is authoritative only for t
 | Phase-6 owner documents (6A … 6L, API Versioning Strategy) | Their own domain, API and consumer semantics: 6A §7.5 encoding, WS envelope (6A §27.3), webhook envelope and signature (6J), Billing idempotency and quantities (6K), Analytics projections (6L), and each domain's business meaning | Phase-7 event taxonomy; physical schema where a migration disagrees |
 | Closure artifacts (5K execution report / manifest, phase closure notes, 7B reconciliation tables) | Reconciliation, indexing and validation only | Nothing outside what they reconcile; they never override any source above |
 | Phase 4 (4A §9.1 DomainEvent, 4B) and Phase 3 (3A §12.4) | Lineage, where not superseded by a concern-owner above | Any concern that a source above already decides |
-| OD-7C-01 … OD-7C-06 (§46); OD-7C-07 once decided (§46.8) | Only the exact scope written in each decision | Anything outside that scope |
+| OD-7C-01 … OD-7C-07 (§46) | Only the exact scope written in each decision. OD-7C-07 supplies only the three EV-014 member `event_type` names and their consequences for the 7C representation (§46.8) | Anything outside that scope. No decision overrides 7A, 7B, 6E, AIR or another decision |
 
 Rules of application:
 
 1. A question is answered by identifying its concern and reading the one source that owns that concern.
 2. Where two sources appear to disagree, the disagreement is resolved by concern ownership, not by document date or sequence. The disagreement is recorded in §49. 7C does not edit the upstream document.
 3. 7C binds only what 7A / 7B delegate to it. 7C does not override 7A or 7B.
-4. Where the frozen sources left a meaningful choice open, 7C put it to the owner as OD-7C-01 … OD-7C-06. All six are DECIDED (§46). Each applies only within its stated scope. The freeze-gate remediation found one further open choice, the manifest representation of EV-014. It is put to the owner as OD-7C-07 (§46.8) and is not decided.
+4. Where the frozen sources left a meaningful choice open, 7C put it to the owner as OD-7C-01 … OD-7C-06. All six are DECIDED (§46). Each applies only within its stated scope. The freeze-gate remediation found one further open choice, the exact member `event_type` names of EV-014, which the manifest needs. It was put to the owner as OD-7C-07 (§46.8). The owner selected Option A and approved the names `tool_definition.created`, `tool_definition.updated` and `tool_definition.deactivated`. All seven decisions are DECIDED.
 
 Correction note: the checkpoint version of this section carried a single numbered precedence table running from the migrations down to Phase 3. That table let a source prevail outside its own concern and is withdrawn. The concern-specific model above replaces it. There is no recency-based precedence anywhere in 7C.
 
@@ -214,7 +214,7 @@ Physical facts that 7C does not change:
 | # | Envelope field | JSON type (§18) | Required | Nullable | Current physical source | Basis |
 |---|---|---|---|---|---|---|
 | ENV-01 | `event_id` | UUID (v7) | REQUIRED | NON-NULL | outbox `id` | EVT-02, IDN-01, 077 L49 |
-| ENV-02 | `event_type` | string, 1–200, exact 7B canonical name | REQUIRED | NON-NULL | `event_type` | 7B catalogue; 077 CHECK |
+| ENV-02 | `event_type` | string, 1–200, exact 7B canonical name; for EV-014 exactly one of the three OD-7C-07 member names, never the family identifier `tool_definition.*` (TDF-01) | REQUIRED | NON-NULL | `event_type` | 7B catalogue; OD-7C-07; 077 CHECK |
 | ENV-03 | `event_version` | integer ≥ 1 | REQUIRED | NON-NULL | `event_version` | VER-07; §23 |
 | ENV-04 | `organization_id` | UUID | REQUIRED | NULLABLE for EV-001 only; NON-NULL for the other 104 | `organization_id` | TEN-01, TEN-06, 7B L451; §13 |
 | ENV-05 | `aggregate_type` | string, lowercase `snake_case` | REQUIRED | NON-NULL | `aggregate_type` (physically NULL-able) | 7B L440; 077 L55; §14 |
@@ -689,7 +689,7 @@ All are closed (§18). The vocabulary is exactly the executed CHECK set where on
 | E-PAYMENT-PROVIDER | `RAZORPAY`, `CASHFREE`, `STRIPE`, `OTHER` | `billing.payment_attempts.payment_provider` CHECK |
 | E-QUALIFICATION-OUTCOME | `QUALIFIED`, `DISQUALIFIED`, `INCONCLUSIVE` | `voice.conversations.qualification_outcome` CHECK |
 | E-SCORE-COMPUTED-BY | `RULE_ENGINE`, `AI_AGENT`, `MANUAL` | `crm.lead_score_records.computed_by` CHECK |
-| E-TOOL-CHANGE-KIND | `CREATED`, `UPDATED`, `DEACTIVATED` | 7C-declared (no column): the three 6E operations 6E-011 / 6E-013 / 6E-014 behind FAM-01; the member `event_type` names are not frozen (OD-7C-07, §46.8) |
+| E-TOOL-CHANGE-KIND | `CREATED`, `UPDATED`, `DEACTIVATED` | 7C-declared (no column): the three 6E operations 6E-011 / 6E-013 / 6E-014 behind FAM-01. Each value maps to exactly one owner-approved EV-014 member `event_type` (OD-7C-07, §46.8; TDF-02) |
 | E-TOOL-STATUS | `RUNNING`, `SUCCEEDED`, `FAILED`, `TIMED_OUT` (`PENDING` is never emitted) | subset of `voice.tool_executions.status` CHECK (PAY-D-02 only) |
 | E-DURABILITY | `SIGNAL` | SIGNAL profile only (SIG-10) |
 | E-PLAN-TIER | `FREE`, `STARTER`, `GROWTH`, `ENTERPRISE` | 4A L659 `PlanTier` (no column; plan assignment deferred, 6C L101; EV-002 writes `null` in V1) |
@@ -859,15 +859,31 @@ All are closed (§18). The vocabulary is exactly the executed CHECK set where on
 
 #### EV-014 `tool_definition.*`
 
-- **Envelope:** Class A · `event_version` = `1` · `aggregate_type` = `tool_definition` · `aggregate_id` = `tool_definition_id` · `organization_id` NON-NULL (TEN-C03); emitted only for organization-owned definitions — built-in rows with `organization_id IS NULL` produce no V1 event (§49)
-- **`occurred_at`:** `voice.tool_definitions.created_at` for `CREATED`; `voice.tool_definitions.updated_at` for `UPDATED` / `DEACTIVATED` (OCC-C07)
-- **Lineage:** 7B §24 / PB (FAM-01) · **[7I]:** none · **Compatibility:** V1 baseline; no V2. Changes follow §27 – §30. Closed enum(s) `change_kind`: a new value is BREAKING (§29).
-- **Note:** 7B freezes EV-014 as the family `tool_definition.*` (FAM-01) and names no member `event_type`; no frozen source names one. 7C invents none. This payload binding applies to every member. How the code-owned manifest represents the family (exact member names, or a governed family entry) is **OD-7C-07 — OWNER DECISION REQUIRED** (§46.8). Until it is decided, EV-014 cannot be entered in the manifest (§26, CSR-02) and P1-7C-04 stays OPEN (§51.1; IO-7C-17).
+- **Semantic family and members (OD-7C-07 = A, §46.8):** `tool_definition.*` is the 7B semantic family identifier of EV-014 (FAM-01). EV-014 is one semantic catalogue binding and counts once in EV-001 … EV-105. The family identifier is never itself an emitted `event_type`. The owner-approved runtime member `event_type` values are exactly `tool_definition.created`, `tool_definition.updated` and `tool_definition.deactivated`. There is no other member. All three share this one V1 binding.
+- **Envelope:** Class A · `event_type` = exactly one of the three members (TDF-01) · `event_version` = `1` · `aggregate_type` = `tool_definition` · `aggregate_id` = `tool_definition_id` · `organization_id` NON-NULL (TEN-C03); emitted only for organization-owned definitions — built-in rows with `organization_id IS NULL` produce no V1 event (§49)
+- **`occurred_at`:** `tool_definition.created` → `voice.tool_definitions.created_at` of the creating transaction; `tool_definition.updated` → `voice.tool_definitions.updated_at` written by the updating transaction; `tool_definition.deactivated` → `voice.tool_definitions.updated_at` written by the deactivation transaction (OCC-C07)
+- **Lineage:** 7B §24 / PB (FAM-01); member names: owner decision OD-7C-07 (§46.8) · **[7I]:** none · **Compatibility:** V1 baseline; no V2 of any member. Changes follow §27 – §30. Closed enum(s) `change_kind`: a new value is BREAKING (§29). Members change only by a governed 7B change (TDF-05).
+- **Note:** 7B FAM-01, 7B L476 and 6E L914 describe the three kinds in words (created / updated / deactivated) and catalogue no member `event_type`. The member names above are supplied by the owner in OD-7C-07, not invented by 7C. 7B and 6E are not edited by 7C; their documentary reconciliation is IO-7C-17 (B) (CNF-7C-12).
+
+| Member `event_type` | 6E operation | `change_kind` | `occurred_at` |
+|---|---|---|---|
+| `tool_definition.created` | 6E-011 `POST /api/v1/tools` | `CREATED` | `voice.tool_definitions.created_at` |
+| `tool_definition.updated` | 6E-013 `PATCH /api/v1/tools/{tool_id}` | `UPDATED` | `voice.tool_definitions.updated_at` |
+| `tool_definition.deactivated` | 6E-014 `POST /api/v1/tools/{tool_id}/deactivate` | `DEACTIVATED` | `voice.tool_definitions.updated_at` of the deactivation transaction |
 
 | Field | JSON type | Required | Nullable | Unit / enum / source |
 |---|---|---|---|---|
 | `tool_definition_id` | UUID | REQUIRED | NON-NULL | `voice.tool_definitions.id` |
-| `change_kind` | enum (E-TOOL-CHANGE-KIND) | REQUIRED | NON-NULL | (non-physical) the 6E operation that produced the fact: 6E-011 create, 6E-013 update, 6E-014 deactivate |
+| `change_kind` | enum (E-TOOL-CHANGE-KIND) | REQUIRED | NON-NULL | (non-physical) the 6E operation that produced the fact: 6E-011 create, 6E-013 update, 6E-014 deactivate; always the value that TDF-02 maps to the emitted member |
+
+Rules:
+
+- **TDF-01.** The runtime `event_type` of an EV-014 event is exactly one of `tool_definition.created`, `tool_definition.updated` or `tool_definition.deactivated`. The literal `tool_definition.*` is never emitted as an `event_type`, never written to `audit.domain_event_outbox.event_type`, never a manifest key and never declared by a consumer. Any other `tool_definition.<x>` value (for example `tool_definition.deleted`) is not an EV-014 member: producer validation rejects it (PV-C02), and a consumer treats it as an unknown type (UV-07).
+- **TDF-02.** The member-to-`change_kind` mapping is exact: `tool_definition.created` → `CREATED`; `tool_definition.updated` → `UPDATED`; `tool_definition.deactivated` → `DEACTIVATED`. Any other pairing (for example `tool_definition.created` with `UPDATED`, `tool_definition.updated` with `CREATED`, or `tool_definition.deactivated` with `UPDATED`) is a contract violation. Producer validation rejects it before commit (PV-C10), and no outbox row is written (PV-04). `change_kind` stays the closed three-value enum E-TOOL-CHANGE-KIND; V1 has no fourth value.
+- **TDF-03.** Manifest: EV-014 contributes exactly three exact pairs, (`tool_definition.created`, 1), (`tool_definition.updated`, 1) and (`tool_definition.deactivated`, 1). Each references this one V1 payload contract. There is no family, wildcard, regex or prefix entry for EV-014 and no dispatch by pattern (CSR-02, CSR-09).
+- **TDF-04.** Counting: EV-014 remains one semantic binding, so the semantic taxonomy stays at 105 bindings (EV-001 … EV-105). Its three members are three exact manifest pairs, so the durable manifest holds 107 exact V1 pairs (§20.8). There are 105 EV IDs, not 107. Neither count replaces the other.
+- **TDF-05.** Each member is its own `event_type` for versioning (VRS-02), so the three members' versions are independent. A BREAKING change to this shared binding creates N + 1 of every member it affects. Adding, removing or renaming a member is a governed 7B change with the owner (7B NAM-07; NEV-03), never a 7C version action. Adding a `change_kind` value is BREAKING (MX-08) and also needs a matching new member through that governed change.
+- **TDF-06.** Analytics: 7B lists no current consumer of EV-014 (7B L476; 6E L914; 6D L1232). 7C does not register the three pairs in `analytics.event_schema_versions`. Analytics registers them only when it actually consumes them (IO-7C-11; ARR-02). Migration 075 is unchanged.
 
 #### EV-015 `knowledge_base.created`
 
@@ -2010,7 +2026,11 @@ All are closed (§18). The vocabulary is exactly the executed CHECK set where on
 
 | Measure | Value |
 |---|---|
-| Durable bindings | 105 (EV-001 … EV-105), each `event_version` = `1` |
+| Durable bindings (semantic taxonomy) | 105 (EV-001 … EV-105), each `event_version` = `1`; EV-014 counts once (TDF-04) |
+| Exact durable V1 manifest pairs | 107 = 104 singleton bindings + 3 EV-014 members (`tool_definition.created`, `tool_definition.updated`, `tool_definition.deactivated`; TDF-03), each `event_version` = `1` |
+| EV-014 exact pairs | 3 |
+| Family, wildcard, regex or prefix manifest entries | 0 |
+| Exact SIGNAL V1 manifest pairs | 4 (PAY-D-01: 1; PAY-D-02: 3), each `event_version` = `1` (§21) |
 | By class | A = 71 (EV-001 … EV-071; EV-001 with a B branch), B = 1 (EV-072), C = 33 (EV-073 … EV-105) |
 | Payload fields bound | 341 (all REQUIRED; 58 NULLABLE) |
 | Fields marked (non-physical) | 59 |
@@ -2234,7 +2254,7 @@ A change inside the versioned contract is classified by §27 (the matrix §27.3 
 | VRS-04 | Exactly one wire form is valid. See the table below. |
 | VRS-05 | The version is never encoded in `event_type` (DET-08) and never in a payload key or payload value (PAY-04). |
 | VRS-06 | Producers write the version explicitly on every event (DET-05). The column default is never relied on. |
-| VRS-07 | Every one of the 105 durable types and both SIGNAL bindings (PAY-D-01, PAY-D-02) is at `event_version` = `1`. No other version of any type exists. |
+| VRS-07 | Every durable `event_type` — the 107 exact types of the 105 durable bindings, the three EV-014 members included (§20.8) — and every type of both SIGNAL bindings (PAY-D-01, PAY-D-02) is at `event_version` = `1`. No other version of any type exists. |
 | VRS-08 | The version describes the complete compatibility-relevant contract of the type: the payload schema and the meaning of every interpretation-relevant envelope field (organization scope, aggregate, occurrence time, identity). Relay bookkeeping, Redis stream IDs, retry counters, claim metadata, delivery timestamps and transport encoding are not versioned by it (KEY-02, KEY-05, KEY-06). A change to the meaning of an interpretation-relevant envelope field is classified by §27.4 exactly like a payload change. |
 | VRS-09 | The SIGNAL profile uses the same representation (SIG-03). |
 | VRS-10 | The version is a single integer. It is not semantic versioning. There is no minor, patch, pre-release or build component, and a compatible change never changes the number (OD-7C-01). |
@@ -2309,7 +2329,7 @@ Analytics stores the version as TEXT: `analytics.analytics_events.event_version 
 | ID | Rule |
 |---|---|
 | ARR-01 | `analytics.event_schema_versions` is the Analytics ingest registry. It is not the platform schema registry (OD-7C-03; DET-15). Its rows neither define nor prove any internal schema. |
-| ARR-02 | 7C does not register the 105 durable events or the PAY-D signals in it, does not change any row, and does not change its DDL. |
+| ARR-02 | 7C does not register the 105 durable events (107 exact pairs, including the three EV-014 members) or the PAY-D signals in it, does not change any row, and does not change its DDL. A pair enters it only when Analytics consumes that pair (IO-7C-11). |
 | ARR-03 | Its status names are the same words as the lifecycle states in §38. Analytics mirrors the platform lifecycle of the pairs it consumes (IO-7C-11). The mirror follows the manifest; it never leads it. A status change made only in this table never changes a platform lifecycle state. |
 | ARR-04 | There is no `retired_at` column. 7C does not require one. Retirement time, if Analytics needs it, is an Analytics change. |
 | ARR-05 | 7B §25.1 already reconciles all 25 seeded names: 12 are durable events (EV-005, EV-006, EV-023, EV-024, EV-026, EV-046, EV-079, EV-085, EV-090, EV-091, EV-097, EV-102); 4 are Class-D signal names (DS-17 `conversation.turn_completed` = PAY-D-01; DS-19 `tool_execution.succeeded` and `tool_execution.failed` = PAY-D-02 members; DS-18 `provider.failover_triggered`, which has no 7C binding); 2 are CCPU names (`call.started` CCPU-01, `usage.event_recorded` CCPU-02); and 7 are FUT names (`invoice.payment_succeeded` FUT-04, the three `webhook.delivery_*` rows FUT-05…07, and `provider.failed`, `provider.circuit_opened`, `provider.circuit_closed` FUT-08…10). 7C binds a V1 schema only for the 12 durable events and the PAY-D members. A seeded name without a 7C binding has no internal schema, and its row creates none. 7C adds no rename (7B NAM-01). |
@@ -2324,13 +2344,14 @@ OD-7C-03 = A: schemas are code-owned and version-controlled.
 | ID | Rule |
 |---|---|
 | CSR-01 | §10, §11 and §20 – §22 of this document are the normative V1 source for every internal event and SIGNAL schema. |
-| CSR-02 | The code-owned manifest (IO-7C-02) is keyed by (`event_type`, integer `event_version`). For each key it carries: profile and class; `aggregate_type` and `aggregate_id` semantics; organization scope; `occurred_at` source; causation source (CAU-06); the payload schema (field names, §18 types, requiredness, nullability, enums, scale); lifecycle status (§38); and the [7I] marks. Every manifest entry is an exact (`event_type`, version) pair. 104 of the 105 durable bindings have an exact frozen name and enter the manifest directly. EV-014 `tool_definition.*` is a frozen 7B family (FAM-01) with no frozen member names; how the manifest represents it is OD-7C-07 (§46.8), not decided, and P1-7C-04 stays OPEN until it is. Until then no entry for EV-014 exists, and no claim is made that all 105 bindings are registered as exact pairs. |
+| CSR-02 | The code-owned manifest (IO-7C-02) is keyed by (`event_type`, integer `event_version`). For each key it carries: profile and class; `aggregate_type` and `aggregate_id` semantics; organization scope; `occurred_at` source; causation source (CAU-06); the payload schema (field names, §18 types, requiredness, nullability, enums, scale); lifecycle status (§38); and the [7I] marks. Every manifest entry is an exact (`event_type`, version) pair. The durable V1 baseline is 107 exact pairs: one for each of the 104 singleton bindings, and three for EV-014, whose owner-approved members (OD-7C-07 = A, §46.8) are (`tool_definition.created`, 1), (`tool_definition.updated`, 1) and (`tool_definition.deactivated`, 1), all referencing the one EV-014 V1 payload contract (TDF-03). The SIGNAL V1 baseline is 4 exact pairs (PAY-D-01, and the three PAY-D-02 members). The semantic taxonomy count is unchanged at 105 durable bindings (TDF-04). |
 | CSR-03 | CI conformance checks (IO-7C-03) prove that every producer emits, and every consumer declares support for, only (`event_type`, version) pairs in the manifest, and that the manifest reproduces the V1 baseline of this document. |
 | CSR-04 | There is no database-backed platform schema registry, no schema-registry service and no network lookup at produce or consume time. |
 | CSR-05 | `analytics.event_schema_versions` is not canonical (ARR-01). |
 | CSR-06 | A COMPATIBLE change (§28) amends the existing manifest entry for the same (`event_type`, N). Its history is the version-control history. There is no wire-level schema revision field. |
 | CSR-07 | A BREAKING change (§29) adds a new entry for N + 1. The entry for N stays until N is RETIRED (§38), and stays in history afterwards. |
 | CSR-08 | Before IO-7C-02 is delivered, this document is the only source. After it is delivered, the manifest is the single machine-readable source. It must reproduce the V1 baseline here exactly, and every later change record in it carries its §27 classification. A change to the envelope profile (key set, field names, field types), to a profile rule or to a rule in this document still requires a 7C amendment; the amendment does not replace the §27 classification of each affected type (CMP-06). |
+| CSR-09 | The manifest has no family, wildcard, regex or prefix key, and no producer, consumer, dispatcher or CI check matches an `event_type` by pattern. A 7B family identifier (`tool_definition.*`, `tool_execution.*`) names a semantic grouping only. It is never a manifest key, a producer target, a consumer declaration or an emitted `event_type` (TDF-01, SIG-02). |
 
 ---
 
@@ -2477,7 +2498,7 @@ Producer validation is IO-7C-04.
 | Check | What is validated |
 |---|---|
 | PV-C01 | Envelope key set: exactly ENV-01 … ENV-10 for the current persistence phase (§10.5), or SIG-01 … SIG-11 |
-| PV-C02 | The 7B class and profile of the type. `durability` is present only on SIGNAL and equals `"SIGNAL"` (SIG-R02) |
+| PV-C02 | `event_type` is an exact manifest `event_type`, never a family identifier or pattern (CSR-09; for EV-014 one of the three members, TDF-01). The 7B class and profile of the type. `durability` is present only on SIGNAL and equals `"SIGNAL"` (SIG-R02) |
 | PV-C03 | `event_version` has the VRS-04 valid form and equals this producer build's target version for the type |
 | PV-C04 | Organization scope (TEN-C02, TEN-C03) |
 | PV-C05 | `aggregate_type` and `aggregate_id` per the binding (§14) |
@@ -2485,7 +2506,7 @@ Producer validation is IO-7C-04.
 | PV-C07 | Closed payload key set of the manifest entry, and every REQUIRED key present |
 | PV-C08 | §18 types, nullability, enum vocabularies and decimal scale |
 | PV-C09 | Canonical serialization (§18; no duplicate keys, no JSON float for precision-sensitive values) |
-| PV-C10 | Binding invariants (for example USG-01 … USG-10, DET-13) |
+| PV-C10 | Binding invariants (for example USG-01 … USG-10, DET-13, the PAY-D-02 member-to-`status` mapping PD2-01, and the EV-014 member-to-`change_kind` mapping TDF-02) |
 | PV-C11 | Size (PAY-02) |
 | PV-C12 | Security exclusions (§19.3) and PAY-04 |
 | PV-C13 | `correlation_id` / `causation_id` follow the persistence phase (§10.5) and §16 / §17, and never appear in `payload` |
@@ -2726,7 +2747,8 @@ OD-7C-02 = B: constrained consumer-side upcasting.
 | P1-7C-01 (correlation root precedence) | §16.1, §16.2 (COR-01 … COR-08), §16.3; CNF-7C-02; ADR-7C-19 |
 | P1-7C-02 (`event_version` scope) | §23 (KEY-06, KEY-07, VRS-08), CMP-06, BRK-06, NEV-08; ADR-7C-20 |
 | P1-7C-03 (21 change categories) | §27.4 (CAT-01 … CAT-21, CAT-R01 … CAT-R03), CPT-09, BRK-09, NEV-08; ADR-7C-21 |
-| P1-7C-04 (EV-014 manifest representation) | CSR-02; §46.8 OD-7C-07 (OPEN) |
+| P1-7C-04 (EV-014 manifest representation) | §20.4 EV-014 binding (TDF-01 … TDF-06); §20.8; CSR-02, CSR-09; PV-C02, PV-C10; §46.8 OD-7C-07 (DECIDED, A); IO-7C-17; CNF-7C-12; ADR-7C-22 |
+| OD-7C-07 | §20.4 EV-014 binding; §20.8; CSR-02, CSR-09; §46.8 |
 | P1-7C-05 (EV-062 `draft_revision`) | §20 EV-062 binding |
 | P1-7C-06 (EV-105 schema) | §20 EV-105 binding |
 
@@ -2757,12 +2779,13 @@ OD-7C-02 = B: constrained consumer-side upcasting.
 | ADR-7C-19 | Correlation root precedence: (1) an existing trusted root propagates unchanged; (2) otherwise a Voice call that is itself the root establishes it once; (3) otherwise a background root mints one UUIDv7 once. The root never changes within a flow, and `call_id` never overwrites an established root. | P1-7C-01: the checkpoint precedence let a Voice hop replace an API or campaign root. 6A L675 keeps the request ID for an API-initiated call. | One correlation value per causal flow. It is persisted with the call session or root work item, and no hop re-derives it (IO-7C-01). | §16.1, COR-01 … COR-08 |
 | ADR-7C-20 | `event_version` versions the complete compatibility-relevant contract: the payload schema plus the meaning of every interpretation-relevant envelope field. It excludes relay bookkeeping, Redis IDs, retry counters, claim metadata, delivery timestamps and transport state. A new optional envelope key that meets the four KEY-07 conditions keeps every version. | P1-7C-02: "payload schemas; not the envelope" contradicted the treatment of envelope semantics. OD-7C-01 = A is unchanged. | The OD-7C-04 `correlation_id` / `causation_id` addition is COMPATIBLE and needs no V2. A changed business fact is a new event type, never N + 1 (NEV-08). | KEY-06, KEY-07, VRS-08, CMP-06, NEV-08 |
 | ADR-7C-21 | All 21 required change categories are classified, each with an exact condition. FIELD split and merge are distinct from EVENT split and merge. | P1-7C-03: the checkpoint matrix lacked several categories and substituted an event split for a field split. | Every proposed change is matched against the CAT and MX rows and takes the most restrictive class (CMP-03). | §27.4, CAT-R01 … CAT-R03 |
+| ADR-7C-22 | EV-014 `tool_definition.*` stays one semantic binding. Its runtime members are exactly `tool_definition.created`, `tool_definition.updated` and `tool_definition.deactivated`, each an exact manifest pair at version 1 sharing the one EV-014 payload, with an exact member-to-`change_kind` mapping. The family identifier is never emitted and never a manifest key. | P1-7C-04: no frozen source named a member, and OD-7C-03 keys the manifest by exact pairs. The owner decided OD-7C-07 = A and approved the three names. | The manifest is deterministic: 107 exact durable pairs, 105 semantic bindings, no pattern matching. 7B and 6E are not edited in 7C; their documentary reconciliation is IO-7C-17 (B). | TDF-01 … TDF-06, CSR-02, CSR-09, §46.8 |
 
 ---
 
 ## 46. Owner Decision Register
 
-OD-7C-01 … OD-7C-06 were taken by the owner before this document was completed. Each is **DECIDED**, **RESOLVED** and owner-approved, and none is reopened by the remediation. OD-7C-07 (§46.8) was raised by the remediation of P1-7C-04. It is **OWNER DECISION REQUIRED** and no option is selected.
+OD-7C-01 … OD-7C-06 were taken by the owner before this document was completed. Each is **DECIDED**, **RESOLVED** and owner-approved, and none is reopened by the remediation. OD-7C-07 (§46.8) was raised by the remediation of P1-7C-04 and is also **DECIDED**, **RESOLVED** and owner-approved: the owner selected Option A.
 
 ### 46.1 OD-7C-01 — What bumps `event_version`
 
@@ -2864,44 +2887,38 @@ OD-7C-01 … OD-7C-06 were taken by the owner before this document was completed
 | OD-7C-04 | B — future outbox columns | DECIDED · RESOLVED |
 | OD-7C-05 | A — inline EV-079 usage | DECIDED · RESOLVED |
 | OD-7C-06 | A — same core metadata plus `durability` | DECIDED · RESOLVED |
-| OD-7C-07 | None — OWNER DECISION REQUIRED (§46.8) | OPEN |
+| OD-7C-07 | A — owner-approved EV-014 member names `tool_definition.created`, `tool_definition.updated`, `tool_definition.deactivated` (§46.8) | DECIDED · RESOLVED |
 
-Current open owner decisions: **1** (OD-7C-07).
+Current open owner decisions: **0**.
 
-### 46.8 OD-7C-07 — EV-014 manifest representation
+### 46.8 OD-7C-07 — EV-014 member event types and manifest representation
 
-**OD-7C-07 — OWNER DECISION REQUIRED.** No option is selected. 7C does not select one, and the document does not proceed to independent review until the owner answers.
-
-| Item | Record |
-|---|---|
-| Question | How should the code-owned schema manifest represent the already-frozen EV-014 `tool_definition.*` family when exact member event names are not frozen? |
-| Exact conflict | 7B freezes EV-014 as the family `tool_definition.*` (FAM-01) and names no member `event_type`. OD-7C-03 and CSR-02 key every manifest entry by an exact (`event_type`, integer `event_version`) pair. Producer validation (PV), consumer declaration and dispatch (CV) and CI conformance (IO-7C-03) are keyed the same way. A wildcard is not an emitted `event_type`, and 7B ADR-7B-05 rejects cataloguing `*` as one event. The EV-014 payload is bound (§20), but the `event_type` under which it is emitted is not determined. EV-014 therefore cannot be entered in the manifest. |
-| Source evidence | 7B L227 (§8.1 FAMILY: members are listed "only where a frozen source names them"). 7B L286 NAM-06 ("7B fabricates no members"). 7B L287 NAM-07 (a new event name requires a governed amendment to the owning source). 7B L333 (EV-014 `tool_definition.*`, CUR +N, FAM). 7B L476 (§12.3: 6E-011 / 6E-013 / 6E-014; "Created / updated / deactivated"). 7B L1083 (lineage: tool_id, change kind). 7B L1318 FAM-01 ("No member name is catalogued in 6E"). 7B L1621 ADR-7B-05 (a family is a grouping, not an event). 6E L914 and 6D L1232 (`tool_definition.*` "(created/updated/deactivated)": the three kinds in words, in family form). AIR L1315 – L1317 (AMI-6E-011 / 013 / 014, OUTBOX_REQUIRED, "6E L914 family form"). Phase 4 names no tool-definition event. 077 L50, L72 (`event_type TEXT NOT NULL`, length 1 – 200, no pattern CHECK). 7C: EV-014 binding (§20), CSR-02, §46.3, IO-7C-17. |
-| Why 7C cannot decide | A member name needs a governed amendment to the owning source (7B NAM-06, NAM-07, AUTH-7B-02), and 7C may not change 7B or 6E. The alternative is a manifest that matches patterns, which changes the exact-pair keying that OD-7C-03 was approved with (CSR-02, PV, CV, IO-7C-03). That is a material change beyond the approved scope of OD-7C-03. A family entry can reject arbitrary members only with a closed member list, and a closed member list is the information that is missing. |
-| Status | **OWNER DECISION REQUIRED** · OPEN · no option selected |
-
-**Options**
-
-| Option | Description | Pros | Cons |
-|---|---|---|---|
-| **A** — controlled 7B amendment that names the members | The owner names the exact member `event_type` values in a governed amendment to 7B FAM-01 and the EV-014 catalogue row. Per NAM-07 and AUTH-7B-02, the owning 6E source (6E L914) is amended with them. 7C then enters one exact pair per member at version 1. Each pair uses the §20 EV-014 payload, and producer validation requires `change_kind` to match the member. | Keeps OD-7C-03 and CSR-02 exactly as approved. PV, CV, CI and Analytics (ADP) all keep exact pairs. The names come from the owner, not from 7C. No pattern matching enters the manifest. | Needs a change to frozen 7B, and to 6E, outside 7C. EV-014 cannot be emitted under this contract until the amendment lands. |
-| **B** — governed family entry in the manifest | The manifest gains a family-entry kind with: the canonical identifier `tool_definition.*`; version 1; one shared payload (the §20 EV-014 binding); a member matching rule; producer conformance; CI validation; and on each event the concrete member as the runtime `event_type`. | Needs no 7B change for the manifest mechanism. | Changes OD-7C-03 beyond its approved scope: CSR-02 keying, PV / CV dispatch and IO-7C-03 CI all become pattern-aware. Rejecting arbitrary `tool_definition.<x>` members requires a closed member list, so B still needs A's names. Without that list, B accepts any member (§50.2, mutation 99). Analytics still registers exact pairs only (ADP, IO-7C-11). One shared version means that a BREAKING change to the payload versions every member together. |
-| **C** — hold EV-014 emission until members are named | No manifest entry and no EV-014 outbox row until names exist; the §20 payload binding stays. The source basis is that EV-014 has no current consumer (6E L914, 6D L1232, 7B L476). | Invents no name, changes nothing in the manifest, and loses nothing that is consumed today. | Departs from AIR OUTBOX_REQUIRED for AMI-6E-011 / 013 / 014 and from the 7B CUR status of EV-014 (7B L333), so C is itself an owner-level deviation. Tool-definition changes made before the names land are never emitted, and there is no backfill. It still ends in A. |
-
-**Impacts**
-
-| Impact | Record |
-|---|---|
-| Migration | None for any option. `event_type` is free `TEXT` with no pattern CHECK (077 L50, L72). No migration 113, and no registry table. |
-| Runtime | **A:** the producers of 6E-011 / 6E-013 / 6E-014 emit the named member with the EV-014 payload, and consumers dispatch on the exact pair. **B:** producers emit a concrete member, and the producer validator and consumer dispatcher need family matching. **C:** the three routes write no EV-014 row until names exist. In every option, an emitted event carries a concrete member as its `event_type` and never the literal `tool_definition.*`. |
-| Registry | For the code-owned manifest (IO-7C-02): **A** gives the 104 exact pairs plus one exact pair per named member. **B** gives the 104 exact pairs plus one family entry of a new entry kind. **C** gives the 104 exact pairs and no EV-014 entry. `analytics.event_schema_versions` stays Analytics-only (DET-15, ARR-01) in every option, and it registers an exact pair only when Analytics consumes it (IO-7C-11). |
-| Compatibility | No EV-014 event has been emitted under this contract, so no option changes an emitted contract. Under A or B every member starts at `event_version` = 1 with the §20 payload and no V2. Any later change is classified by §27.4. A new business fact is a new `event_type` through a governed 7B change, never an N + 1 (NEV-03, NEV-08). |
+**OD-7C-07 — DECIDED · RESOLVED · owner-approved. Selected option: A.**
 
 | Item | Record |
 |---|---|
-| Recommendation | **A.** It is the only option that keeps OD-7C-03 and CSR-02 exactly as approved and gives every EV-014 event an exact pair. 6E L914 already describes the three kinds in words (created / updated / deactivated). Whether those become the member names is the owner's decision; 7C does not choose them. |
-| Consequence for this document | Until the owner answers: EV-014 has no manifest entry; IO-7C-17 is blocked; P1-7C-04 stays OPEN (§51.1); and this document is **NOT READY FOR INDEPENDENT REVIEW** (§52). |
-| Downstream owner | The owner (decision). AI Agent (6E), which owns the names. Platform event infrastructure (manifest). |
+| Question | How should the code-owned schema manifest represent the frozen EV-014 `tool_definition.*` family when no frozen source names its member `event_type` values? |
+| Source gap | 7B freezes EV-014 as the family `tool_definition.*` (FAM-01) and names no member `event_type`. OD-7C-03 and CSR-02 key every manifest entry by an exact (`event_type`, integer `event_version`) pair, and producer validation (PV), consumer declaration and dispatch (CV) and CI conformance (IO-7C-03) are keyed the same way. A wildcard is not an emitted `event_type`, and 7B ADR-7B-05 rejects cataloguing `*` as one event. The EV-014 payload was bound (§20), but the `event_type` under which it is emitted was not determined. |
+| Evidence | 7B L227 (§8.1 FAMILY: members are listed "only where a frozen source names them"). 7B L286 NAM-06 ("7B fabricates no members"). 7B L287 NAM-07 (a new event name requires a governed amendment to the owning source). 7B L333 (EV-014 `tool_definition.*`, CUR +N, FAM). 7B L476 (§12.3: 6E-011 / 6E-013 / 6E-014; "Created / updated / deactivated"; no current consumer). 7B L1083 (lineage: tool_id, change kind). 7B L1318 FAM-01 ("No member name is catalogued in 6E"). 7B L1621 ADR-7B-05 (a family is a grouping, not an event). 6E L914 and 6D L1232 (`tool_definition.*` "(created/updated/deactivated)": the three kinds in words, in family form). AIR L1315 – L1317 (AMI-6E-011 / 013 / 014, OUTBOX_REQUIRED, "6E L914 family form"). Phase 4 names no tool-definition event. 077 L50, L72 (`event_type TEXT NOT NULL`, length 1 – 200, no pattern CHECK). |
+| Alternatives | **A** — the owner names the exact member `event_type` values; 7C enters one exact pair per member at version 1, each using the §20 EV-014 payload, with producer validation requiring `change_kind` to match the member. **B** — a governed family entry in the manifest (a new entry kind with a member-matching rule, pattern-aware PV, CV and CI). **C** — hold EV-014 emission until members are named (no manifest entry and no outbox row). |
+| Selected | **A** |
+| Status | DECIDED · RESOLVED · owner-approved |
+| Exact member names (owner-approved) | `tool_definition.created`, `tool_definition.updated`, `tool_definition.deactivated`. There is no other member. |
+| Operation mapping | `tool_definition.created` ↔ 6E-011 (create); `tool_definition.updated` ↔ 6E-013 (update); `tool_definition.deactivated` ↔ 6E-014 (deactivate). The names correspond exactly to the three frozen semantic operations. |
+| `change_kind` mapping | `tool_definition.created` → `CREATED`; `tool_definition.updated` → `UPDATED`; `tool_definition.deactivated` → `DEACTIVATED`. Any other pairing is rejected by producer validation (TDF-02, PV-C10). `change_kind` stays the closed enum E-TOOL-CHANGE-KIND with exactly these three values. |
+| Rationale | A is the only option that keeps OD-7C-03 and CSR-02 exactly as approved and gives every EV-014 event an exact pair. B would change the exact-pair keying beyond OD-7C-03's approved scope, and it could reject arbitrary members only with a closed member list, which is the information A supplies. C would depart from AIR OUTBOX_REQUIRED and from the 7B CUR status of EV-014, and it would still end in A. The three names follow the three kinds that 7B L476 and 6E L914 already describe in words. |
+| Scope | Narrow. The decision supplies only the three concrete member names of EV-014 and their consequences for the 7C representation. It does not globally override 7A, 7B, 6E, AIR, OD-7C-03 or any other frozen contract. EV-014 remains one semantic 7B catalogue entry, with the one V1 payload binding shared by its members. |
+| Manifest consequence | Exactly three exact pairs: (`tool_definition.created`, 1), (`tool_definition.updated`, 1), (`tool_definition.deactivated`, 1), all referencing the one EV-014 V1 payload contract (TDF-03). No wildcard, regex, prefix or family-pattern manifest key or dispatch (CSR-09). The durable manifest therefore has 107 exact V1 pairs (104 singleton bindings + 3 EV-014 members), while the semantic taxonomy stays at 105 bindings (TDF-04). |
+| Runtime consequence | The producers of 6E-011 / 6E-013 / 6E-014 emit the matching member with the EV-014 payload, in the request transaction (7B L1774). The literal `tool_definition.*` is never emitted as an `event_type` (TDF-01). `occurred_at`: `created_at` for `tool_definition.created`; `updated_at` for `tool_definition.updated`; `updated_at` of the deactivation transaction for `tool_definition.deactivated` (§20, EV-014). |
+| Migration impact | None. `event_type` is free `TEXT` with no pattern CHECK (077 L50, L72). No migration 113 and no registry table. |
+| Frozen-source impact | None in 7C. 7A, 7B, 6E, AIR, every other Phase-6 file and every Phase-5 migration are unchanged, and their hashes stay as frozen (§6, §50.2). The owner's decision itself supplies the missing member names for the 7C representation. |
+| Future source-document reconciliation | A controlled documentary reconciliation obligation is placed on the AI Agent (6E) and 7B owners: under their own change process, 7B FAM-01 / the EV-014 catalogue rows and 6E L914 are to record the owner-approved member names (IO-7C-17 (B); CNF-7C-12). This is documentation alignment only. It is not an unresolved event-schema ambiguity, and it does not block this document. |
+| Compatibility consequences | No EV-014 event has been emitted under this contract, so no emitted contract changes. Every member starts at `event_version` = 1 with the §20 payload; there is no V2. Each member is its own `event_type` for versioning (VRS-02): a BREAKING change to the shared binding creates N + 1 of every member it affects. Adding, removing or renaming a member is a governed 7B change with the owner (NAM-07; NEV-03), never an N + 1. Adding a `change_kind` value is BREAKING (MX-08) and needs a matching new member (TDF-05). |
+| Analytics | `analytics.event_schema_versions` stays Analytics-only (DET-15, ARR-01). 7B gives EV-014 no current Analytics consumer, so the three pairs are not registered there. Analytics registers them only when it actually consumes them (IO-7C-11; TDF-06). Migration 075 is unchanged. |
+| Implementation obligations | IO-7C-17 (A closed; B open as implementation and documentation work), IO-7C-02, IO-7C-03, IO-7C-04. |
+| Downstream owner | AI Agent (6E) as producer and source-document owner; 7B owner for the catalogue text; Platform event infrastructure (manifest). |
+
+**Pre-decision record (SUPERSEDED).** Before the owner's answer, this section recorded OD-7C-07 as OWNER DECISION REQUIRED with no option selected, with Option A recommended. Under that pre-decision state EV-014 had no manifest entry and P1-7C-04 was OPEN. The owner's selection of A with the three names above supersedes that state in full.
 
 ---
 
@@ -2912,7 +2929,7 @@ These obligations are placed on later phases and owners. 7C does not deliver any
 | IO | Obligation | Owner | Must be complete before |
 |---|---|---|---|
 | IO-7C-01 | Add `correlation_id UUID` and `causation_id UUID` to `audit.domain_event_outbox` by a new migration, and propagate both per §16 / §17. Persist the established root with each call session (COR-C, COR-V) and with each root work item (COR-T, COR-B), and carry it on tasks, so that no hop re-derives or replaces it (COR-01, COR-04) | Phase-5 database owner; every producing domain | Any consumer relies on either key for durable events |
-| IO-7C-02 | Materialize the code-owned manifest keyed by (`event_type`, integer version), reproducing §20 – §22 exactly (CSR-02, CSR-08) | Platform event infrastructure | Producer validation (IO-7C-04) is enabled |
+| IO-7C-02 | Materialize the code-owned manifest keyed by (`event_type`, integer version), reproducing §20 – §22 exactly: 107 exact durable V1 pairs (including the three EV-014 member pairs) and 4 exact SIGNAL V1 pairs, with no family or pattern entry (CSR-02, CSR-08, CSR-09) | Platform event infrastructure | Producer validation (IO-7C-04) is enabled |
 | IO-7C-03 | CI conformance: producers emit and consumers declare only manifest pairs; manifest equals the V1 baseline (CSR-03, COX-06) | Platform event infrastructure | The first BREAKING change |
 | IO-7C-04 | Producer validation PV-C01 … PV-C13 | Each producing domain (shared library) | Production emission under this contract |
 | IO-7C-05 | Consumer dispatcher CV-01 … CV-07, unknown-version handling (§33) and optional upcasting (§37) | Platform event infrastructure; each consumer | The first BREAKING change |
@@ -2927,7 +2944,7 @@ These obligations are placed on later phases and owners. 7C does not deliver any
 | IO-7C-14 | EV-062 `workflow.draft_updated` draft-revision source. **CLOSED by the 7C remediation**: bound as `draft_revision` in §20 (EV-062 binding; P1-7C-05) | Workflow | — |
 | IO-7C-15 | EV-105 `usage.threshold_reached` `metric` vocabulary, which limit `threshold` is, `occurred_at` source and usage period. **CLOSED by the 7C remediation**: bound in §20 (EV-105 binding; P1-7C-06) | Billing | — |
 | IO-7C-16 | Known-value lists for OPEN codes (`reason_code`, `failure_reason`, `error_code`, `failure_code`, `rule_code`, `metric`). For `metric`, the V1 value set is already fixed by `billing.fn_is_canonical_usage_metric` (§20, EV-105) | Each owning domain | Optional; publication is not a schema change (CMP-07) |
-| IO-7C-17 | Enter EV-014 `tool_definition.*` (7B FAM-01) in the code-owned manifest as OD-7C-07 decides. **Blocked on OD-7C-07 (§46.8)**, which is OWNER DECISION REQUIRED | Owner; AI Agent (6E); platform event infrastructure | EV-014 is emitted under this contract |
+| IO-7C-17 | EV-014 `tool_definition.*` (7B FAM-01). **(A) Design decision — CLOSED:** the exact members are known (OD-7C-07 = A, §46.8): `tool_definition.created`, `tool_definition.updated`, `tool_definition.deactivated`, with the TDF-02 `change_kind` mapping. Nothing about the event schema remains open. **(B) Future implementation and documentation reconciliation — open work, not an ambiguity:** (1) implement the three exact manifest pairs at version 1 (TDF-03; IO-7C-02); (2) align the 6E-011 / 6E-013 / 6E-014 producer code to emit the matching member and `change_kind` (TDF-01, TDF-02; IO-7C-04); (3) under the proper owner change process, reconcile the frozen 7B FAM-01 / EV-014 catalogue text and 6E L914 with the owner-approved member names (CNF-7C-12). 7C edits neither document | (A) Owner — done. (B) Platform event infrastructure (1); AI Agent (6E) (2); AI Agent (6E) and 7B owners (3) | (B1, B2) EV-014 is emitted under this contract. (B3) The next governed revision of 7B or 6E |
 | IO-7C-18 | EV-055 `campaign.scheduled` schedule-window source keys in `scheduling_policy`. **CLOSED by the 7C remediation**: bound as `start_at` / `end_at` in §20 (EV-055 binding) | Campaign | — |
 | IO-7C-19 | Source key of `session_id` in `voice.call_sessions.sessions` (EV-007, EV-008). **CLOSED by the 7C remediation**: bound in §20 (EV-007 and EV-008 bindings) | Voice | — |
 | IO-7C-20 | EV-028 `contact.merged` `field_merge_map` key set and value vocabulary. **CLOSED by the 7C remediation**: bound in §20 (EV-028 binding; E-MERGE-SOURCE) | CRM | — |
@@ -2965,12 +2982,13 @@ Conflicts are resolved by concern ownership (§5). 7C edits no upstream document
 | CNF-7C-03 | 6L L124, 6L L823 (row 13); 073 | 6L says `analytics.event_schema_versions` was not found in migrations 067–104. `073` creates it. | 6L is stale on this point. 6L is not edited. No API effect (ARR-06). | Minor |
 | CNF-7C-04 | 070 L18 `analytics.conversation_turn_stats_daily.stt_audio_seconds NUMERIC(12,2)`; 7C PD1-01 scale 4 | The signal carries scale 4; the Analytics column holds scale 2. | The producer emits the usage scale. Reducing scale is the Analytics projection's job. | Minor |
 | CNF-7C-05 | 011 L44–L45, 020 L54 (`{6,14}` digits); 7C §18 phone (`{1,14}`) | The column CHECKs are stricter than the §18 E.164 pattern. | Where a phone value is read from a column with a CHECK, the column governs the value. §18 never widens what a column accepts. | Minor |
-| CNF-7C-06 | 7B EV-014 family; `tools.tool_definitions` built-in rows with `organization_id IS NULL` | 7B catalogues the family without distinguishing built-in rows. Only EV-001 may be platform-scoped. | V1 emits EV-014 only for organization-owned definitions. Built-in rows produce no V1 event (DEF-7C-09). | Minor |
+| CNF-7C-06 | 7B EV-014 family; `voice.tool_definitions` (013_5C) built-in rows with `organization_id IS NULL` | 7B catalogues the family without distinguishing built-in rows. Only EV-001 may be platform-scoped. | V1 emits EV-014 only for organization-owned definitions. Built-in rows produce no V1 event (DEF-7C-09). | Minor |
 | CNF-7C-07 | 7B EV-030 / EV-031; 024 `chk_sup_scope_org_id` | Suppressions include `PLATFORM` and `REGULATORY` rows with no organization. | V1 emits only for `scope = 'ORG'` rows (TEN-C06; DEF-7C-08). | Minor |
 | CNF-7C-08 | 6K L2816 – L2827 (via 7B NAM-F-06) | `invoice.created` versus `invoice.generated`. | Inherited, already recorded by 7B (NAM-F-06). 7C binds EV-102 `invoice.generated`. No new action. | Minor (inherited) |
 | CNF-7C-09 | 6K L2511; 6D L1216, L1234 (via 7B CNF-16) | DS-17 attribution and Billing use. | Inherited, resolved by 7B CNF-16 and OD-7B-01 / OD-7B-02. 7C binds DS-17 as SIGNAL, Analytics-only. No new action. | Minor (inherited) |
 | CNF-7C-10 | 6K `AI_MINUTES` source (`conversation.turn_completed`) | The 6K source of `AI_MINUTES` is superseded by OD-7B-01. | Inherited. 7C binds the AI duration on EV-079 as decimal seconds (DET-12); Billing converts to `AI_MINUTES`. No new action. | Minor (inherited) |
 | CNF-7C-11 | 7B L1070 (EV-001 indicative fields); 5B L2877 – L2884; 109_5B7 L1140 – L1150 | 7B indicates `user_id` and `reason_code` for EV-001. The frozen revocation contract also carries the revoked session IDs and their access-token JTIs, which EV-001 exists to propagate to the JTI denylist. | 7B's list is indicative, not exhaustive. V1 binds all four fields (§20, EV-001), and the admin free-text `reason` is never carried. The producers are aligned by IO-7C-21. 7B is not edited. | Minor |
+| CNF-7C-12 | 7B L227, L286 NAM-06, L1318 FAM-01; 6E L914; OD-7C-07 | The frozen 7B and 6E texts catalogue EV-014 only as `tool_definition.*` and state that no member name is catalogued. OD-7C-07 = A supplies the owner-approved member names `tool_definition.created`, `tool_definition.updated` and `tool_definition.deactivated`. | Concern ownership (§5): the owner's decision supplies the missing names for the 7C representation, within its narrow scope (§46.8). The names correspond exactly to the frozen 6E-011 / 6E-013 / 6E-014 operations and create no new fact. 7B and 6E are not edited in 7C; their text is reconciled later under their own change process (IO-7C-17 (B3)). Documentary alignment only; no event-schema ambiguity remains. | Minor |
 
 **Not a conflict.** The 25 names seeded by `075` are already reconciled by 7B §25.1: 12 durable events and 13 names that are not durable events (4 Class-D signal names, 2 CCPU, 7 FUT). 7C adds nothing to that reconciliation (ARR-05).
 
@@ -2978,31 +2996,215 @@ Conflicts are resolved by concern ownership (§5). 7C edits no upstream document
 
 ## 50. Validation Results
 
-Validation ran outside the repository, in a scratch directory. No validator, harness or script was added to the project.
+This section is the validation record. It is non-normative: it describes the validator and the deliberate defects injected to test it, not the contract. Validation ran outside the repository, in a scratch directory. No validator, harness or script was added to the project.
 
 ### 50.1 Validator status
 
-**NOT YET RERUN against this remediated checkpoint.**
+- **Superseded result.** The earlier validator run (80 mutations, 80 / 80 detected, clean run PASS, "all 42 gates pass") was made against the pre-remediation document (SHA-256 `a583365003581bf6732e18dba91e54d8ec891b89993f61b97cb24b7ce31ff16e`, 2963 lines). It is **PRE-REMEDIATION / SUPERSEDED** and is not evidence for any gate below. Its scripts were not available on the device used for this closure, so the validator, the 57 gates and the 120-mutation catalogue were rebuilt from scratch against this document.
+- **Method.** The validator parses the document structurally: the section tree, every register table by row ID, the 105 §20 binding headings with their envelope lines and field tables, the EV-014 member table, the §21 SIGNAL members and the JSON examples. It checks semantics (IDs and their contiguity, classes, types, requiredness, nullability, counts, mappings, the derived manifest pairs and the example arithmetic), not the presence of headings. Baseline gates read the repository directly: the LF-normalized SHA-256 of 7A, 7B and the 20 frozen Phase-6 artifacts, the SQL migration set, the Alembic revision graph, the Phase-7 directory and the working-tree change set.
+- **Sequence.** (1) OD-7C-07 was applied. (2) Gates 1 – 57 were run against the OD-7C-07 content before finalization. Every content gate passed, including the regression gates for P1-7C-01, P1-7C-02, P1-7C-03, P1-7C-05 and P1-7C-06 (G43 – G47). The only failures were confined to the unfinalized Document Control status, §52 and the temporary §53. (3) §50 and §52 were finalized, the Document Control status was set and §53 was removed. (4) The clean run and the full mutation suite were run against this final document.
+- Clean run against this document: **PASS** (57 / 57 gates)
+- Mutations: **120**; detected: **120**; missed: **0**; no-op mutations: **0**. Each mutation is applied to this document, or for baseline mutations to an in-memory view of the repository, and is checked to change what it targets. Each is detected by at least one semantic gate (§50.3).
+- Coverage. Mutations 1 – 80 cover the areas of the original 80: baseline, structure, envelope, registry, enums, serialization, EV-079, SIGNAL, versioning, correlation and causation, compatibility, validation, rollout, Analytics, registry strategy, security and registers. Mutations 81 – 114 cover P1-7C-01 … P1-7C-06. Mutation 102, formerly "fabricated member event names", now injects an unapproved member name; the three owner-approved names pass the clean run. Mutations 115 – 120 cover OD-7C-07.
 
-The earlier validator run (80 mutations, 80 / 80 detected, clean run PASS) was made against the **pre-remediation** document (SHA-256 `a583365003581bf6732e18dba91e54d8ec891b89993f61b97cb24b7ce31ff16e`, 2963 lines). That result is **PRE-REMEDIATION / SUPERSEDED**. It does not validate the current text and is not evidence for any gate below.
+### 50.2 Gates
 
-Still outstanding (§53):
+| Gate | Checks | Result |
+|---|---|---|
+| G01 | 7A frozen LF-normalized SHA-256 | PASS |
+| G02 | 7B frozen LF-normalized SHA-256 | PASS |
+| G03 | Phase-6 frozen artifacts (20 hashes) unchanged | PASS |
+| G04 | SQL migrations: 112 contiguous files 001 … 112, no 113 | PASS |
+| G05 | Alembic: 112 revisions, root 001_5B, sole head 112_5H5, linear, no missing parent | PASS |
+| G06 | Phase-7 directory = 7A, 7B, 7C; no 7D; only the 7C file changed | PASS |
+| G07 | §6 cited-migration hashes equal the executed files | PASS |
+| G08 | Section structure §1 … §52 contiguous and unique; Document Control complete | PASS |
+| G09 | Durable envelope ENV-01 … ENV-10, KEY-01 … KEY-07, DET-01 … DET-20 | PASS |
+| G10 | SIGNAL envelope SIG-01 … SIG-11, durability = SIGNAL, SIG-R01 … SIG-R06, PRF-01 … PRF-03 | PASS |
+| G11 | §20: 105 contiguous bindings, unique names, version 1, class split A 71 / B 1 / C 33 | PASS |
+| G12 | Field tables: REQUIRED, valid nullability, §18 type grammar, snake_case, unique | PASS |
+| G13 | §20.8 summary equals the parsed registry | PASS |
+| G14 | §14 aggregate table covers every binding and matches each envelope | PASS |
+| G15 | Organization scope: EV-001 alone NULLABLE | PASS |
+| G16 | Enums: every referenced enum declared; pinned vocabularies exact | PASS |
+| G17 | §18 serialization: 13 types, six-digit UTC timestamps, SER-01 … SER-06 | PASS |
+| G18 | JSON examples parse and conform (UUID, timestamp, version, profile, exact event_type) | PASS |
+| G19 | EV-079: five usage keys, USG-01 … USG-10, example arithmetic and scale | PASS |
+| G20 | PAY-D-01 / PAY-D-02 SIGNAL bindings and PD2-01 member mapping | PASS |
+| G21 | VRS-01 … VRS-10; VRS-04 wire table: only `1` is VALID | PASS |
+| G22 | Version-axis independence; WS / webhook envelopes and signing input unchanged | PASS |
+| G23 | Correlation root precedence (P1-7C-01) | PASS |
+| G24 | Causation CAU-E / CAU-W / CAU-R, CAU-01 … CAU-07; CC-01 … CC-06; no command_id | PASS |
+| G25 | `event_version` governs the complete compatibility-relevant contract (P1-7C-02) | PASS |
+| G26 | Change matrix MX-01 … MX-21 classes | PASS |
+| G27 | All 21 change categories CAT-01 … CAT-21 classified (P1-7C-03) | PASS |
+| G28 | CPT-01 (a) … (g), CPT-01 … CPT-09, BRK-01 … BRK-09, NEV-01 … NEV-08 | PASS |
+| G29 | PV-C01 … PV-C13, CV-01 … CV-07 order, UV-01 … UV-09 | PASS |
+| G30 | Coexistence, rolling deployment (consumers first), backlog, upcasting, lifecycle | PASS |
+| G31 | Analytics TEXT-version adapter ADP-01 … ADP-11 | PASS |
+| G32 | Analytics registry stays Analytics-only; EV-014 pairs not registered by 7C | PASS |
+| G33 | Code-owned registry CSR-01 … CSR-09; OD-7C-03 exact-pair keying | PASS |
+| G34 | Security exclusions §19.3 = SP-01; PAY-01 … PAY-06; REG-07 | PASS |
+| G35 | EV-062 `draft_revision` bound to workflow_definitions.updated_at (P1-7C-05) | PASS |
+| G36 | EV-105 deterministic metric / threshold / period / occurrence (P1-7C-06) | PASS |
+| G37 | IO-7C-01 … IO-7C-21 contiguous; closed IOs; IO-7C-17 split into (A) CLOSED / (B) work | PASS |
+| G38 | DEF-7C-01 … 12, CNF-7C-01 … 12, ADR-7C-01 … 22 contiguous; traceability IDs resolve | PASS |
+| G39 | P1 = 0 (§51 parsed) | PASS |
+| G40 | Open owner decisions = 0 (§46 parsed) | PASS |
+| G41 | Minor findings: stated count = MIN rows, contiguous, each handled | PASS |
+| G42 | No V2 of any event; every successor shape labelled HYPOTHETICAL | PASS |
+| G43 | P1-7C-01 RESOLVED with evidence (ADR-7C-19, CNF-7C-02) | PASS |
+| G44 | P1-7C-02 RESOLVED with evidence (ADR-7C-20) | PASS |
+| G45 | P1-7C-03 RESOLVED with evidence (ADR-7C-21) | PASS |
+| G46 | P1-7C-05 RESOLVED; IO-7C-14 CLOSED | PASS |
+| G47 | P1-7C-06 RESOLVED; IO-7C-15 CLOSED | PASS |
+| G48 | OD-7C-07 = DECIDED / RESOLVED / owner-approved, option A; no stale pre-decision statement | PASS |
+| G49 | EV-014 member set is exactly created / updated / deactivated everywhere | PASS |
+| G50 | Literal `tool_definition.*` is never a runtime event_type or manifest key | PASS |
+| G51 | Exact durable V1 manifest pairs = 107 (SIGNAL = 4), all distinct, all version 1 | PASS |
+| G52 | Semantic durable EV bindings remain 105 (EV-014 counts once) | PASS |
+| G53 | EV-014 member → change_kind and occurrence mapping exact | PASS |
+| G54 | P0 = 0 | PASS |
+| G55 | P1 = 0 consistently (Document Control, §51, §52) | PASS |
+| G56 | Open owner decisions = 0 consistently (Document Control, §46, §52) | PASS |
+| G57 | Temporary §53 checkpoint removed; final status READY (not FROZEN); §50 records this run | PASS |
 
-- rebuild the external validator for the remediated content;
-- run mutations 1 – 114 (the 80 earlier mutations plus 81 – 114 for P1-7C-01 … P1-7C-06);
-- rerun gates 1 – 47.
+### 50.3 Mutation catalogue
 
-### 50.2 Baseline checks made during remediation
+| # | Mutation (deliberate defect) | Detected by |
+|---|---|---|
+| M001 | Edit frozen 7A (append a line) | G01, G06 |
+| M002 | Edit frozen 7B (append a line) | G02, G06 |
+| M003 | Edit frozen 6K (append a line) | G03, G06 |
+| M004 | Add migration 113 | G04, G06 |
+| M005 | Branch the Alembic chain (112 parent -> 110) | G05, G06 |
+| M006 | Create a 7D document | G06 |
+| M007 | Alter the cited 077 migration hash in §6 | G07 |
+| M008 | Duplicate a section number (§36 → §37) | G08, G30 |
+| M009 | Rename ENV-05 aggregate_type | G09 |
+| M010 | Make ENV-01 event_id OPTIONAL | G09 |
+| M011 | Add DURABLE to the SIGNAL durability enum | G10 |
+| M012 | Delete SIG-09 causation_id | G10 |
+| M013 | DET-01 renames id to outbox_id | G09 |
+| M014 | DET-02 permits tenant_id | G09 |
+| M015 | Remove the EV-050 binding heading | G11, G13, G51, G52 |
+| M016 | EV-021 at event_version 2 | G11, G42, G51 |
+| M017 | Duplicate EV ID (EV-034 heading says EV-033) | G11 |
+| M018 | EV-040 first field made OPTIONAL | G12 |
+| M019 | EV-102 money field typed as JSON number | G12 |
+| M020 | Invalid nullability value | G12 |
+| M021 | §20.8 payload field total 341 → 342 | G13 |
+| M022 | Drop a [7I] mark from EV-001 access_token_jti | G13 |
+| M023 | §14 EV-009 aggregate renamed | G14 |
+| M024 | EV-002 organization_id made NULLABLE | G15 |
+| M025 | Reference an undeclared enum E-DIRECTION | G16 |
+| M026 | Add DELETED to E-TOOL-CHANGE-KIND | G16 |
+| M027 | Add DURABLE to E-DURABILITY | G16 |
+| M028 | Drop END_CALL from E-NODE-TYPE (14 values claimed) | G16 |
+| M029 | OCC-C01 regex accepts three digits | G17 |
+| M030 | Remove the money type from §18 | G17 |
+| M031 | §10.6 example occurred_at in milliseconds | G18 |
+| M032 | §10.6 example event_version as string | G18 |
+| M033 | §10.6 example event_id uppercase | G18 |
+| M034 | §22.4 tts_characters total no longer equals breakdown | G19 |
+| M035 | Add a sixth usage key | G19 |
+| M036 | Delete USG-06 | G19 |
+| M037 | §22.4 ai_duration total at scale 2 | G19 |
+| M038 | §22.4 completed_at differs from occurred_at | G19 |
+| M039 | PAY-D-02 loses tool_execution.started | G20, G51 |
+| M040 | PD2-01 mapping .succeeded → RUNNING | G20 |
+| M041 | SIG-R06 adds Billing as a consumer | G10 |
+| M042 | VRS-04 accepts "1" | G21 |
+| M043 | VRS-01 widens to 64-bit | G21 |
+| M044 | VRS-10 becomes semantic versioning | G21 |
+| M045 | Webhook signing input changed | G22 |
+| M046 | AX-D coupled to event_version | G22 |
+| M047 | CAU-R root gets request_id | G24 |
+| M048 | CC-06 introduces command_id | G24 |
+| M049 | CC-05 allows dedup by correlation | G24 |
+| M050 | CAU-04 inbound call has null causation | G24 |
+| M051 | MX-08 enum addition COMPATIBLE | G26 |
+| M052 | MX-16 sensitive field COMPATIBLE | G26 |
+| M053 | MX-11 fact change BREAKING | G26 |
+| M054 | CPT-01 loses condition (g) | G28 |
+| M055 | BRK-03 permits dual-publish | G28 |
+| M056 | NEV-06 removed | G28 |
+| M057 | PV-C13 removed | G29 |
+| M058 | CV-04 and CV-06 swapped | G29 |
+| M059 | UV-02 picks the nearest version | G29 |
+| M060 | Rolling deployment producer first | G30 |
+| M061 | UPC-08 allows downcasting | G30 |
+| M062 | UPC-03 persists upcasts | G30 |
+| M063 | Add ARCHIVED lifecycle state | G30 |
+| M064 | BR-01 backlog mutable | G30 |
+| M065 | ADP-03 accepts leading zeros | G31 |
+| M066 | ADP-05 ingests RETIRED | G31 |
+| M067 | ARR-01 makes Analytics registry canonical | G32 |
+| M068 | DET-15 registers the durable events | G32 |
+| M069 | 075 seed count 25 → 26 | G32 |
+| M070 | CSR-04 introduces a database registry | G33 |
+| M071 | CSR-02 drops exact-pair keying | G33 |
+| M072 | §19.3 drops card data | G34 |
+| M073 | PAY-02 limit doubled | G34 |
+| M074 | REG-07 allows credential_ref | G34 |
+| M075 | IO-7C-09 deleted | G37 |
+| M076 | Duplicate CNF-7C-05 | G38 |
+| M077 | ADR-7C-10 deleted | G38 |
+| M078 | Minor count 12 → 11 | G41 |
+| M079 | Unlabelled V2 defined (BRK-08) | G28, G42 |
+| M080 | OD-7C-03 selection flipped to B | G33, G40 |
+| M081 | Precedence steps 1 and 2 swapped | G23 |
+| M082 | COR-V promoted to step 1 | G23 |
+| M083 | COR-V row moved ahead of COR-C | G23 |
+| M084 | API-rooted example: EV-005 carries C | G23 |
+| M085 | SIG-08 unconditional call_id | G23 |
+| M086 | COR-02 lets call_id overwrite | G23 |
+| M087 | PAY-D-01 correlation = call_id | G23 |
+| M088 | COR-01 lets hops regenerate | G23 |
+| M089 | KEY-06 back to payload-only | G25 |
+| M090 | VRS-08 payload only | G25 |
+| M091 | KEY-07 loses condition (d) | G25 |
+| M092 | CMP-06 (b) no longer keeps versions | G25 |
+| M093 | §23 exclusions drop relay bookkeeping | G25 |
+| M094 | BRK-06 no N + 1 for envelope semantics | G25 |
+| M095 | CAT-14 deleted | G27 |
+| M096 | CAT-06 loses the both-directions rule | G27 |
+| M097 | CAT-18 unconditionally COMPATIBLE | G27 |
+| M098 | CAT-R02 deleted | G27 |
+| M099 | CAT-09 business meaning BREAKING | G27 |
+| M100 | CAT-11 loses its BREAKING branch | G27 |
+| M101 | CAT-20 renamed to required nested object | G27 |
+| M102 | Unapproved member name replaces an approved one | G49, G53 |
+| M103 | TDF-03 no longer forbids family/pattern entries | G50 |
+| M104 | CSR-09 deleted | G33 |
+| M105 | OD-7C-07 reopened | G40, G48 |
+| M106 | P1-7C-04 status back to OPEN | G39, G55 |
+| M107 | EV-062 draft_revision row deleted | G13, G35 |
+| M108 | EV-062 draft_revision typed integer | G35 |
+| M109 | EV-062 draft_revision from an invented version_number | G35 |
+| M110 | EV-062 omitted again ("binds workflow_id only") | G13, G35, G37 |
+| M111 | EV-105 threshold becomes hard_limit | G36 |
+| M112 | EV-105 metric list loses ACTIVE_PHONE_NUMBERS | G36 |
+| M113 | EV-105 occurred_at relay time | G36 |
+| M114 | EV-105 period_start typed timestamp | G36 |
+| M115 | Remove tool_definition.created from the exact manifest | G49, G51, G53 |
+| M116 | Add unauthorized member tool_definition.deleted | G49, G51, G53 |
+| M117 | Emit literal tool_definition.* as the runtime event_type | G50 |
+| M118 | Mismatch member and change_kind (created + UPDATED) | G53 |
+| M119 | Count EV-014 members as three semantic EV IDs (105 → 107) | G52 |
+| M120 | Edit frozen 7B FAM-01 and 6E L914 to name the members | G02, G03, G06 |
 
-These were checked by direct inspection during the remediation, not by the validator:
+### 50.4 Baseline checks
 
 | Check | Result |
 |---|---|
-| Frozen 7A SHA-256 `699108f956bbd0e09ca7ab38fa4846498edf7e461713e5a44add886733d79712` | Unchanged |
-| Frozen 7B SHA-256 `1bd7a054263b142c3f8c3f79d531906305ccaf0dec225e4d3865056605715e6c` | Unchanged |
-| Migrations | 112 SQL / 112 Alembic; root `001_5B`; sole head `112_5H5`; no migration 113 |
-| Phase 7D | Absent |
-| Files changed | This document only |
+| Frozen 7A LF-normalized SHA-256 `699108f956bbd0e09ca7ab38fa4846498edf7e461713e5a44add886733d79712` | Unchanged (G01) |
+| Frozen 7B LF-normalized SHA-256 `1bd7a054263b142c3f8c3f79d531906305ccaf0dec225e4d3865056605715e6c` | Unchanged (G02) |
+| Phase-6 frozen artifacts (6A – 6M, AAM, AEC, AIR, AMI, AVS, FAR, roadmap; the 20 rows of the Phase-6 freeze register) | Unchanged (G03) |
+| Migrations | 112 SQL / 112 Alembic; root `001_5B`; sole head `112_5H5`; one linear chain; 0 missing parents; 0 branch points; no migration 113 (G04, G05) |
+| Phase 7D | Absent (G06) |
+| Files changed | This document only (G06) |
+| Line endings | The working copy uses CRLF; every hash above is taken over LF-normalized text |
 
 ---
 
@@ -3011,8 +3213,8 @@ These were checked by direct inspection during the remediation, not by the valid
 | Severity | Count |
 |---|---|
 | P0 | **0** |
-| P1 | **1** (P1-7C-04, OPEN) |
-| Minor | **11** |
+| P1 | **0** (all six freeze-gate P1s RESOLVED) |
+| Minor | **12** |
 
 ### 51.1 Freeze-gate P1 findings
 
@@ -3023,7 +3225,7 @@ These findings were raised against the pre-remediation document (SHA-256 `a58336
 | P1-7C-01 | Correlation root precedence changes correlation mid-flow. | **RESOLVED** | §16.1 precedence: an existing trusted root is propagated unchanged (COR-P, COR-T, COR-C, COR-Q). `call_id` becomes the root only for a genuinely Voice-rooted call (COR-V). A new root is minted once only when none exists (COR-B). No hop regenerates or replaces a root (COR-01, COR-02, COR-08). §16.3 shows an API-rooted Voice flow carrying `A` on every hop | Old SIG-08: "The call session's `call_id` (§16, rule COR-V)". Old PAY-D envelopes: "`correlation_id` = `call_id` (COR-V)". Now: §16.1 – §16.3, SIG-08, §21; CNF-7C-02; ADR-7C-19 |
 | P1-7C-02 | `event_version` scope contradicts compatibility treatment of envelope semantics. | **RESOLVED** | `event_version` versions the complete compatibility-relevant contract of one `event_type`: payload, envelope semantics, occurrence time, aggregate, organization scope and identity (KEY-06, VRS-08). The optional OD-7C-04 envelope addition is COMPATIBLE and needs no N + 1 (KEY-07, CPT-09, BRK-06). BREAKING envelope changes get N + 1 (BRK-06); business-fact changes get a new type (NEV-08) | Old KEY-06: "versions the **payload schema** of one `event_type`". Old VRS-08: "describes the payload schema only". Now: §23, CMP-06, CPT-09, BRK-06, BRK-09, NEV-08; ADR-7C-20 |
 | P1-7C-03 | Required compatibility-change categories missing. | **RESOLVED** | §27.4 classifies all 21 categories (CAT-01 … CAT-21), including nesting move, identity, money, scalar → object / array, field split, field merge and default behaviour. FIELD split and merge (CAT-18, CAT-19) are separate from EVENT split and merge (MX-18) (CAT-R02) | Old MX-18: "Split one event into several, or merge several into one \| SEMANTIC_NEW_EVENT", with no field-level categories. Now: §27.4, CAT-R01 … CAT-R03; ADR-7C-21 |
-| P1-7C-04 | EV-014 wildcard family incompatible with exact manifest claim. | **OPEN** | Frozen sources do not determine how EV-014 is represented in the exact manifest. 7B freezes EV-014 only as `tool_definition.*`. 6D, 6E and AIR use the same family form. No frozen source names a member `event_type`; 7B FAM-01 says no member name is catalogued, and 7B NAM-06 forbids fabricated members. No member name is invented here. Owner decision OD-7C-07 is required (§46.8) | Old EV-014 note: "The concrete member `event_type` names of the `tool_definition.*` family are not catalogued in 7B (FAM-01); they are IO-7C-17. Every member uses this one binding." Now: CSR-02; EV-014 binding note; §46.8; IO-7C-17 |
+| P1-7C-04 | EV-014 wildcard family incompatible with exact manifest claim. | **RESOLVED** | The owner approved OD-7C-07 = A (§46.8) and supplied the only missing semantic information: the three exact member `event_type` names, `tool_definition.created`, `tool_definition.updated` and `tool_definition.deactivated`. The manifest is now deterministic: EV-014 contributes exactly three exact pairs at version 1 sharing the one EV-014 payload (TDF-03), for 107 exact durable V1 pairs, while the semantic taxonomy stays at 105 bindings (TDF-04). The member-to-`change_kind` mapping is exact (TDF-02). There is no wildcard runtime `event_type` (TDF-01), no family or pattern matching (CSR-09) and no unresolved registry strategy. No frozen upstream file was edited; the documentary reconciliation of 7B / 6E is IO-7C-17 (B3) (CNF-7C-12) | Old EV-014 note: "The concrete member `event_type` names of the `tool_definition.*` family are not catalogued in 7B (FAM-01); they are IO-7C-17. Every member uses this one binding." PRE-DECISION / SUPERSEDED checkpoint state: OD-7C-07 OWNER DECISION REQUIRED; no EV-014 manifest entry. Now: §20.4 EV-014 binding (TDF-01 … TDF-06); §20.8; CSR-02, CSR-09; PV-C02, PV-C10; §46.8; IO-7C-17; ADR-7C-22 |
 | P1-7C-05 | EV-062 draft_revision silently omitted from frozen semantic payload. | **RESOLVED** | EV-062 `workflow.draft_updated` binds `draft_revision` as a timestamp sourced from `workflow.workflow_definitions.updated_at`, the frozen draft-state token | Old EV-062 note: "V1 binds `workflow_id` only (IO-7C-14)". Now: §20 EV-062 binding; IO-7C-14 closed |
 | P1-7C-06 | EV-105 current schema not implementation-deterministic. | **RESOLVED** | EV-105 `usage.threshold_reached`: `metric` is bound to the 15 canonical usage metrics (`billing.fn_is_canonical_usage_metric`); `threshold` is the effective `soft_limit` (`billing.fn_resolve_effective_quota`), and `hard_limit` is never the threshold; `period_start` / `period_end` come from `billing.billing_periods`; `occurred_at` is the authoritative crossing write, `billing.usage_records.updated_at` | Old EV-105 wording: `occurred_at` "source is IO-7C-15"; metric "vocabulary is IO-7C-15"; threshold "which limit is IO-7C-15"; period "(non-physical) … (IO-7C-15)". Now: §20 EV-105 binding; IO-7C-15 closed |
 
@@ -3044,69 +3246,30 @@ The EV-001 … EV-105 bindings were also scanned for unresolved mandatory bindin
 | MIN-7C-09 | `tool_execution.started` is not seeded in `analytics.event_schema_versions` | PD2-03; ADP-07; IO-7C-11 |
 | MIN-7C-10 | The recovery path has no persisted service-end time, so EV-079 cannot be emitted for it | OCC-C13; IO-7C-10 |
 | MIN-7C-11 | 59 V1 fields have no physical column and are held by the producer in the producing transaction. Each has a deterministic source (REG-04, REG-10) | REG-04; remaining obligations IO-7C-13, IO-7C-16, IO-7C-21 |
-
-P1-7C-04 blocks independent review until OD-7C-07 is decided (§46.8).
+| MIN-7C-12 | The frozen 7B (FAM-01, NAM-06) and 6E (L914) texts do not yet record the owner-approved EV-014 member names of OD-7C-07 | CNF-7C-12; IO-7C-17 (B3). Documentary alignment under the owners' change process; not an event-schema ambiguity |
 
 ---
 
 ## 52. Freeze-Gate Status
 
-**NOT READY FOR INDEPENDENT REVIEW — BLOCKED ON OD-7C-07.**
+**READY FOR INDEPENDENT REVIEW.** This document is not frozen. Freeze is decided by the independent review.
 
 | Item | Current value |
 |---|---|
 | P0 | 0 |
-| P1 | 1 (P1-7C-04 OPEN) |
-| Resolved remediation P1s | P1-7C-01, P1-7C-02, P1-7C-03, P1-7C-05, P1-7C-06 |
-| Current open owner decisions | 1 (OD-7C-07, EV-014 manifest representation) |
-| Validator | NOT YET RERUN against this checkpoint (§50.1) |
-| Gates 1 – 47 | NOT YET RERUN. The earlier "all 42 gates pass" result is PRE-REMEDIATION / SUPERSEDED |
+| P1 | 0 |
+| Resolved remediation P1s | P1-7C-01, P1-7C-02, P1-7C-03, P1-7C-04, P1-7C-05, P1-7C-06 |
+| Current open owner decisions | 0 |
+| OD-7C-07 | DECIDED · RESOLVED · owner-approved (A) |
+| Semantic durable bindings | 105 |
+| Exact durable V1 manifest pairs | 107 (104 singleton + 3 EV-014 members) |
+| Exact SIGNAL V1 manifest pairs | 4 |
+| Current V2 pairs | 0 |
+| Validator | Clean run PASS against this document (§50.1) |
+| Gates 1 – 57 | PASS (57 / 57) |
+| Mutations | 120 / 120 detected; 0 missed |
+| Temporary checkpoint | Removed |
 
-Gate 39 (P1 = 0) and gate 40 (current owner decisions = 0) cannot pass until OD-7C-07 is decided and P1-7C-04 is resolved.
+The earlier "all 42 gates pass" and "80 / 80" results are PRE-REMEDIATION / SUPERSEDED (§50.1).
 
-**7C EVENT ENVELOPE & SCHEMA VERSIONING = NOT READY FOR INDEPENDENT REVIEW — blocked on OD-7C-07 (§46.8).**
-
----
-
-## 53. TEMPORARY — Current Checkpoint (remove before READY)
-
-> **TEMPORARY CONTINUATION NOTE.** This section records a work checkpoint. It MUST be removed before this document is marked READY.
-
-**Completed**
-
-- Baseline verification (§50.2)
-- Targeted frozen-source searches
-- P1-7C-01 RESOLVED
-- P1-7C-02 RESOLVED
-- P1-7C-03 RESOLVED
-- P1-7C-05 RESOLVED
-- P1-7C-06 RESOLVED
-- Current-event determinism scan and fixes (§20; §51.1)
-- OD-7C-07 decision packet written (§46.8)
-
-**Blocked**
-
-- P1-7C-04 / OD-7C-07
-
-**Not yet completed**
-
-- Owner answer for OD-7C-07
-- Final EV-014 manifest representation
-- Validator rebuild and rerun
-- Mutations 1 – 114, including 81 – 114
-- Final rerun of gates 1 – 47
-- Final SHA-256 and line count
-- Final 83-item report
-- Removal of this temporary note
-- READY status
-
-**Next actions, in order**
-
-1. Receive the owner decision for OD-7C-07.
-2. Implement that decision only.
-3. Resolve P1-7C-04.
-4. Rebuild and rerun the external validator.
-5. Run mutations 1 – 114 at least.
-6. Run all final gates.
-7. Remove this temporary checkpoint note.
-8. Mark READY only if P0 = 0, P1 = 0 and open owner decisions = 0.
+**7C EVENT ENVELOPE & SCHEMA VERSIONING = READY FOR INDEPENDENT REVIEW**
