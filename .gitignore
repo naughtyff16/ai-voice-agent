@@ -10,3 +10,14 @@
 # Python bytecode cache left behind by running Alembic locally for validation
 __pycache__/
 *.pyc
+
+# Backend development (D0): local virtual environment, tool caches and
+# environment files holding real credentials. Only *.example templates are versioned.
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.env
+.env.*
+!.env.example
+!.env.*.example

@@ -1,0 +1,74 @@
+# Deployment / pre-rollout schema gate (controlled architecture reconciliation OD-D0-01).
+#
+# Proves that the ACTUAL TARGET DATABASE is at exactly the migration head the
+# application being rolled out requires, using migration/deployment credentials.
+# A rollout must not proceed unless this job succeeds. It is independent of the
+# application: the runtime readiness probe checks operational connectivity only,
+# and the least-privileged runtime role (app_api) cannot read alembic_version.
+#
+# Credentials: MIGRATION_DATABASE_URL is an environment secret of the target
+# GitHub environment (postgresql+psycopg://<deployment role>@<host>:<port>/<db>
+# with sslmode). It is never a runtime role; the gate refuses app_api,
+# app_worker and app_readonly.
+#
+# Use from a deployment workflow, before the rollout job:
+#
+#   jobs:
+#     schema-gate:
+#       uses: ./.github/workflows/deployment-schema-gate.yaml
+#       with: { environment: production, expected-head: 112_5H5 }
+#     rollout:
+#       needs: schema-gate
+#       ...
+name: deployment-schema-gate
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: GitHub environment holding the target's MIGRATION_DATABASE_URL secret
+        required: true
+        type: string
+      expected-head:
+        description: Exact migration revision the application build requires
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub environment holding the target's MIGRATION_DATABASE_URL secret
+        required: true
+        type: choice
+        options: [staging, production]
+      expected-head:
+        description: Exact migration revision the application build requires
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  schema-current:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: ${{ inputs.environment }}
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.5"
+
+      - name: Install the locked runtime and migration tooling (no dev tools)
+        run: uv sync --locked --no-dev --group migrations
+
+      - name: Deployment gate against the target database
+        env:
+          MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+          # Passed through the environment, never interpolated into the script.
+          EXPECTED_HEAD: ${{ inputs.expected-head }}
+        run: uv run --no-sync python scripts/db_migrate.py gate --expected-head "${EXPECTED_HEAD}"

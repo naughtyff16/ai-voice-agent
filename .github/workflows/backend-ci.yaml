@@ -1,0 +1,141 @@
+# Backend quality gate (3F §6.1). Same Python (backend/.python-version), same
+# lockfile (backend/uv.lock) and same aggregate command as local development.
+#
+# verify:    integration tests start their own disposable PostgreSQL 18 and Redis
+#            processes from the binaries installed below; nothing persistent is used.
+# container: builds the API image and runs the Compose stack (PostgreSQL 18 +
+#            pgvector, Redis 7.2, the API) end to end: health checks, the
+#            deployment schema gate and a graceful stop.
+#
+# Triggers: any change to the backend (code, tests, scripts, pyproject.toml,
+# uv.lock, .python-version), the container definitions, the frozen migration
+# package or this workflow. Documentation outside those paths does not run it.
+name: backend-ci
+
+on:
+  push:
+    paths:
+      - "backend/**"
+      - "infra/docker/**"
+      - "infra/docker-compose/**"
+      - "docs/phase-05-database-design/5K/**"
+      - ".github/workflows/backend-ci.yaml"
+  pull_request:
+    paths:
+      - "backend/**"
+      - "infra/docker/**"
+      - "infra/docker-compose/**"
+      - "docs/phase-05-database-design/5K/**"
+      - ".github/workflows/backend-ci.yaml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PostgreSQL 18 + pgvector (PGDG) and Redis (packages.redis.io)
+        working-directory: .
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list
+          curl -fsSL https://packages.redis.io/gpg | sudo gpg --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb noble main" \
+            | sudo tee /etc/apt/sources.list.d/redis.list
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-18 postgresql-18-pgvector redis-server
+          redis-server --version
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.5"
+
+      - name: Install locked dependencies
+        run: uv sync --locked
+
+      - name: Verify (format, lint, types, migration graph, repository guards, tests)
+        env:
+          PG_BIN_DIR: /usr/lib/postgresql/18/bin
+        run: uv run python scripts/verify.py
+
+  container:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      COMPOSE_FILE: ${{ github.workspace }}/infra/docker-compose/docker-compose.yml
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.5"
+
+      - name: Install locked dependencies (migration tooling runs from the host)
+        run: uv sync --locked
+
+      - name: Generate disposable credentials for this run
+        run: |
+          for name in POSTGRES_BOOTSTRAP_PASSWORD REDIS_PASSWORD APP_API_PASSWORD; do
+            value="$(openssl rand -hex 24)"
+            echo "::add-mask::${value}"
+            echo "${name}=${value}" >> "$GITHUB_ENV"
+          done
+
+      - name: Build the API image (runtime stage, non-root)
+        working-directory: .
+        run: |
+          docker build -f infra/docker/api.Dockerfile -t voice-agent-api:ci backend
+          test "$(docker image inspect -f '{{.Config.User}}' voice-agent-api:ci)" = "appuser"
+
+      - name: Validate the Compose file
+        run: docker compose config --quiet
+
+      - name: Start PostgreSQL 18 and Redis and wait for their health checks
+        run: docker compose up -d --wait postgres redis
+
+      - name: Migrate, set the runtime password and run the deployment schema gate
+        run: |
+          export MIGRATION_DATABASE_URL="postgresql+psycopg://voice_agent_bootstrap:${POSTGRES_BOOTSTRAP_PASSWORD}@127.0.0.1:54320/voice_agent_dev"
+          uv run python scripts/db_migrate.py upgrade
+          ENVIRONMENT=local \
+          DATABASE__URL="postgresql+asyncpg://app_api:${APP_API_PASSWORD}@127.0.0.1:54320/voice_agent_dev" \
+            uv run python scripts/db_migrate.py set-runtime-password
+          uv run python scripts/db_migrate.py gate --expected-head 112_5H5
+
+      - name: Start the API container and wait for readiness
+        run: |
+          docker compose --profile app up -d --build api
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8000/health/ready; then echo; exit 0; fi
+            sleep 2
+          done
+          docker compose logs api
+          exit 1
+
+      - name: Stop the API gracefully and check the shutdown sequence
+        run: |
+          docker compose stop --timeout 30 api
+          container="$(docker compose ps --all --quiet api)"
+          docker compose logs api > api.log
+          cat api.log
+          test "$(docker inspect -f '{{.State.ExitCode}}' "${container}")" = "0"
+          grep -q "redis_closed" api.log
+          grep -q "postgres_disposed" api.log
+          grep -q "application_stopped" api.log
+
+      - name: Remove the Compose stack
+        if: always()
+        run: docker compose --profile app down --volumes --remove-orphans

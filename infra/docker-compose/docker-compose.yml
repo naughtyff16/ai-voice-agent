@@ -1,0 +1,68 @@
+# Local development dependencies (3F §4.1), reconciled to the current frozen
+# baseline: PostgreSQL 18 with pgvector (5K §5) and Redis 7.2 (7E TOPO-01).
+#
+# Disposable, developer-machine only. Ports bind to 127.0.0.1. Credentials come
+# from infra/docker-compose/.env (git-ignored; copy .env.example).
+#
+#   docker compose -f infra/docker-compose/docker-compose.yml up -d --wait
+#   docker compose -f infra/docker-compose/docker-compose.yml --profile app up -d --build
+#   docker compose -f infra/docker-compose/docker-compose.yml down -v   # destroys local data
+name: voice-agent-local
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg18
+    command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements"]
+    environment:
+      # Administrative bootstrap identity used only for migrations, never by the app.
+      POSTGRES_USER: voice_agent_bootstrap
+      POSTGRES_PASSWORD: ${POSTGRES_BOOTSTRAP_PASSWORD:?set POSTGRES_BOOTSTRAP_PASSWORD in .env}
+      POSTGRES_DB: voice_agent_dev
+    ports: ["127.0.0.1:54320:5432"]
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U voice_agent_bootstrap -d voice_agent_dev"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7.2-alpine
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
+      - --appendonly
+      - "yes"
+    ports: ["127.0.0.1:63790:6379"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+
+  # Optional: the API in a container. Migrate and set the runtime password first
+  # (backend/README.md). Not started unless the "app" profile is selected.
+  api:
+    profiles: ["app"]
+    build:
+      context: ../../backend
+      dockerfile: ../infra/docker/api.Dockerfile
+    environment:
+      ENVIRONMENT: local
+      OBSERVABILITY__LOG_FORMAT: console
+      DATABASE__URL: postgresql+asyncpg://app_api:${APP_API_PASSWORD:?set APP_API_PASSWORD in .env}@postgres:5432/voice_agent_dev
+      REDIS__URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+    ports: ["127.0.0.1:8000:8000"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+volumes:
+  postgres_data:
+  redis_data:
