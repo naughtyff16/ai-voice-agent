@@ -1,0 +1,70 @@
+%% A1 — Business Architecture (W0 / 8A Architecture Atlas)
+%% Audience: business stakeholders. Status tags: [BUILT] implemented, [PLANNED], [BLOCKED] needs an approval/gate first, [LATER] deferred by an owner decision.
+%% Revised 2026-10-16 for the first independent review (M-W0-03): prompt authoring is BLOCKED on OD-W0-02.
+%% Sources: SRS (Phase 1); 2 §7.4; 4I §4, §6, §9-§12; 6B-6M route owners (AIR §31); 7L §23, §34.5.
+flowchart LR
+    classDef built fill:#d6f5d6,stroke:#2e7d32,color:#1b5e20
+    classDef planned fill:#dbe9ff,stroke:#1e4e9c,color:#0d2b5e
+    classDef blocked fill:#ffe0e0,stroke:#c62828,color:#7f0000,stroke-dasharray:5 3
+    classDef later fill:#eeeeee,stroke:#757575,color:#424242,stroke-dasharray:2 2
+
+    subgraph S1["1 Sign up and set up"]
+        ON["Organization onboarding<br/>owner, users, roles<br/>[PLANNED W1]"]:::planned
+        ENT["Plan, subscription and limits<br/>agents, concurrent calls<br/>[PLANNED W2 minimum / W5 full]"]:::planned
+        NUM["Business phone number<br/>provisioned by operations,<br/>assigned to an agent<br/>[PLANNED W2]"]:::planned
+    end
+
+    subgraph S2["2 Build the AI agent"]
+        AG["Agent setup<br/>draft, validate, publish version<br/>[PLANNED W2]"]:::planned
+        PR["Voice and language selection<br/>voice, language policy, Tamil first<br/>[PLANNED W2]"]:::planned
+        PA["Prompt authoring for the first agent<br/>no V1 prompt route<br/>[BLOCKED: OD-W0-02]"]:::blocked
+        KN["Knowledge and tools<br/>documents, RAG, tool calls<br/>[PLANNED W3]"]:::planned
+        PV["Preview and deployment<br/>publish = immutable version<br/>[PLANNED W2/W3]"]:::planned
+    end
+
+    subgraph S3["3 Talk to customers"]
+        IN["Inbound calls<br/>caller dials the business number<br/>[PLANNED W2 = milestone M1]"]:::planned
+        SAFE["Call admission safeguards<br/>no accepted provider event lost,<br/>capacity limit, one session per call<br/>[BLOCKED: OD-W0-12 migrations, OD-W0-13 KMS]"]:::blocked
+        OUT["Outbound calls and campaigns<br/>lists, pacing, consent, DNC<br/>[PLANNED W4]"]:::planned
+        CONV["Customer conversation<br/>Tamil, English, Telugu, Hindi<br/>[PLANNED W2 Tamil / W3 others]"]:::planned
+        SIP["SIP trunks<br/>V1 requirement, API not yet designed<br/>[BLOCKED: RR-SIP API reconciliation]"]:::blocked
+    end
+
+    subgraph S4["4 Act on results"]
+        LQ["Lead qualification and follow-up<br/>CRM, workflows<br/>[PLANNED W4]"]:::planned
+        INT["CRM sync and webhooks<br/>[BLOCKED for production: AB-7H-01..08]"]:::blocked
+        REC["Call recordings<br/>[BLOCKED: AG-7L-09 - storage stays off]"]:::blocked
+    end
+
+    subgraph S5["5 Measure, pay, govern"]
+        REP["Reports and analytics<br/>call, lead, campaign, latency<br/>[PLANNED W2 call log / W4-W5 full]"]:::planned
+        BILL["Usage metering and invoices<br/>server-calculated, INR first<br/>[BLOCKED for production: AG-7L-02, AG-7L-03]"]:::blocked
+        ADM["Enterprise administration<br/>audit, privacy requests, platform admin<br/>[PLANNED W5 / production gated AG-7L-08]"]:::planned
+        IE["India Enterprise data residency<br/>[BLOCKED: AB-7I-12]"]:::blocked
+    end
+
+    FOUND["Engineering foundation D0<br/>API skeleton, config, DB and Redis, logging<br/>[BUILT]"]:::built
+    REG["Class S cross-region recovery<br/>[LATER: optional, OD-7K-02 / OD-7K-05]"]:::later
+
+    FOUND --> ON
+    ON --> ENT --> NUM
+    ON --> AG
+    AG --> PR --> PV
+    AG --> PA --> PV
+    KN --> PV
+    PV --> NUM
+    NUM --> SAFE --> IN
+    PV --> OUT
+    IN --> CONV
+    OUT --> CONV
+    SIP -.-> IN
+    SIP -.-> OUT
+    CONV --> LQ
+    CONV --> REC
+    LQ --> INT
+    CONV --> REP
+    CONV --> BILL
+    ENT --> BILL
+    ON --> ADM
+    ADM --> IE
+    IE -.-> REG

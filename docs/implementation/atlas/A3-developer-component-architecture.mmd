@@ -1,0 +1,97 @@
+%% A3 — Developer Component Architecture (W0 / 8A Architecture Atlas)
+%% Status tags: [BUILT] [PLANNED] [BLOCKED] [LATER]. Solid thick edges = realtime voice path (in-process asyncio, no
+%% REST, no event bus: 6D §21.11). Dotted edges = asynchronous durable path (outbox -> relay -> Redis Streams -> consumer).
+%% Package paths follow 3A §3 / 3B §3 under the D0 root package voice_agent/ (D0 README "Package root").
+%% Sources: 2 §7.3-7.4; 3A §2-§3, §11; 3B §3, §8-§12; 6D §7.1, §10.4, §21; 6K §54; 7D; 7E §29.3; 7F; 7H §11, §17.2;
+%%          7I §12.1, §16; 7L §23, §31, §34.5.
+%% Revised 2026-10-16 for the first independent review: callback ingress/processing (P1-W0-01), capacity store in
+%% PostgreSQL not Redis (P1-W0-05, OD-W0-09), LS-D-VOX CLOSED (P1-W0-03, OD-W0-10), prompt authoring BLOCKED (M-W0-03).
+%% Revised again 2026-10-16 (second review P1-R2-01, -02): fenced admission and single admit-and-start transaction.
+%% Revised a third time 2026-10-16 (third review P1-R3-01, M-R3-01): fenced recovery claim; FAILED input retention.
+%% Revised a fourth time 2026-10-16 (fourth review P1-R4-01, M-R4-02): two-column discovery, tenant-scoped claim-or-recover, FAILED disposition only.
+flowchart TB
+    classDef built fill:#d6f5d6,stroke:#2e7d32,color:#1b5e20
+    classDef planned fill:#dbe9ff,stroke:#1e4e9c,color:#0d2b5e
+    classDef blocked fill:#ffe0e0,stroke:#c62828,color:#7f0000,stroke-dasharray:5 3
+    classDef later fill:#eeeeee,stroke:#757575,color:#424242,stroke-dasharray:2 2
+
+    subgraph FE["frontend/ - Next.js App Router (3A §4)"]
+        WEB["apps/web dashboard, call log, agents<br/>TanStack Query, Zustand, shadcn/ui<br/>[PLANNED W1-W2, D8]"]:::planned
+    end
+
+    subgraph DEPLOY["backend/voice_agent/apps - deployables of one codebase"]
+        API["apps/api - Core REST API<br/>factory, health, middleware, error catalog<br/>[BUILT D0] routes [PLANNED]"]:::built
+        CBI["callback ingress 6D-021 (in apps/api)<br/>verify raw body, tenant from platform state,<br/>receipt + encrypted input, then 2xx<br/>[BLOCKED: OD-W0-12, OD-W0-13]"]:::blocked
+        GW["apps/voice_gateway - raw WebSocket media<br/>connection manager, session router, media codec<br/>[PLANNED W2, D6]"]:::planned
+        WK["apps/worker - Celery + APScheduler<br/>finalizer, reaper, capacity reconciler, relay, consumers<br/>[PLANNED W1-W3, D4/D5/D6]"]:::planned
+        CBP["callback processing worker + stale sweep<br/>tenant-scoped claim-or-recover (epoch, DB-time lease),<br/>decrypt outside transactions,<br/>PROCESSED/SKIPPED only with all owner effects,<br/>FAILED keeps input up to 7 days,<br/>no business effect on FAILED<br/>[BLOCKED: OD-W0-12, OD-W0-13]"]:::blocked
+    end
+
+    subgraph MOD["backend/voice_agent/modules - bounded contexts (D1)"]
+        IDA["identity_access + organization<br/>JWT, sessions, RBAC, memberships<br/>[PLANNED W1, D3]"]:::planned
+        AGC["agent_configuration (6D/6E agents)<br/>draft, publish, versions<br/>[PLANNED W2, D7]"]:::planned
+        PRM["prompt_management runtime render<br/>(no V1 prompt routes)<br/>[PLANNED W2]"]:::planned
+        PRA["first prompt version authoring<br/>[BLOCKED: OD-W0-02]"]:::blocked
+        VO["voice_orchestration<br/>call state machine, turn loop, barge-in, checkpoints<br/>[PLANNED W2, D6]"]:::planned
+        VOB["voice admit-and-start + finalization<br/>identity W0-MR-02, setup fence, reservation revalidation,<br/>session + conversation + receipt terminal in ONE transaction<br/>EV-079 finalizer (G-02)<br/>[BLOCKED: OD-W0-12, OD-W0-01]"]:::blocked
+        PORTS["Provider ports: TelephonyPort, SttPort,<br/>TtsPort, LlmPort, RecordingPort<br/>[PLANNED W2]"]:::planned
+        MR["model_router + LLM adapters<br/>[PLANNED W2 one adapter / W3 more]"]:::planned
+        MEM["conversation_memory, tool_calling,<br/>knowledge_base (RAG)<br/>[PLANNED W3, D7]"]:::planned
+        CRM["crm, campaign_engine, workflow_engine<br/>[PLANNED W4, D7]"]:::planned
+        BIL["billing: capacity authority (sole admitter)<br/>on PostgreSQL reservations W0-MR-01<br/>[BLOCKED: OD-W0-12]; usage, invoices [W5]"]:::blocked
+        ANL["analytics, webhooks, plugin_runtime,<br/>admin_control_plane<br/>[PLANNED W4-W5, D9]"]:::planned
+    end
+
+    subgraph PLAT["backend/voice_agent/platform - shared kernel and infrastructure"]
+        CFG["config, errors, request context,<br/>logging and redaction, DB engine, Redis client<br/>[BUILT D0]"]:::built
+        TX["tenant-scoped unit of work<br/>SET LOCAL app.tenant_id, RLS<br/>[PLANNED W1, D2]"]:::planned
+        EVT["eventbus: manifest, 7C envelope, outbox writer,<br/>relay, dispatcher, idempotency<br/>[PLANNED W1-W3, D4]; production [BLOCKED AG-7K-01..03, AG-7L-06]"]:::planned
+        REC["recovery ledger, retry, parking, replay<br/>[BLOCKED: G-06 migration, 7G MIG-02; D5]"]:::blocked
+        OTEL["tracing and metrics (OpenTelemetry, Prometheus)<br/>[PLANNED W1-W2, D9]"]:::planned
+    end
+
+    subgraph DATA["Data stores"]
+        PG[("PostgreSQL 18<br/>schemas per context, RLS<br/>[BUILT as 112 migrations]")]:::built
+        NEWPG[("M1 relations: callback inputs MR-7H-09,<br/>capacity reservations W0-MR-01,<br/>provider-call identity W0-MR-02, G-02<br/>[BLOCKED: OD-W0-12, OD-W0-01]")]:::blocked
+        OB[("audit.domain_event_outbox<br/>row written in the same transaction as the domain change<br/>[BUILT table] relay ACLs [BLOCKED AB-7I-01]")]:::built
+        RH[("Redis hot tier<br/>live session state, caches, TTL discipline<br/>[PLANNED]")]:::planned
+        RT[("Redis event transport<br/>LS-D-* streams; LS-D-VOX CLOSED<br/>[PLANNED]")]:::planned
+        KMS[("Managed cloud KMS<br/>CALLBACK_INPUT keys<br/>[BLOCKED: OD-W0-13]")]:::blocked
+        S3[("Object storage<br/>[BLOCKED AG-7L-09 for recordings]")]:::blocked
+    end
+
+    EXT["External providers<br/>Exotel, Deepgram, ElevenLabs, LLM"]:::planned
+
+    WEB -->|"HTTPS JSON"| API
+    API --> IDA & AGC & ANL & CRM
+    EXT -.->|"signed callbacks"| CBI
+    CBI -->|"one transaction, then 2xx"| NEWPG
+    CBI -->|"generate-only"| KMS
+    CBP -->|"decrypt-only"| KMS
+    NEWPG -.->|"discovery: receipt_id + organization_id only, then tenant-scoped claim-or-recover"| CBP
+    CBP --> VOB
+    VOB -->|"AcquireCapacity, own Billing transaction"| BIL
+    VOB -.->|"guarded read of reservation state, under setup fence"| BIL
+    BIL -.->|"reconciler reads Voice setup state, under setup fence"| VOB
+    BIL --> NEWPG
+    GW ==>|"audio frames"| VO
+    VO ==> PORTS
+    PORTS ==>|"streaming"| EXT
+    VO ==> MR
+    VO --> PRM
+    PRA -.-> PRM
+    VO --> MEM
+    VO --> VOB
+    MOD --> TX --> PG
+    VO ==>|"live session state"| RH
+    MOD --> OB
+    OB -.->|"claim only rows of OPEN streams"| EVT
+    EVT -.-> RT
+    RT -.->|"admitted groups only; Voice rows stay PENDING"| WK
+    WK -.-> REC
+    WK --> PG
+    WK -.-> S3
+    API --> CFG
+    GW --> CFG
+    WK --> CFG
+    CFG --> OTEL

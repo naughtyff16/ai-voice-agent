@@ -1,0 +1,111 @@
+%% A4 — Domain Ownership and Data Architecture (W0 / 8A Architecture Atlas)
+%% Each box = one bounded context, its PostgreSQL schema(s) and its data classes. All tenant tables carry
+%% organization_id with ENABLE + FORCE ROW LEVEL SECURITY on organization.current_tenant_id() (5A; 001_5B), except
+%% organization.organizations, which has no RLS (7L §2.4).
+%% Streams: exactly the eleven logical durable streams and the one SIGNAL stream of 7E §18 / §29.3. Producers per the
+%% 7E stream table (owner of each stream family). Arrows stream -> group = the 18 (group, stream) subscriptions of
+%% 7E §29.3 for the 11 durable groups, plus the one best-effort SIGNAL subscription.
+%% Every durable stream is CLOSED for publication until all its owed groups are admitted (SPA-7L-01 .. -16, AG-7L-06;
+%% owner decision OD-W0-10 applies this to every environment). The SIGNAL group is best effort, not SPA-gated, and no
+%% Billing group or billable effect exists on LS-S-VOX (7E §29.3; 7L §34.5.2).
+%% Revised 2026-10-16 for the first independent review (M-W0-02, P1-W0-03).
+flowchart LR
+    classDef built fill:#d6f5d6,stroke:#2e7d32,color:#1b5e20
+    classDef planned fill:#dbe9ff,stroke:#1e4e9c,color:#0d2b5e
+    classDef blocked fill:#ffe0e0,stroke:#c62828,color:#7f0000,stroke-dasharray:5 3
+    classDef stream fill:#fff3cd,stroke:#a66f00,color:#4a3200
+    classDef signal fill:#f3e5f5,stroke:#6a1b9a,color:#4a148c,stroke-dasharray:4 2
+
+    subgraph IAM["Identity, Organization, Compliance - 5B / 6B / 6C"]
+        ID["identity.*, organization.*<br/>users, sessions, api_keys, memberships, roles,<br/>compliance_policies, data_subject_requests<br/>credential hashes only [BUILT]"]:::built
+    end
+    subgraph VOXC["Voice and AI Agent - 5C / 6D / 6E"]
+        VO["voice.* calls<br/>call_sessions, conversations, turns, transcripts,<br/>recordings, tenant_phone_numbers<br/>pii:phone, pii:voice, sensitive media [BUILT]"]:::built
+        AGP["voice.* agents (6E owner)<br/>agents, agent_versions, tool_definitions [BUILT]"]:::built
+    end
+    subgraph AIX["Prompt, Memory, Workflow - 5G / 6E / 6I"]
+        PG5["prompt.*, memory.*, workflow.*<br/>memory summaries pii:voice (LR-17) [BUILT]"]:::built
+    end
+    subgraph KNWC["Knowledge - 5F / 6F"]
+        KB["knowledge.*<br/>documents, chunks (pgvector) [BUILT]"]:::built
+    end
+    subgraph CRMC["CRM - 5D / 6G"]
+        CR["crm.*<br/>contacts, consent, suppressions, deals<br/>pii:contact [BUILT]"]:::built
+    end
+    subgraph CPNC["Campaign - 5E / 6H"]
+        CA["campaign.*<br/>campaigns, contacts, call_jobs, imports [BUILT]"]:::built
+    end
+    subgraph BILC["Billing - 5H / 6K"]
+        BI["billing.*<br/>plans, subscriptions, quotas, usage_events,<br/>invoices, payments, credits<br/>financial, server-authoritative [BUILT]"]:::built
+    end
+    subgraph INTC["Integrations - 5I / 6J"]
+        IN["integrations.*, webhooks.*, plugins.*<br/>endpoints, deliveries, inbound callbacks<br/>secret refs only [BUILT]"]:::built
+    end
+    subgraph ANX["Analytics and Audit - 5J / 6L"]
+        AN["analytics.*, audit.*<br/>projections, audit_events (hash chain),<br/>domain_event_outbox [BUILT]"]:::built
+    end
+
+    S_IDN[["LS-D-IDN<br/>owes 1 group"]]:::stream
+    S_ORG[["LS-D-ORG<br/>owes 1 group"]]:::stream
+    S_CMP[["LS-D-CMP<br/>owes 1 group"]]:::stream
+    S_VOX[["LS-D-VOX<br/>owes 6 groups - CLOSED"]]:::stream
+    S_AGT[["LS-D-AGT<br/>no owed group"]]:::stream
+    S_KNW[["LS-D-KNW<br/>owes 2 groups"]]:::stream
+    S_CRM[["LS-D-CRM<br/>owes 2 groups"]]:::stream
+    S_CPN[["LS-D-CPN<br/>owes 3 groups"]]:::stream
+    S_WFL[["LS-D-WFL<br/>owes 1 group"]]:::stream
+    S_INT[["LS-D-INT<br/>no owed group"]]:::stream
+    S_BIL[["LS-D-BIL<br/>owes 1 group"]]:::stream
+    S_SIG[["LS-S-VOX SIGNAL<br/>DS-17, DS-19; best effort"]]:::signal
+
+    C01["CON-01 cg.identity.session-denylist [PLANNED W3]"]:::planned
+    C02["CON-02 cg.compliance.default-policy-seeding [PLANNED W3]"]:::planned
+    C03["CON-03 cg.compliance.active-policy-pointer<br/>[BLOCKED AP-7L-31]"]:::blocked
+    C04["CON-04 cg.crm.call-history<br/>[PLANNED W3, conformance only]"]:::planned
+    C05["CON-05 cg.campaign.record-call-outcome<br/>[BLOCKED AP-7L-32]"]:::blocked
+    C06["CON-06 cg.billing.usage-ingestion<br/>[BLOCKED prod AG-7L-02; EV-079 needs G-02, AP-7L-27/-28]"]:::blocked
+    C07["CON-07 cg.analytics.projections (durable)<br/>[PLANNED W3, conformance only]"]:::planned
+    C08["CON-08 cg.voice.recording-object-cleanup<br/>[BLOCKED AP-7L-27 vii, -52 .. -54; AG-7L-09]"]:::blocked
+    C09["CON-09 cg.knowledge.document-count<br/>[BLOCKED AP-7L-33]"]:::blocked
+    C10["CON-10 cg.integrations.webhook-engine<br/>[BLOCKED AB-7H-01, AB-7H-02]"]:::blocked
+    C11["CON-11 cg.campaign.import-worker<br/>[BLOCKED AP-7L-32]"]:::blocked
+    SG["sg.analytics.signal-projections<br/>CON-07 SIGNAL part, best effort,<br/>not SPA-gated, no billable effect [PLANNED W3]"]:::planned
+
+    ID -->|"Identity 6B"| S_IDN
+    ID -->|"Organization 6C"| S_ORG
+    ID -->|"Compliance 6C"| S_CMP
+    VO -->|"Voice 6D"| S_VOX
+    AGP -->|"AI Agent 6E"| S_AGT
+    KB -->|"Knowledge 6F"| S_KNW
+    CR -->|"CRM 6G"| S_CRM
+    CA -->|"Campaign 6H"| S_CPN
+    PG5 -->|"Workflow 6I"| S_WFL
+    IN -->|"Integrations 6J"| S_INT
+    BI -->|"Billing 6K"| S_BIL
+    VO -->|"Voice runtime signals"| S_SIG
+
+    S_IDN --> C01
+    S_ORG --> C02
+    S_CMP --> C03
+    S_VOX --> C04 & C05 & C06 & C07 & C08 & C10
+    S_KNW --> C06 & C09
+    S_CRM --> C07 & C10
+    S_CPN --> C06 & C10 & C11
+    S_WFL --> C06
+    S_BIL --> C10
+    S_SIG -.-> SG
+
+    C04 --> CR
+    C05 --> CA
+    C06 --> BI
+    C07 --> AN
+    SG -.-> AN
+    C09 --> KB
+    C10 --> IN
+    C11 --> CA
+    C02 --> ID
+    C03 --> ID
+    AGP -.->|"prompt_ref (ID only)"| PG5
+    AGP -.->|"knowledge_base_refs (ID only)"| KB
+    CA -.->|"contact and call IDs"| VO
+    BI -.->|"organization_id"| ID

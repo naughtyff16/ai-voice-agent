@@ -1,0 +1,105 @@
+%% A5 — Real Inbound Call Sequence (W0 / 8A Architecture Atlas). Nothing in this diagram is built yet. Every step is
+%% [PLANNED W2] except those tagged [BLOCKED]. Which Exotel signal arrives first, the socket token, the signature
+%% scheme and any decline API are UNVERIFIED (FS-01); the order of the steps below is fixed by the frozen contracts.
+%% Sources: 3B §6.1, §8, §12, §17; 4B §14.1; 6A §17.3, §35; 6D §10.4 (+FAR-OD-05), §11, §14, §21.1, §23.4;
+%%          6J §24.4; 6K §54.3-§54.8; 5C 011, 015; 5I 062; 7H §11.2-§11.4 CBK-01..22, §17.2 TX-7/TX-8, MR-7H-09;
+%%          7I §12.1 KEY-01..11, §16 CBI-01..14; 7B EV-005/006/073/074/079, OCC-01..07; 7D PTX-01..04;
+%%          7L §34.5 (SPA), §34.6.3 (CKP-7L-01..13), AP-7L-27. Blueprint §3.1-§3.5 is the normative text.
+%% Revised 2026-10-16 (first review): P1-W0-01, -02, -04, -05, NF-01.
+%% Revised 2026-10-16 (second review): P1-R2-01 fenced admission T0-T4, P1-R2-02 one admit-and-start transaction,
+%% M-R2-01 receipt-only FAILED branch, M-R2-02 receipt id allocated before encryption, M-R2-03 decline as a separate
+%% TelephonyPort control operation.
+%% Revised a third time 2026-10-16 (third review P1-R3-01): claim epoch, database-time lease, fenced recovery claim, epoch fence on every completing transaction.
+%% Revised a fourth time 2026-10-16 (fourth review P1-R4-01, M-R4-02): two-column discovery, tenant-scoped claim-or-recover, exhaustion disposition.
+%% Mermaid note: a semicolon inside a message ends the statement, so messages use dashes instead.
+sequenceDiagram
+    autonumber
+    actor C as Caller
+    participant X as Exotel (Telephony ACL)
+    participant CB as Callback ingress 6D-021
+    participant K as Managed KMS
+    participant DB as PostgreSQL (Voice + webhooks, RLS)
+    participant PW as Callback processing worker
+    participant CAP as Billing capacity functions
+    participant REC as Billing reconciler
+    participant GW as Voice Gateway (raw WS)
+    participant ORC as Voice Orchestrator
+    participant P as STT / LLM / TTS
+    participant FIN as Finalizer / reaper
+    participant UI as Dashboard (call:read)
+
+    C->>X: dials business number
+    X->>CB: provider event + signature
+    CB->>CB: size and rate guards, keep raw bytes, verify signature over raw bytes
+    alt invalid, tampered or unsigned
+        CB-->>X: reject - ZERO rows written (CBK-01)
+    else verified
+        CB->>DB: resolve_inbound_phone_number(to) - tenant from platform state, never from payload
+        CB->>CB: provider_event_id, allocate receipt id R, extract closed versioned input (CPU only)
+        alt signed but malformed input
+            CB->>DB: TX-7 receipt R only, status FAILED + category - no input, no KMS call (CBK-17)
+            CB-->>X: 2xx - durably recorded, nothing owed
+        else input extracted
+            CB->>K: generate wrapped data key, encrypt input, AAD = purpose, org, R, schema (no transaction open) [BLOCKED OD-W0-13]
+            CB->>DB: TX-7 insert receipt R ON CONFLICT DO NOTHING, input keyed by R only if R was inserted [BLOCKED OD-W0-12]
+            alt KMS or commit failure
+                CB-->>X: 5xx - nothing stored (CBI-05)
+            else committed new receipt, or authenticated duplicate (R discarded)
+                CB-->>X: 2xx identical for both - durably received, not processed
+            end
+        end
+    end
+    Note over CB,PW: ACK boundary. Everything below runs in the processing worker, never in the HTTP request
+    PW->>DB: cross-tenant discovery - returns ONLY receipt_id and organization_id
+    PW->>DB: one transaction under that tenant - claim-or-recover(receipt_id) locks the receipt and decides internally
+    Note over PW,DB: CLAIMED (RECEIVED) or RECOVERED (PROCESSING, lease expired in DB time, attempts left) - epoch+1, attempts+1, new epoch and encrypted input to this winner only
+    opt EXHAUSTED - lease expired and attempts used up
+        PW->>DB: same transaction - receipt FAILED, epoch+1 fences the last holder, input kept up to 7 days, no business effect
+        PW->>DB: same transaction - identity whose origin receipt is this one PENDING to ABANDONED, a BOUND or CLOSED identity is untouched
+    end
+    Note over PW,DB: NOT_AVAILABLE returns nothing. A displaced holder fails the epoch fence in its own transaction and writes nothing
+    PW->>K: decrypt outside any transaction (decrypt-only workload)
+    PW->>DB: T0 identity claim UNIQUE(org, provider, call ref) - one call_session_id, terminal identity = no admission [BLOCKED W0-MR-02]
+    PW->>CAP: T1 AcquireCapacity - setup fence, pool lock, count RESERVED+BOUND, (occupied+1) <= hard_limit [BLOCKED W0-MR-01]
+    alt REFUSED_AT_LIMIT or NOT_CONFIGURED
+        CAP-->>PW: refused - nothing written
+        PW->>DB: T3 one transaction - receipt epoch fence, identity PENDING to REFUSED, receipt PROCESSED, input deleted
+        opt only if FS-01 verifies a provider decline control
+            PW->>X: separate TelephonyPort control call (reject or hang up) - otherwise the media stream is not accepted
+        end
+    else UNAVAILABLE
+        CAP-->>PW: fail closed - receipt left to the sweep, bounded attempts, then ABANDONED + FAILED
+    else ADMITTED or ALREADY_HELD
+        PW->>DB: T2 ONE transaction - receipt epoch fence (epoch = mine), identity lock, setup fence, revalidate reservation via Billing guarded read
+        Note over PW,DB: T2 continues only if the reservation is RESERVED or BOUND, else rollback and a NEW T1 admission
+        PW->>DB: T2 - call_sessions row + if answered conversation + conversation_id + EV-073 + EV-074
+        PW->>DB: T2 - identity BOUND, receipt PROCESSED, input deleted - then COMMIT (all or nothing)
+        REC->>CAP: T4 reconciler - setup fence, pool, reservation, then read Voice setup state
+        Note over REC,CAP: Releases only terminal, abandoned or refused setups, or owed setups past the grace, never a live session - fence makes T2 and T4 strictly ordered
+        Note over DB: Voice outbox rows stay PENDING - LS-D-VOX owes 6 groups and is CLOSED in every environment
+        X->>GW: WS connect + start frame
+        GW->>DB: bind to the admitted session (bounded wait if the socket arrives before T2 commits)
+        loop each turn - no REST, no event bus, no synchronous Billing/CRM/Analytics write
+            X->>GW: caller audio frames
+            GW->>ORC: decoded PCM16 chunks
+            ORC->>ORC: VAD endpoint committed - 6D metric START and L-1 START (gateway clock)
+            ORC->>P: streaming STT final
+            ORC->>P: LLM stream (prompt version + history)
+            ORC->>P: TTS stream from first sentence fragment
+            P-->>GW: synthesized audio
+            GW-->>X: first audible egress frame - L-1 END (gateway clock)
+            X-->>C: audio heard - 6D metric END (caller clock - L-4 only via calibrated sync, else NOT MEASURED)
+            opt caller speaks during playback (barge-in)
+                ORC->>P: cancel TTS and LLM, drop queued audio (6D §14, DEP-6D-08)
+            end
+            ORC->>DB: per-turn checkpoint, checkpoint_at = GREATEST(clock_timestamp(), previous) [BLOCKED G-02]
+            ORC->>DB: final transcript segment (finals only)
+        end
+        X->>CB: hang-up event (same verified, durable ingress path)
+        PW->>DB: one transaction - receipt epoch fence, terminal state + persisted service-end + EV-005 or EV-006 + identity CLOSED + receipt PROCESSED + input deleted
+        PW->>CAP: T5 ReleaseCapacity(call_session_id) - fence, idempotent, reconciler releases if this is lost
+        FIN->>DB: abnormal end only - reaper forces terminal state, service-end = last committed checkpoint_at
+        FIN->>DB: shared finalization under the accounting row lock - guard, EV-079 once, occurred_at = persisted service-end [BLOCKED G-02]
+        Note over FIN,DB: Missing or corrupt service-end or checkpoint - CORRUPT_STATE + RECONCILIATION_REQUIRED, no EV-079, never an estimate
+        UI->>DB: GET /api/v1/calls, /calls/{id} under tenant RLS - transcript content needs transcript:access_content
+    end

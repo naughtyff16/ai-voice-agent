@@ -1,0 +1,77 @@
+%% A2 — System Context (W0 / 8A Architecture Atlas)
+%% Status tags: [BUILT] [PLANNED] [BLOCKED] [LATER]. Dashed red edges cross an external trust boundary.
+%% Sources: 2 §7.2; 3B §10; 4I §5, §9; 6A §27.1 (raw WS), 6D §10.4 (callback/media/observation surfaces); 6B §10, §17;
+%%          6J (webhooks, integrations); 6K (payments); 7H (external delivery); 7I (trust boundaries); 7K (regions).
+%% Revised 2026-10-16 (P1-W0-01, OD-W0-08, -13): callback fast ACK after durable encrypted receipt; managed KMS added.
+flowchart TB
+    classDef built fill:#d6f5d6,stroke:#2e7d32,color:#1b5e20
+    classDef planned fill:#dbe9ff,stroke:#1e4e9c,color:#0d2b5e
+    classDef blocked fill:#ffe0e0,stroke:#c62828,color:#7f0000,stroke-dasharray:5 3
+    classDef later fill:#eeeeee,stroke:#757575,color:#424242,stroke-dasharray:2 2
+    classDef actor fill:#fff7e0,stroke:#a66f00,color:#4a3200
+
+    CALLER(("Caller / end customer")):::actor
+    TUSER(("Tenant owner, admin, member<br/>browser")):::actor
+    PADMIN(("Platform administrator<br/>guarded functions, break-glass")):::actor
+    PARTNER(("Partner system<br/>API key")):::actor
+
+    subgraph PLATFORM["AI Voice Agent Platform - one modular monolith, India region"]
+        CORE["Core REST API /api/v1<br/>[BUILT: D0 skeleton] [PLANNED: routes]"]:::built
+        VGW["Voice Gateway<br/>/ws/v1/voice/media/{session}<br/>[PLANNED W2]"]:::planned
+        OBS["Tenant observation WS<br/>/ws/v1/voice/calls/{call}<br/>[PLANNED W3]"]:::planned
+        CB["Provider callback ingress<br/>POST /webhooks/voice/{provider}/events<br/>verify raw body, store receipt + encrypted input, then 2xx<br/>[BLOCKED: OD-W0-12, OD-W0-13; production also AB-7H-04]"]:::blocked
+        WRK["Workers: callback processing + sweep, relay, consumers<br/>[PLANNED W1-W3; callback worker BLOCKED OD-W0-12; production gated]"]:::planned
+        DASH["Next.js dashboard<br/>[PLANNED W1]"]:::planned
+    end
+
+    subgraph TEL["Telephony - TelephonyPort adapters"]
+        EXO["Exotel - first provider<br/>[PLANNED W2; capability unverified FS-01]"]:::planned
+        SIPT["SIP trunk<br/>[BLOCKED: RR-SIP]"]:::blocked
+    end
+    subgraph AI["Speech and model providers - ports"]
+        STT["STT: Deepgram primary, Gladia fallback<br/>[PLANNED; Tamil unverified FS-02]"]:::planned
+        TTS["TTS: ElevenLabs<br/>fallback vendor undecided DEP-6D-10<br/>[PLANNED; Tamil and cancel unverified FS-03]"]:::planned
+        LLM["LLM: 7 frozen adapters<br/>M1 default = owner decision OD-W0-03<br/>[PLANNED]"]:::planned
+    end
+    subgraph EXT["Business systems"]
+        PAY["Payment gateways<br/>[PLANNED W5]"]:::planned
+        CRMX["External CRM and webhook receivers<br/>[BLOCKED for production: AB-7H-01..08]"]:::blocked
+    end
+    subgraph CLOUD["Cloud infrastructure - India region"]
+        PG[("PostgreSQL 18 + pgvector<br/>112 migrations [BUILT as SQL]")]:::built
+        RT[("Redis event transport<br/>[PLANNED; AG-7K-02]")]:::planned
+        RH[("Redis hot tier<br/>[PLANNED; AG-7L-05]")]:::planned
+        S3[("Object storage<br/>recordings [BLOCKED AG-7L-09]")]:::blocked
+        SEC["Secret manager<br/>[PLANNED W2 local, W6 cloud]"]:::planned
+        KMS["Managed cloud KMS, India region<br/>CALLBACK_INPUT keys, non-production root separate<br/>[BLOCKED: OD-W0-13 vendor and provisioning]"]:::blocked
+    end
+
+    CALLER -->|"PSTN call"| EXO
+    EXO -.->|"signed callback HTTPS"| CB
+    EXO <-.->|"raw WebSocket audio"| VGW
+    SIPT -.-> VGW
+    VGW <-.->|"streaming audio and text, TLS"| STT
+    VGW <-.->|"streaming text"| LLM
+    VGW <-.->|"streaming audio"| TTS
+    TUSER -->|"HTTPS"| DASH
+    DASH -->|"JWT RS256"| CORE
+    DASH -.->|"JWT"| OBS
+    PARTNER -.->|"vxa_ API key"| CORE
+    PADMIN -->|"guarded admin routes 6M"| CORE
+    WRK -.->|"signed webhooks, egress adapter"| CRMX
+    CORE -.->|"payment API"| PAY
+    PAY -.->|"payment webhooks"| CORE
+    CORE --> PG
+    VGW --> PG
+    WRK --> PG
+    WRK --> RT
+    VGW --> RH
+    CORE --> RH
+    CORE --> SEC
+    VGW --> SEC
+    WRK -.-> S3
+    CB -->|"generate wrapped key only"| KMS
+    WRK -->|"decrypt only"| KMS
+
+    %% Red = crosses the platform trust boundary (edges 1-7, 10-14 in declaration order).
+    linkStyle 1,2,3,4,5,6,7,10,11,12,13,14 stroke:#c62828

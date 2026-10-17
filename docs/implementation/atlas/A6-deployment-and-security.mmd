@@ -1,0 +1,87 @@
+%% A6 — Deployment and Security Architecture (W0 / 8A Architecture Atlas)
+%% Status tags: [BUILT] [PLANNED] [BLOCKED] [LATER]. All nine AG-7L gates and every frozen gate are CLOSED.
+%% Sources: 3F §4-§7, §10-§12, §16-§19 (as narrowed by 7K CNF-7K-01/02 and AP-7L-24, not yet applied);
+%%          4I §9.1; 5B roles (001_5B); 7E (event transport); 7I §9 (roles, ACLs); 7K §20, §29.2; 7L §23.3, §33.11,
+%%          §34.10, §35.10; D0 README (local, test, CI, deployment gate).
+%% Revised 2026-10-16 for the first independent review: M1 KMS and M1 relations (P1-W0-01, -05, NF-01), staging stream rule (P1-W0-03), endpoint marked BLOCKED (legend).
+flowchart TB
+    classDef built fill:#d6f5d6,stroke:#2e7d32,color:#1b5e20
+    classDef planned fill:#dbe9ff,stroke:#1e4e9c,color:#0d2b5e
+    classDef blocked fill:#ffe0e0,stroke:#c62828,color:#7f0000,stroke-dasharray:5 3
+    classDef later fill:#eeeeee,stroke:#757575,color:#424242,stroke-dasharray:2 2
+    classDef gate fill:#fff0f0,stroke:#c62828,color:#7f0000
+
+    subgraph DEV["Developer machine - local"]
+        CMP["Docker Compose: PostgreSQL 18 + pgvector, Redis 7.2 (one instance)<br/>127.0.0.1 only [BUILT D0]"]:::built
+        UV["uvicorn --reload, ENVIRONMENT=local<br/>.env.local, never committed [BUILT D0]"]:::built
+        R2["Second local Redis for event transport, noeviction<br/>[PLANNED W1-D2-02]"]:::planned
+    end
+
+    subgraph TEST["Test and CI"]
+        HAR["Disposable private PostgreSQL 18 cluster + redis-server per run<br/>voice_agent_test_* only [BUILT D0]"]:::built
+        GHA["GitHub Actions backend-ci: verify.py, container job<br/>[BUILT D0; never executed on a runner]"]:::built
+        GATE["deployment-schema-gate: alembic head = 112_5H5<br/>migration role, runtime roles refused [BUILT D0]"]:::built
+        FECI["Frontend CI job [PLANNED W1-D8-01]"]:::planned
+    end
+
+    subgraph M1ENV["Integration environment for M1 - non-production, synthetic test org"]
+        PUB["Public HTTPS/WSS endpoint for Exotel<br/>[BLOCKED: hosting = owner decision OD-W0-04]"]:::blocked
+        APP1["api (callback ingress) + voice_gateway + worker<br/>(callback processing, sweep, finalizer, reaper, capacity reconciler)<br/>[PLANNED W2]"]:::planned
+        M1DB[("M1 database: 001-112 + G-02, MR-7H-09, W0-MR-01, W0-MR-02<br/>[BLOCKED: OD-W0-01, OD-W0-12]")]:::blocked
+        M1KMS[("Managed KMS, India region, non-production key ring<br/>CALLBACK_INPUT, ingress generate-only, worker decrypt-only<br/>[BLOCKED: OD-W0-13, owner provisioning]")]:::blocked
+    end
+
+    subgraph STG["Staging - India region [PLANNED W3-W6]"]
+        K8S["Kubernetes namespaces app, data, observability, ingress,<br/>cert-manager, secrets (3F §5.1)<br/>publishes only fully admitted streams IDN, ORG, AGT, INT<br/>LS-D-VOX CLOSED, no staging exception (OD-W0-10)"]:::planned
+    end
+
+    subgraph PROD["Production - India region, class E single region [BLOCKED]"]
+        PAPI["api pods (gunicorn + uvicorn workers)"]:::blocked
+        PGW["voice_gateway pods - sticky WS, pod-local sockets,<br/>no cross-pod call handoff (3B §8)"]:::blocked
+        PWK["worker pods: relay, consumers, finalizer, reaper, reconcilers"]:::blocked
+        PPG[("PostgreSQL 18 primary + replica<br/>backups, restore quarantine (AB-7I-05)")]:::blocked
+        PRT[("Redis event transport cluster<br/>noeviction, WAITAOF 1 1, ACL users per role")]:::blocked
+        PRH[("Redis hot tier, volatile-lru, TTL discipline")]:::blocked
+        PS3[("Object storage - recordings disabled")]:::blocked
+        PSM["Secret manager + External Secrets Operator<br/>credential_ref = secret_manager://"]:::blocked
+        PKMS["Managed KMS production root keys, per-org KEKs<br/>separate from non-production (7I KEY-05)"]:::blocked
+        POBS["OpenTelemetry Collector, Prometheus, Grafana,<br/>redacted structured logs"]:::blocked
+    end
+
+    CLS["Class S cross-region recovery copy<br/>[LATER: optional; AP-7L-15..20]"]:::later
+
+    subgraph ROLES["Database identities (5B, 7I)"]
+        RAPI["app_api - RLS, no BYPASSRLS [BUILT]"]:::built
+        RWK["app_worker - shared worker role [BUILT]; split into context principals CM-10 [PLANNED]"]:::built
+        RADM["app_platform_admin - LOGIN BYPASSRLS [BUILT]; production use [BLOCKED AG-7L-08]"]:::blocked
+        RMIG["migration / deployment identity - never runtime [BUILT D0 refusal]"]:::built
+    end
+
+    subgraph GATES["Production activation gates - all CLOSED"]
+        G1["AG-7L-01 content reads | AG-7L-02 Billing CON-06 | AG-7L-03 privileged roles, invoices"]:::gate
+        G2["AG-7L-04 Voice repair | AG-7L-05 hot tier | AG-7L-06 stream publication"]:::gate
+        G3["AG-7L-07 batch billable jobs | AG-7L-08 admin credential | AG-7L-09 recordings"]:::gate
+        G4["AG-7K-08 any stack serving production; AB-7I-01..16; AB-7H-01..08; AG-7J-01..14"]:::gate
+    end
+
+    UV --> CMP
+    UV -.-> R2
+    GHA --> HAR
+    GHA --> GATE
+    APP1 --> PUB
+    APP1 --> M1DB
+    APP1 --> M1KMS
+    STG --> PROD
+    GATE -->|"before every rollout"| PROD
+    PAPI --> PPG
+    PGW --> PRH
+    PWK --> PRT
+    PWK --> PPG
+    PAPI --> PSM
+    PGW --> PSM
+    PAPI --> POBS
+    PAPI -->|"generate-only"| PKMS
+    PWK -->|"decrypt-only"| PKMS
+    PPG -.-> CLS
+    ROLES --> PPG
+    GATES -.->|"block"| PROD
